@@ -36,11 +36,11 @@ README.md
 - [x] Confirm `docker compose up` gives a running, reachable Postgres
 
 ### Phase 2 — Schema
-- [ ] Write migration for a `users` table:
+- [x] Write migration for a `users` table:
   ```sql
   CREATE TABLE users (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      user_name TEXT UNIQUE NOT NULL,
+      user_name TEXT NOT NULL,
       given_name TEXT,
       family_name TEXT,
       email TEXT,
@@ -48,9 +48,19 @@ README.md
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
   );
-  CREATE INDEX idx_users_user_name ON users (user_name);
+  CREATE UNIQUE INDEX idx_users_user_name_lower ON users (lower(user_name));
   ```
-- [ ] Apply migration on container startup via a make target
+  Two deliberate changes from the SQL originally sketched here: `userName`
+  is `caseExact=false` in RFC 7643 §4.1, so uniqueness has to be enforced
+  on `lower(user_name)` or `bjensen` and `BJensen` both insert — which
+  would make the Phase 4 409 and the Phase 6 conflict test meaningless.
+  That unique index also serves lookups, so the separate
+  `CREATE INDEX idx_users_user_name` alongside a column-level `UNIQUE`
+  would have been a second btree on the same column for no benefit.
+- [x] Apply migration on container startup via a make target
+      (`make up` chains into `make migrate` once Postgres is accepting
+      connections; `scripts/migrate.sh` needs no host-installed
+      `migrate` binary)
 
 ### Phase 3 — Store layer
 - [ ] Implement `internal/store` with plain SQL:

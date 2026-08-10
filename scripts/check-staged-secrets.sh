@@ -29,6 +29,14 @@ env_file_allow_re='\.env\.(example|sample|template)$'
 # secret with a placeholder-word prefix still gets caught.
 placeholder='changeme|change_me|change-me|placeholder|replaceme|replace_me|replace-me|yourpassword|your_password|your-password|yoursecret|your_secret|your-secret|yourtoken|your_token|your-token|xxxxxxxx|dummy|sample|fakepassword|fake_password|fake-password|fake|example|test|testing|password|secret'
 safe_dsn_re="postgres(ql)?://[^:/@[:space:]]+:(${placeholder})@"
+# A password segment that is a variable reference ($VAR / ${VAR} / $(VAR)) is
+# interpolated at runtime, not a committed credential — same reasoning as the
+# leading [^"'$] in assign_secret_re.
+# The WHOLE password segment must be the reference — a literal that merely
+# contains a '$' (Xk7$mQ9zLp) is still a hardcoded credential. Only the
+# delimited forms count: a braceless $ecretSauce9 is indistinguishable from a
+# real password that happens to start with '$'.
+safe_dsn_var_re='postgres(ql)?://[^:/@[:space:]]+:(\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$\([A-Za-z_][A-Za-z0-9_]*\))@'
 safe_bearer_re="Bearer[[:space:]]+(${placeholder})([^A-Za-z0-9._~+/-]|\$)"
 safe_assign_secret_re="(password|passwd|pwd|secret|api[_-]?key|access[_-]?key|bearer[_-]?token|db[_-]?pass)[[:space:]]*[:=]{1,2}[[:space:]]*[\"'](${placeholder})[\"']"
 
@@ -39,7 +47,7 @@ elif echo "$added_lines" | grep -qE -- "$private_key_re"; then
   reason="Staged diff contains a PEM private key."
 elif echo "$added_lines" | grep -qE -- "$aws_key_re"; then
   reason="Staged diff contains an AWS access key ID."
-elif echo "$added_lines_nodoc" | grep -E -- "$dsn_password_re" | grep -qviE -- "$safe_dsn_re"; then
+elif echo "$added_lines_nodoc" | grep -oE -- "$dsn_password_re" | grep -viE -- "$safe_dsn_re" | grep -qviE -- "$safe_dsn_var_re"; then
   reason="Staged diff contains a database URL with a plaintext password."
 elif unsafe_bearer=$(echo "$added_lines_nodoc" | grep -viE -- "$safe_bearer_re" || true) && [[ -n "$unsafe_bearer" ]] && echo "$unsafe_bearer" | grep -qE -- "$bearer_re"; then
   reason="Staged diff contains a literal Bearer token."

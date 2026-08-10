@@ -45,6 +45,14 @@ assign_secret_re='(password|passwd|pwd|secret|api[_-]?key|access[_-]?key|bearer[
 # secret with a placeholder-word prefix still gets caught.
 placeholder='changeme|change_me|change-me|placeholder|replaceme|replace_me|replace-me|yourpassword|your_password|your-password|yoursecret|your_secret|your-secret|yourtoken|your_token|your-token|xxxxxxxx|dummy|sample|fakepassword|fake_password|fake-password|fake|example|test|testing|password|secret'
 safe_dsn_re="postgres(ql)?://[^:/@[:space:]]+:(${placeholder})@"
+# A password segment that is a variable reference ($VAR / ${VAR} / $(VAR)) is
+# interpolated at runtime, not a committed credential — same reasoning as the
+# leading [^"'$] in assign_secret_re.
+# The WHOLE password segment must be the reference — a literal that merely
+# contains a '$' (Xk7$mQ9zLp) is still a hardcoded credential. Only the
+# delimited forms count: a braceless $ecretSauce9 is indistinguishable from a
+# real password that happens to start with '$'.
+safe_dsn_var_re='postgres(ql)?://[^:/@[:space:]]+:(\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$\([A-Za-z_][A-Za-z0-9_]*\))@'
 safe_bearer_re="Bearer[[:space:]]+(${placeholder})([^A-Za-z0-9._~+/-]|\$)"
 safe_assign_secret_re="(password|passwd|pwd|secret|api[_-]?key|access[_-]?key|bearer[_-]?token|db[_-]?pass)[[:space:]]*[:=]{1,2}[[:space:]]*[\"'](${placeholder})[\"']"
 
@@ -55,7 +63,8 @@ if echo "$content" | grep -qE -- "$aws_key_re"; then
   deny "This embeds an AWS access key ID."
 fi
 if [[ "$is_doc_file" == false ]]; then
-  if echo "$content" | grep -E -- "$dsn_password_re" | grep -qviE -- "$safe_dsn_re"; then
+  # -o so each DSN is judged on its own, not whichever one shares its line.
+  if echo "$content" | grep -oE -- "$dsn_password_re" | grep -viE -- "$safe_dsn_re" | grep -qviE -- "$safe_dsn_var_re"; then
     deny "This embeds a database URL with a plaintext password. Use DATABASE_URL from the environment."
   fi
   unsafe_bearer=$(echo "$content" | grep -viE -- "$safe_bearer_re" || true)
