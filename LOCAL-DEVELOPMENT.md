@@ -115,8 +115,13 @@ curl -X POST http://localhost:8080/Users \
 ## Run tests
 
 ```bash
+make up      # the store tests need a running Postgres
 make test
 ```
+
+The store tests run against the real database, not a mock, and clean up
+after themselves. They skip when no database is configured, so a plain
+`go test ./...` still works.
 
 ## Troubleshooting
 

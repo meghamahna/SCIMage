@@ -36,21 +36,23 @@ logs:
 # re-running after adding a migration file. Waits for Postgres to be ready
 # first, and needs no host-installed migrate binary — see scripts/migrate.sh.
 migrate:
-	scripts/migrate.sh up
+	scripts/with-env.sh scripts/migrate.sh up
 
 # Roll back the most recent migration.
 migrate-down:
-	scripts/migrate.sh down 1
+	scripts/with-env.sh scripts/migrate.sh down 1
 
 # Which migration version the database is currently on.
 migrate-version:
-	scripts/migrate.sh version
+	scripts/with-env.sh scripts/migrate.sh version
 
+# Loads .env so the store integration tests can reach the compose Postgres.
+# They hit the real database, never a mock — start it with `make up` first.
 test:
-	go test ./...
+	scripts/with-env.sh go test ./...
 
 run:
-	go run ./cmd/server
+	scripts/with-env.sh go run ./cmd/server
 
 fmt:
 	gofmt -w .
