@@ -387,7 +387,7 @@ func TestUpdateUser(t *testing.T) {
 		})
 
 		newName := uniqueUserName()
-		updated, err := s.UpdateUser(ctx, created.ID, &User{
+		changed, err := s.UpdateUser(ctx, created.ID, &User{
 			UserName:   newName,
 			GivenName:  ptr("Barb"),
 			FamilyName: nil, // a full replace clears omitted attributes
@@ -398,6 +398,16 @@ func TestUpdateUser(t *testing.T) {
 			t.Fatalf("UpdateUser: %v", err)
 		}
 
+		// The before-image is what the audit log records as the prior state, so
+		// it has to be the row as it stood before this statement, not after.
+		if changed.Before == nil || changed.Before.UserName != created.UserName {
+			t.Errorf("Before.UserName = %v, want %q", changed.Before, created.UserName)
+		}
+		if changed.Before != nil && !changed.Before.Active {
+			t.Error("Before.Active = false, want the pre-update value true")
+		}
+
+		updated := changed.After
 		if updated.ID != created.ID {
 			t.Errorf("ID changed: %q -> %q", created.ID, updated.ID)
 		}
@@ -445,12 +455,15 @@ func TestDeactivateUser(t *testing.T) {
 	t.Run("clears active but keeps the row", func(t *testing.T) {
 		created := createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
 
-		deactivated, err := s.DeactivateUser(ctx, created.ID)
+		changed, err := s.DeactivateUser(ctx, created.ID)
 		if err != nil {
 			t.Fatalf("DeactivateUser: %v", err)
 		}
-		if deactivated.Active {
-			t.Error("Active = true, want false")
+		if changed.After.Active {
+			t.Error("After.Active = true, want false")
+		}
+		if changed.Before == nil || !changed.Before.Active {
+			t.Error("Before.Active = false, want the pre-delete value true")
 		}
 
 		got, err := s.GetUser(ctx, created.ID)

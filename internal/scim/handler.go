@@ -1,15 +1,19 @@
 package scim
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/meghamahna/SCIMage/internal/audit"
 	"github.com/meghamahna/SCIMage/internal/store"
 )
 
@@ -25,16 +29,28 @@ const (
 type Handler struct {
 	store *store.Store
 	token string
+	audit *audit.Logger
+
+	// actor identifies the caller in audit entries: a short fingerprint of the
+	// token, never the token. 32 bits is plenty to tell callers apart and
+	// useless for recovering a 256-bit secret.
+	actor   string
+	limiter *limiter
 
 	// externalURL overrides the Host header when set, which matters behind a
 	// TLS-terminating proxy: r.TLS is nil there, so derived links would be http.
 	externalURL string
 }
 
-func NewHandler(s *store.Store, token string) *Handler {
+func NewHandler(s *store.Store, token string, auditLog *audit.Logger) *Handler {
+	sum := sha256.Sum256([]byte(token))
+
 	return &Handler{
 		store:       s,
 		token:       token,
+		audit:       auditLog,
+		actor:       "tok_" + hex.EncodeToString(sum[:4]),
+		limiter:     limiterFromEnv(),
 		externalURL: strings.TrimSuffix(os.Getenv("SCIM_BASE_URL"), "/"),
 	}
 }
@@ -55,7 +71,9 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("/Users/{id}", methodNotAllowed)
 	mux.HandleFunc("/", unknownResource)
 
-	return requireBearer(h.token)(mux)
+	// Throttle inside auth, so an unauthenticated flood can't spend a real
+	// caller's budget.
+	return requireBearer(h.token)(h.limiter.throttle(h.actor, mux))
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
@@ -68,12 +86,15 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	created, err := h.store.CreateUser(r.Context(), &su)
 	if err != nil {
 		if errors.Is(err, store.ErrDuplicateUserName) {
+			h.record(r, audit.ActionCreate, "", audit.ResultDenied, "duplicate userName", nil, nil)
 			writeError(w, http.StatusConflict, "uniqueness", "userName is already in use")
 			return
 		}
+		h.record(r, audit.ActionCreate, "", audit.ResultError, err.Error(), nil, nil)
 		serverError(w, "create user", err)
 		return
 	}
+	h.record(r, audit.ActionCreate, created.ID, audit.ResultSuccess, "", nil, created)
 
 	out := fromStoreUser(created, h.baseURL(r))
 	w.Header().Set("Location", out.Meta.Location)
@@ -131,35 +152,107 @@ func (h *Handler) replace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	id := r.PathValue("id")
+
+	// id is readOnly in RFC 7643 §3.1. A body naming a different user is a
+	// client bug worth refusing rather than silently ignoring.
+	if in.ID != "" && in.ID != id {
+		writeError(w, http.StatusBadRequest, "mutability", "id in the body does not match the request path")
+		return
+	}
+
 	su := toStoreUser(in)
-	updated, err := h.store.UpdateUser(r.Context(), r.PathValue("id"), &su)
+	changed, err := h.store.UpdateUser(r.Context(), id, &su)
 	if err != nil {
 		switch {
 		case errors.Is(err, store.ErrNotFound):
+			h.record(r, audit.ActionReplace, id, audit.ResultDenied, "no such user", nil, nil)
 			notFound(w)
 		case errors.Is(err, store.ErrDuplicateUserName):
+			h.record(r, audit.ActionReplace, id, audit.ResultDenied, "duplicate userName", nil, nil)
 			writeError(w, http.StatusConflict, "uniqueness", "userName is already in use")
 		default:
+			h.record(r, audit.ActionReplace, id, audit.ResultError, err.Error(), nil, nil)
 			serverError(w, "update user", err)
 		}
 		return
 	}
+	h.record(r, audit.ActionReplace, id, audit.ResultSuccess, "", changed.Before, changed.After)
 
-	writeJSON(w, http.StatusOK, fromStoreUser(updated, h.baseURL(r)))
+	writeJSON(w, http.StatusOK, fromStoreUser(changed.After, h.baseURL(r)))
 }
 
 // DELETE is a soft delete: the row survives with active=false.
 func (h *Handler) deactivate(w http.ResponseWriter, r *http.Request) {
-	if _, err := h.store.DeactivateUser(r.Context(), r.PathValue("id")); err != nil {
+	id := r.PathValue("id")
+
+	changed, err := h.store.DeactivateUser(r.Context(), id)
+	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
+			h.record(r, audit.ActionDeactivate, id, audit.ResultDenied, "no such user", nil, nil)
 			notFound(w)
 			return
 		}
+		h.record(r, audit.ActionDeactivate, id, audit.ResultError, err.Error(), nil, nil)
 		serverError(w, "deactivate user", err)
 		return
 	}
+	h.record(r, audit.ActionDeactivate, id, audit.ResultSuccess, "", changed.Before, changed.After)
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// record writes one audit line. Deliberately called at every exit of a mutating
+// handler, including refusals — a burst of denied deactivations is exactly the
+// pattern a reviewer wants to see, and it is invisible if only successes land.
+func (h *Handler) record(r *http.Request, action, targetID, result, detail string, before, after *store.User) {
+	if h.audit == nil {
+		return
+	}
+
+	h.audit.Write(audit.Entry{
+		Action:   action,
+		Actor:    audit.Actor{Token: h.actor, IP: clientIP(r)},
+		TargetID: targetID,
+		Result:   result,
+		Detail:   detail,
+		Before:   auditUser(before),
+		After:    auditUser(after),
+	})
+}
+
+func auditUser(u *store.User) *audit.User {
+	if u == nil {
+		return nil
+	}
+
+	a := audit.User{
+		ID:        u.ID,
+		UserName:  u.UserName,
+		Active:    u.Active,
+		CreatedAt: u.CreatedAt,
+		UpdatedAt: u.UpdatedAt,
+	}
+	if u.GivenName != nil {
+		a.GivenName = *u.GivenName
+	}
+	if u.FamilyName != nil {
+		a.FamilyName = *u.FamilyName
+	}
+	if u.Email != nil {
+		a.Email = *u.Email
+	}
+	return &a
+}
+
+// X-Forwarded-For is ignored: it is caller-controlled, and trusting it would
+// let anyone forge the IP in the audit trail.
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 // decodeUser writes the error response itself and reports whether the payload

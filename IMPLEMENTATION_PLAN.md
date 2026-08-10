@@ -119,19 +119,35 @@ store or handler with no tests against the real database isn't verified.
       `-p 1` go
 
 ### Phase 7 — Security hardening
-- [ ] Validate every incoming SCIM payload against the expected schema
-      before it reaches the DB, with proper SCIM error responses
+- [x] Validate every incoming SCIM payload against the expected schema
+      before it reaches the DB, with proper SCIM error responses (landed
+      with Phase 4; extended here to reject a body `id` that contradicts
+      the path, which RFC 7643 §3.1 makes readOnly)
 - [x] Use `crypto/subtle.ConstantTimeCompare` for bearer token checks
       (landed with Phase 5)
-- [ ] Structured audit log for every mutating call: actor, action,
+- [x] Structured audit log for every mutating call: actor, action,
       target user id, timestamp, before/after state, written as JSON
-      lines. `UpdateUser`/`DeactivateUser` currently return only the
-      after-state, so capturing before/after atomically needs either
-      `UPDATE ... RETURNING` of the old row or a transaction on the
-      store — decide that rather than doing a non-atomic read-then-write
-- [ ] Rate limiting per token (token bucket)
-- [ ] All secrets via env vars, with rotation documented in the README
-- [ ] `govulncheck` as a CI step for dependency scanning
+      lines. Resolved by a data-modifying CTE: the before-image is read
+      in the same statement as the `UPDATE`, so both halves share one
+      snapshot and no concurrent write can slip between them. Postgres
+      only gained `OLD` in `RETURNING` at 18, and this runs on 16.
+      Refusals are recorded too — a burst of denials is the signal, and
+      it's invisible if only successes land
+- [x] Rate limiting per token (token bucket), keyed on the caller and
+      applied inside auth so an unauthenticated flood can't spend a real
+      caller's budget
+- [x] All secrets via env vars, with rotation documented in the README —
+      including the honest part, that a single token means rotation has
+      an outage window until the middleware accepts a previous token too
+- [x] `govulncheck` as a CI step for dependency scanning. It earned its
+      place immediately: `golang.org/x/text` v0.29.0 had a reachable
+      infinite-loop bug via `pgxpool.New`, now on v0.40.0
+
+Known gap: Postgres and a file can't commit atomically, so a failed audit
+write is shouted to the standard log rather than failing the request — the
+mutation is already durable by then, and refusing the response would tell
+the client a lie. An audit table written in the mutation's transaction is
+the only way to close that, at the cost of the JSON-lines stream SAGE reads.
 
 ### Phase 8 — SAGE: SCIM Audit & Governance Engine
 This tool reads the audit log and produces a plain-English summary for

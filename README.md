@@ -62,7 +62,26 @@ These aren't nice-to-haves bolted on at the end. They're load-bearing:
 - **Constant-time token comparison.** Bearer tokens are checked with `crypto/subtle.ConstantTimeCompare`, never `==`, so timing differences can't leak information about the token.
 - **Audit logging on every mutation.** Create, update, and deactivate all write a structured log entry: actor, action, target user ID, timestamp, and before/after state. Nothing changes silently.
 - **Schema validation before the database.** Every incoming SCIM payload is checked against the expected shape before it ever reaches a query.
-- **Secrets live in the environment, full stop.** The bearer token and database credentials are read from environment variables at runtime. Nothing is hardcoded, and nothing secret gets committed.
+- **Secrets live in the environment, full stop.** The bearer token and database credentials are read from environment variables at runtime. Nothing is hardcoded, and nothing secret gets committed. Hooks in `.claude/hooks/` and `.githooks/pre-commit` block a commit whose staged diff looks like a credential.
+- **Rate limiting per token.** A token bucket keyed on the caller, so a runaway IdP sync or a credential-stuffing loop gets `429` instead of unlimited database writes.
+
+### Secrets and rotation
+
+| Variable | Purpose |
+|----------|---------|
+| `SCIM_TOKEN` | Bearer token every request must present. No default — the server refuses to start without one. |
+| `DATABASE_URL` | Postgres connection string. |
+| `AUDIT_LOG_PATH` | Where audit JSON lines are appended. Defaults to stderr. |
+| `SCIM_BASE_URL` | External URL, when behind a proxy. |
+| `SCIM_RATE_LIMIT` / `SCIM_RATE_BURST` | Token bucket, in requests/second. `0` disables limiting. |
+
+Generate a token with `openssl rand -hex 32`. The server rejects anything under 16 characters.
+
+**Rotating `SCIM_TOKEN` today means a brief outage**, and it's worth being direct about that rather than pretending otherwise. The server holds exactly one valid token, so the sequence is: update `.env`, restart, update the IdP. Between the restart and the IdP being updated, provisioning fails with `401`.
+
+Zero-downtime rotation needs the server to accept two tokens at once — a current and a previous — so you can add the new one, update the IdP at your leisure, then drop the old. That's a small change to the auth middleware (compare against each configured token, constant-time, without short-circuiting) and it's the right shape, but it isn't built yet. Plan for the outage window until it is.
+
+**If a token leaks**, rotation is the only remedy: there's no revocation list, because there's only one token. Treat it accordingly — it's equivalent to a root credential for your user directory.
 
 ## 🧭 SAGE: SCIM Audit & Governance Engine
 

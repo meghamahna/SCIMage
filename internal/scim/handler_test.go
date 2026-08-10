@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/meghamahna/SCIMage/internal/audit"
 	"github.com/meghamahna/SCIMage/internal/store"
 )
 
@@ -55,7 +56,11 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "connect cleanup pool: %v\n", err)
 		os.Exit(1)
 	}
-	handler = NewHandler(s, testToken).Routes()
+	// The suite fires hundreds of requests as fast as it can and would trip its
+	// own rate limit. The limiter is covered directly in ratelimit_test.go.
+	os.Setenv("SCIM_RATE_LIMIT", "0")
+
+	handler = NewHandler(s, testToken, audit.New(io.Discard)).Routes()
 
 	code := m.Run()
 

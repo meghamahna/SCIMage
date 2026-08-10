@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -25,6 +26,30 @@ type User struct {
 
 // Order must match scanUser.
 const userColumns = `id, user_name, given_name, family_name, email, active, created_at, updated_at`
+
+// Change is the before/after pair every mutation hands to the audit log.
+// Before is nil for a create.
+type Change struct {
+	Before *User
+	After  *User
+}
+
+// Postgres only gained OLD/NEW in RETURNING at 18, so on 16 the before-image
+// comes from a CTE reading the row in the same statement as the UPDATE. Both
+// sub-statements see one snapshot, so this is atomic — no read-then-write gap
+// where a concurrent update could slip between the two halves of an audit entry.
+var (
+	beforeColumns = qualify("b")
+	afterColumns  = qualify("a")
+)
+
+func qualify(alias string) string {
+	cols := strings.Split(userColumns, ", ")
+	for i, c := range cols {
+		cols[i] = alias + "." + c
+	}
+	return strings.Join(cols, ", ")
+}
 
 // MaxPageSize caps ListUsers. limit sizes the result slice before any row is
 // read, so an unbounded client-supplied count is a memory-exhaustion vector.
@@ -52,6 +77,20 @@ func scanUser(row pgx.Row) (*User, error) {
 		return nil, err
 	}
 	return &u, nil
+}
+
+func scanChange(row pgx.Row) (*Change, error) {
+	var before, after User
+	err := row.Scan(
+		&before.ID, &before.UserName, &before.GivenName, &before.FamilyName,
+		&before.Email, &before.Active, &before.CreatedAt, &before.UpdatedAt,
+		&after.ID, &after.UserName, &after.GivenName, &after.FamilyName,
+		&after.Email, &after.Active, &after.CreatedAt, &after.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &Change{Before: &before, After: &after}, nil
 }
 
 // CreateUser returns the stored row, so the caller gets the server-assigned id
@@ -134,19 +173,25 @@ func (s *Store) ListUsers(ctx context.Context, limit, offset int) ([]User, int, 
 }
 
 // UpdateUser is the full replace behind PUT /Users/{id}. id and created_at are
-// left alone; updated_at is set here rather than by a trigger.
-func (s *Store) UpdateUser(ctx context.Context, id string, u *User) (*User, error) {
-	const q = `UPDATE users
-	           SET user_name = $2,
-	               given_name = $3,
-	               family_name = $4,
-	               email = $5,
-	               active = $6,
-	               updated_at = now()
-	           WHERE id = $1
-	           RETURNING ` + userColumns
+// left alone; updated_at is set here rather than by a trigger. It returns both
+// images so the audit log records what actually changed.
+func (s *Store) UpdateUser(ctx context.Context, id string, u *User) (*Change, error) {
+	q := `WITH b AS (
+	          SELECT ` + userColumns + ` FROM users WHERE id = $1
+	      ), a AS (
+	          UPDATE users
+	          SET user_name = $2,
+	              given_name = $3,
+	              family_name = $4,
+	              email = $5,
+	              active = $6,
+	              updated_at = now()
+	          WHERE id = $1
+	          RETURNING ` + userColumns + `
+	      )
+	      SELECT ` + beforeColumns + `, ` + afterColumns + ` FROM b, a`
 
-	updated, err := scanUser(s.pool.QueryRow(ctx, q,
+	change, err := scanChange(s.pool.QueryRow(ctx, q,
 		id, u.UserName, u.GivenName, u.FamilyName, u.Email, u.Active))
 	if err != nil {
 		switch {
@@ -158,26 +203,30 @@ func (s *Store) UpdateUser(ctx context.Context, id string, u *User) (*User, erro
 			return nil, fmt.Errorf("update user %q: %w", id, err)
 		}
 	}
-	return updated, nil
+	return change, nil
 }
 
 // DeactivateUser is the soft delete behind DELETE /Users/{id}: the row stays so
-// audit history keeps pointing at a real user. Returns the updated row for the
-// audit log's after-state, and is idempotent so a retried delete succeeds.
-func (s *Store) DeactivateUser(ctx context.Context, id string) (*User, error) {
-	const q = `UPDATE users
-	           SET active = false, updated_at = now()
-	           WHERE id = $1
-	           RETURNING ` + userColumns
+// audit history keeps pointing at a real user. Returns both images for the
+// audit log, and is idempotent so a retried delete succeeds.
+func (s *Store) DeactivateUser(ctx context.Context, id string) (*Change, error) {
+	q := `WITH b AS (
+	          SELECT ` + userColumns + ` FROM users WHERE id = $1
+	      ), a AS (
+	          UPDATE users SET active = false, updated_at = now()
+	          WHERE id = $1
+	          RETURNING ` + userColumns + `
+	      )
+	      SELECT ` + beforeColumns + `, ` + afterColumns + ` FROM b, a`
 
-	deactivated, err := scanUser(s.pool.QueryRow(ctx, q, id))
+	change, err := scanChange(s.pool.QueryRow(ctx, q, id))
 	if err != nil {
 		if isMissingRow(err) {
 			return nil, fmt.Errorf("deactivate user %q: %w", id, ErrNotFound)
 		}
 		return nil, fmt.Errorf("deactivate user %q: %w", id, err)
 	}
-	return deactivated, nil
+	return change, nil
 }
 
 // 22P02 is invalid_text_representation. id is the only non-text parameter these
