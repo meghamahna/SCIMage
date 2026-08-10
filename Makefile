@@ -1,8 +1,10 @@
-.PHONY: up down stop restart reset ps logs migrate test run fmt hooks-install
+.PHONY: up down stop restart reset ps logs migrate migrate-down migrate-version test run fmt hooks-install
 
-# Start service(s) in the background. Usage: make up  |  make up SERVICE=postgres
+# Start service(s) in the background and bring the schema up to date.
+# Usage: make up  |  make up SERVICE=postgres
 up:
 	docker compose up -d $(SERVICE)
+	$(MAKE) migrate
 
 # Stop and remove all containers/network. Always whole-project (compose
 # doesn't support scoping `down` to one service) — use `stop` for that.
@@ -21,6 +23,7 @@ restart:
 reset:
 	docker compose down -v
 	docker compose up -d
+	$(MAKE) migrate
 
 ps:
 	docker compose ps
@@ -29,8 +32,19 @@ ps:
 logs:
 	docker compose logs -f $(SERVICE)
 
+# Apply every pending migration. `make up` runs this for you; it's here for
+# re-running after adding a migration file. Waits for Postgres to be ready
+# first, and needs no host-installed migrate binary — see scripts/migrate.sh.
 migrate:
-	migrate -path migrations -database "$(DATABASE_URL)" up
+	scripts/migrate.sh up
+
+# Roll back the most recent migration.
+migrate-down:
+	scripts/migrate.sh down 1
+
+# Which migration version the database is currently on.
+migrate-version:
+	scripts/migrate.sh version
 
 test:
 	go test ./...

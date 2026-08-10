@@ -6,6 +6,8 @@
 - [Docker](https://www.docker.com/products/docker-desktop/) with
   Compose (Docker Desktop on macOS/Windows, Docker Engine + Compose
   plugin on Linux)
+- [`jq`](https://jqlang.github.io/jq/) (`brew install jq`) — used by
+  the migration and secret-scanning scripts
 
 Verify:
 
@@ -13,6 +15,7 @@ Verify:
 go version
 docker --version
 docker compose version
+jq --version
 docker info >/dev/null 2>&1 && echo "daemon: RUNNING" || echo "daemon: NOT RUNNING"
 ```
 
@@ -37,15 +40,16 @@ cp .env.example .env
 ## Run it
 
 ```bash
-# start Postgres
+# start Postgres and bring the schema up to date
 make up
-
-# apply schema migrations
-make migrate
 
 # run the server
 make run
 ```
+
+`make up` applies migrations for you once Postgres is accepting
+connections, so a fresh clone is one command away from a usable
+database.
 
 ## Stop / restart Postgres
 
@@ -62,6 +66,34 @@ make reset                   # full reset: wipes the data volume, re-initializes
 make ps                      # what's running
 make logs                    # follow logs — SERVICE=postgres to scope to one
 ```
+
+## Migrations
+
+Schema migrations live in [`migrations/`](migrations/) and are managed
+with [golang-migrate](https://github.com/golang-migrate/migrate).
+
+```bash
+make migrate                 # apply everything pending (also run by make up)
+make migrate-down            # roll back the most recent migration
+make migrate-version         # which version the database is on
+```
+
+You don't need `migrate` installed. [`scripts/migrate.sh`](scripts/migrate.sh)
+uses a host binary if you have one and otherwise runs the official
+`migrate/migrate` image on the compose network. Either way the
+connection string is assembled at runtime from `.env` — it's never
+written to disk.
+
+To add a migration, create the next numbered pair by hand:
+
+```text
+migrations/000002_<description>.up.sql
+migrations/000002_<description>.down.sql
+```
+
+Always write the `down` half, and test the round trip
+(`make migrate && make migrate-down && make migrate`) before committing —
+a migration you can't reverse is a migration you can't safely deploy.
 
 ## View it
 

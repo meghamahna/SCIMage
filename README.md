@@ -76,11 +76,11 @@ SAGE is advisory only. It reads history and suggests what to look at, and that's
 git clone https://github.com/meghamahna/SCIMage.git
 cd SCIMage
 
-# start Postgres
-docker compose up -d
+# copy the env template and fill in real values (.env is gitignored)
+cp .env.example .env
 
-# apply schema migrations
-make migrate
+# start Postgres and apply schema migrations
+make up
 
 # set your auth token
 export SCIM_TOKEN=your-token-here
@@ -89,7 +89,7 @@ export SCIM_TOKEN=your-token-here
 go run ./cmd/server
 ```
 
-The server starts on `:8080` by default.
+The server starts on `:8080` by default. Migrations run through `golang-migrate`, but you don't have to install it — `make migrate` falls back to the official container when the CLI isn't on your PATH. See [LOCAL-DEVELOPMENT.md](LOCAL-DEVELOPMENT.md) for prerequisites and the full set of targets.
 
 ## 📬 Example request
 
