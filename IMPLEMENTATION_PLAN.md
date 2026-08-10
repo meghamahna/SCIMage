@@ -31,9 +31,9 @@ README.md
 ## Milestones
 
 ### Phase 1 — Infrastructure
-- [ ] Write `docker-compose.yml` with a `postgres:16` service
-- [ ] Set connection config via env vars (`DATABASE_URL`)
-- [ ] Confirm `docker compose up` gives a running, reachable Postgres
+- [x] Write `docker-compose.yml` with a `postgres:16` service
+- [x] Set connection config via env vars (`DATABASE_URL`)
+- [x] Confirm `docker compose up` gives a running, reachable Postgres
 
 ### Phase 2 — Schema
 - [ ] Write migration for a `users` table:
