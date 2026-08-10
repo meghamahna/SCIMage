@@ -1,0 +1,59 @@
+// Package scim implements the SCIM 2.0 /Users endpoints (RFC 7644).
+package scim
+
+import "time"
+
+const (
+	userSchema  = "urn:ietf:params:scim:schemas:core:2.0:User"
+	listSchema  = "urn:ietf:params:scim:api:messages:2.0:ListResponse"
+	errorSchema = "urn:ietf:params:scim:api:messages:2.0:Error"
+
+	// RFC 7644 §3.1. Only set on responses; requests aren't required to use it.
+	contentType = "application/scim+json"
+)
+
+// Active is a pointer because SCIM defaults an omitted active to true, which a
+// plain bool can't tell apart from an explicit false.
+type User struct {
+	Schemas  []string `json:"schemas"`
+	ID       string   `json:"id,omitempty"`
+	UserName string   `json:"userName"`
+	Name     *Name    `json:"name,omitempty"`
+	Emails   []Email  `json:"emails,omitempty"`
+	Active   *bool    `json:"active,omitempty"`
+	Meta     *Meta    `json:"meta,omitempty"`
+}
+
+type Name struct {
+	GivenName  string `json:"givenName,omitempty"`
+	FamilyName string `json:"familyName,omitempty"`
+}
+
+type Email struct {
+	Value   string `json:"value"`
+	Primary bool   `json:"primary,omitempty"`
+}
+
+type Meta struct {
+	ResourceType string    `json:"resourceType"`
+	Created      time.Time `json:"created"`
+	LastModified time.Time `json:"lastModified"`
+	Location     string    `json:"location"`
+}
+
+// Resources is capitalised per RFC 7644 §3.4.2.
+type ListResponse struct {
+	Schemas      []string `json:"schemas"`
+	TotalResults int      `json:"totalResults"`
+	ItemsPerPage int      `json:"itemsPerPage"`
+	StartIndex   int      `json:"startIndex"`
+	Resources    []User   `json:"Resources"`
+}
+
+// Status is a string in SCIM, not a number (RFC 7644 §3.12).
+type Error struct {
+	Schemas  []string `json:"schemas"`
+	Status   string   `json:"status"`
+	ScimType string   `json:"scimType,omitempty"`
+	Detail   string   `json:"detail,omitempty"`
+}
