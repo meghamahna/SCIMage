@@ -21,25 +21,34 @@ file before moving to the next phase.
   error silently
 - Tests: table-driven where it fits, `httptest` for HTTP handlers,
   real Postgres (via docker-compose) for store integration tests —
-  no mocking the database
+  no mocking the database. Run them with `make test`, which loads `.env`
+  and passes `-p 1`; both test packages share the `users` table
+- Dependencies stay minimal: `pgx` for Postgres and
+  `golang.org/x/time/rate` for the token bucket. Reach for the standard
+  library first
 - Formatting: `gofmt` / `goimports` before every commit
 
 ## Project structure
-```
-/cmd/server            entrypoint for the SCIM server
-/cmd/sage        entrypoint for the AI-assisted audit reviewer
-/internal/scim          HTTP handlers, SCIM request/response models
-/internal/store          Postgres-backed user store, raw SQL
-/migrations             SQL migration files
+```text
+/cmd/server           entrypoint for the SCIM server
+/cmd/scimage-admin    tenant and token administration (Phase 10)
+/cmd/sage             AI-assisted audit reviewer (Phase 12)
+/internal/scim        HTTP handlers, SCIM models, auth, rate limiting
+/internal/store       Postgres-backed store and audit log, raw SQL
+/migrations           SQL migration files
+/scripts              env loading, migrations, secret scanning
+/.github/workflows    CI
 docker-compose.yml
 ```
 
 ## Security design principles (non-negotiable)
 - Bearer token comparison must use `crypto/subtle.ConstantTimeCompare`,
   never `==`
-- Every mutating call (create/update/deactivate) writes a structured
-  audit log entry: actor, action, target user id, timestamp,
-  before/after state
+- Every mutating call (create/replace/deactivate) writes an `audit_log`
+  row — actor, action, target user id, timestamp, before/after state —
+  **inside the transaction that makes the change**, so the entry and the
+  change commit together. The store owns that write, which keeps a
+  handler from being able to skip it. Refusals are recorded too
 - All incoming SCIM payloads are validated against the expected schema
   before touching the database
 - Secrets (DB credentials, bearer token) come from environment
@@ -66,9 +75,9 @@ does.
 
 ## AI usage in this project
 The only AI component is `cmd/sage` — **SAGE: SCIM Audit & Governance
-Engine**. It reads the structured audit log and produces a
-plain-English summary of patterns worth a human's attention (bulk
-deactivations, off-hours changes, unusual call volume from a token).
+Engine**. It reads the `audit_log` table and produces a plain-English
+summary of patterns worth a human's attention (bulk deactivations,
+off-hours changes, unusual call volume from a caller).
 The name is deliberate: a sage advises, it doesn't decide.
 
 This is advisory only. **The AI must never be given the ability to
