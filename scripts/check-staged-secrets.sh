@@ -22,7 +22,7 @@ aws_key_re='AKIA[0-9A-Z]{16}'
 dsn_password_re='postgres(ql)?://[^:/@[:space:]]+:[^@/[:space:]]+@'
 bearer_re='Bearer[[:space:]]+[A-Za-z0-9._~+/-]{20,}'
 assign_secret_re='(password|passwd|pwd|secret|api[_-]?key|access[_-]?key|bearer[_-]?token|db[_-]?pass)[[:space:]]*[:=]{1,2}[[:space:]]*["'"'"'][^"'"'"'$][^"'"'"']{5,}["'"'"']'
-env_file_re='^\+\+\+ b/(.*/)?\.env(\..+)?$'
+env_file_path_re='(^|/)\.env(\..+)?$'
 env_file_allow_re='\.env\.(example|sample|template)$'
 
 # Placeholder values match as whole values only (no wildcards) — a real
@@ -40,18 +40,34 @@ safe_dsn_var_re='postgres(ql)?://[^:/@[:space:]]+:(\$\{[A-Za-z_][A-Za-z0-9_]*\}|
 safe_bearer_re="Bearer[[:space:]]+(${placeholder})([^A-Za-z0-9._~+/-]|\$)"
 safe_assign_secret_re="(password|passwd|pwd|secret|api[_-]?key|access[_-]?key|bearer[_-]?token|db[_-]?pass)[[:space:]]*[:=]{1,2}[[:space:]]*[\"'](${placeholder})[\"']"
 
+# Herestrings, never `echo | grep -q`. `grep -q` exits at its first match and
+# SIGPIPEs the upstream echo, so under `pipefail` the pipeline returns 141 —
+# which reads as "no match". That fails open for the secret checks and, inside
+# the negated allow-check below, fails closed on a legitimate .env.example.
+# Whether it happens depends on the diff outgrowing the pipe buffer, so it looks
+# intermittent. A herestring is a file descriptor, not a pipe, so there is no
+# reader to disappear.
+#
+# Where a filter chain is needed, the result is captured and then tested rather
+# than ending in `grep -q`, for the same reason.
+# Env files are judged one path at a time. A diff-wide allow-check would let a
+# real .env through whenever .env.example happened to be staged in the same
+# commit — which is exactly what `git add -A` after `cp .env.example .env` does.
+staged_env_files=$(grep -E '^\+\+\+ b/' <<<"$diff" | sed 's|^+++ b/||' | grep -E -- "$env_file_path_re" || true)
+unsafe_env_files=$(grep -vE -- "$env_file_allow_re" <<<"$staged_env_files" || true)
+
 reason=""
-if echo "$diff" | grep -qE -- "$env_file_re" && ! echo "$diff" | grep -qE -- "$env_file_allow_re"; then
-  reason="Staging a .env file. Secrets belong in the environment at runtime, not commits."
-elif echo "$added_lines" | grep -qE -- "$private_key_re"; then
+if [[ -n "$unsafe_env_files" ]]; then
+  reason="Staging a .env file ($(tr '\n' ' ' <<<"$unsafe_env_files")). Secrets belong in the environment at runtime, not commits."
+elif grep -qE -- "$private_key_re" <<<"$added_lines"; then
   reason="Staged diff contains a PEM private key."
-elif echo "$added_lines" | grep -qE -- "$aws_key_re"; then
+elif grep -qE -- "$aws_key_re" <<<"$added_lines"; then
   reason="Staged diff contains an AWS access key ID."
-elif echo "$added_lines_nodoc" | grep -oE -- "$dsn_password_re" | grep -viE -- "$safe_dsn_re" | grep -qviE -- "$safe_dsn_var_re"; then
+elif unsafe_dsn=$(grep -oE -- "$dsn_password_re" <<<"$added_lines_nodoc" | grep -viE -- "$safe_dsn_re" | grep -viE -- "$safe_dsn_var_re") && [[ -n "$unsafe_dsn" ]]; then
   reason="Staged diff contains a database URL with a plaintext password."
-elif unsafe_bearer=$(echo "$added_lines_nodoc" | grep -viE -- "$safe_bearer_re" || true) && [[ -n "$unsafe_bearer" ]] && echo "$unsafe_bearer" | grep -qE -- "$bearer_re"; then
+elif unsafe_bearer=$(grep -viE -- "$safe_bearer_re" <<<"$added_lines_nodoc" | grep -E -- "$bearer_re") && [[ -n "$unsafe_bearer" ]]; then
   reason="Staged diff contains a literal Bearer token."
-elif echo "$added_lines_nodoc" | grep -Ei -- "$assign_secret_re" | grep -qviE -- "$safe_assign_secret_re"; then
+elif unsafe_assign=$(grep -Ei -- "$assign_secret_re" <<<"$added_lines_nodoc" | grep -viE -- "$safe_assign_secret_re") && [[ -n "$unsafe_assign" ]]; then
   reason="Staged diff contains a hardcoded credential (password/secret/api key)."
 fi
 

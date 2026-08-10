@@ -129,7 +129,7 @@ func TestRequireBearer(t *testing.T) {
 func TestRoutesRequireAuth(t *testing.T) {
 	// A nil store is fine: the 401 path never reaches a handler, so this stays
 	// meaningful without a database.
-	routes := NewHandler(nil, authTestToken, nil).Routes()
+	routes := NewHandler(nil, authTestToken).Routes()
 
 	for _, tc := range []struct{ method, target string }{
 		{http.MethodPost, "/Users"},

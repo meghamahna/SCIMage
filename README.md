@@ -60,7 +60,7 @@ The request path is deliberately boring: auth middleware checks the bearer token
 These aren't nice-to-haves bolted on at the end. They're load-bearing:
 
 - **Constant-time token comparison.** Bearer tokens are checked with `crypto/subtle.ConstantTimeCompare`, never `==`, so timing differences can't leak information about the token.
-- **Audit logging on every mutation.** Create, update, and deactivate all write a structured log entry: actor, action, target user ID, timestamp, and before/after state. Nothing changes silently.
+- **Audit logging on every mutation, in the same transaction.** Create, update, and deactivate each write an entry — actor, action, target user ID, timestamp, before/after state — inside the transaction that makes the change. If the entry can't be written, the change rolls back with it, so a user cannot be modified without a record. Refusals are logged too: a burst of denied deactivations is a signal, and it's invisible if only successes land.
 - **Schema validation before the database.** Every incoming SCIM payload is checked against the expected shape before it ever reaches a query.
 - **Secrets live in the environment, full stop.** The bearer token and database credentials are read from environment variables at runtime. Nothing is hardcoded, and nothing secret gets committed. Hooks in `.claude/hooks/` and `.githooks/pre-commit` block a commit whose staged diff looks like a credential.
 - **Rate limiting per token.** A token bucket keyed on the caller, so a runaway IdP sync or a credential-stuffing loop gets `429` instead of unlimited database writes.
@@ -71,7 +71,6 @@ These aren't nice-to-haves bolted on at the end. They're load-bearing:
 |----------|---------|
 | `SCIM_TOKEN` | Bearer token every request must present. No default — the server refuses to start without one. |
 | `DATABASE_URL` | Postgres connection string. |
-| `AUDIT_LOG_PATH` | Where audit JSON lines are appended. Defaults to stderr. |
 | `SCIM_BASE_URL` | External URL, when behind a proxy. |
 | `SCIM_RATE_LIMIT` / `SCIM_RATE_BURST` | Token bucket, in requests/second. `0` disables limiting. |
 

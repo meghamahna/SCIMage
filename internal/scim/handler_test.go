@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/meghamahna/SCIMage/internal/audit"
 	"github.com/meghamahna/SCIMage/internal/store"
 )
 
@@ -33,6 +32,9 @@ const (
 
 var (
 	handler http.Handler
+	// testStore is the same store the handler uses, so audit tests can read the
+	// entries back out of Postgres.
+	testStore *store.Store
 	// A second handle purely so tests can hard-delete; the store only soft-deletes.
 	cleanupPool *pgxpool.Pool
 	skipReason  string
@@ -46,7 +48,7 @@ func TestMain(m *testing.M) {
 	}
 
 	ctx := context.Background()
-	s, err := store.New(ctx, dsn)
+	testStore, err = store.New(ctx, dsn)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "connect store: %v\n", err)
 		os.Exit(1)
@@ -60,11 +62,18 @@ func TestMain(m *testing.M) {
 	// own rate limit. The limiter is covered directly in ratelimit_test.go.
 	os.Setenv("SCIM_RATE_LIMIT", "0")
 
-	handler = NewHandler(s, testToken, audit.New(io.Discard)).Routes()
+	handler = NewHandler(testStore, testToken).Routes()
 
 	code := m.Run()
 
-	s.Close()
+	// Audit entries outlive the users they describe, by design, so the suite
+	// removes the ones it wrote rather than leaving them in a shared database.
+	if _, err := cleanupPool.Exec(ctx,
+		`DELETE FROM audit_log WHERE actor_token = $1`, NewHandler(nil, testToken).actor); err != nil {
+		fmt.Fprintf(os.Stderr, "cleanup audit_log: %v\n", err)
+	}
+
+	testStore.Close()
 	cleanupPool.Close()
 	os.Exit(code)
 }

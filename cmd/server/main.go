@@ -7,7 +7,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/meghamahna/SCIMage/internal/audit"
 	"github.com/meghamahna/SCIMage/internal/scim"
 	"github.com/meghamahna/SCIMage/internal/store"
 )
@@ -29,12 +28,6 @@ func run() error {
 		return err
 	}
 
-	auditLog, closeAudit, err := audit.NewFromEnv()
-	if err != nil {
-		return err
-	}
-	defer closeAudit.Close()
-
 	s, err := store.New(context.Background(), dsn)
 	if err != nil {
 		return err
@@ -48,7 +41,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           scim.NewHandler(s, token, auditLog).Routes(),
+		Handler:           scim.NewHandler(s, token).Routes(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

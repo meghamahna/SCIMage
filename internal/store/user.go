@@ -13,15 +13,17 @@ import (
 
 // Optional attributes are pointers: the columns are nullable and SCIM
 // distinguishes an absent attribute from an empty one.
+// Tags are for the audit log's before/after jsonb, the only place a User is
+// serialised.
 type User struct {
-	ID         string
-	UserName   string
-	GivenName  *string
-	FamilyName *string
-	Email      *string
-	Active     bool
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID         string    `json:"id"`
+	UserName   string    `json:"userName"`
+	GivenName  *string   `json:"givenName,omitempty"`
+	FamilyName *string   `json:"familyName,omitempty"`
+	Email      *string   `json:"email,omitempty"`
+	Active     bool      `json:"active"`
+	CreatedAt  time.Time `json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
 }
 
 // Order must match scanUser.
@@ -96,18 +98,33 @@ func scanChange(row pgx.Row) (*Change, error) {
 // CreateUser returns the stored row, so the caller gets the server-assigned id
 // and timestamps. The clash is case-insensitive: RFC 7643 makes userName
 // caseExact=false, so "bjensen" and "BJensen" are the same identity.
-func (s *Store) CreateUser(ctx context.Context, u *User) (*User, error) {
+func (s *Store) CreateUser(ctx context.Context, u *User, rec AuditRecord) (*User, error) {
 	const q = `INSERT INTO users (user_name, given_name, family_name, email, active)
 	           VALUES ($1, $2, $3, $4, $5)
 	           RETURNING ` + userColumns
 
-	created, err := scanUser(s.pool.QueryRow(ctx, q,
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("create user %q: begin: %w", u.UserName, err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
+
+	created, err := scanUser(tx.QueryRow(ctx, q,
 		u.UserName, u.GivenName, u.FamilyName, u.Email, u.Active))
 	if err != nil {
 		if isUniqueViolation(err) {
+			s.auditRefusal(ctx, rec, ActionCreate, "", "duplicate userName")
 			return nil, fmt.Errorf("create user %q: %w", u.UserName, ErrDuplicateUserName)
 		}
 		return nil, fmt.Errorf("create user %q: %w", u.UserName, err)
+	}
+
+	if err := insertAudit(ctx, tx, rec, ActionCreate, created.ID, ResultSuccess, "", nil, created); err != nil {
+		return nil, fmt.Errorf("create user %q: %w", u.UserName, err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("create user %q: commit: %w", u.UserName, err)
 	}
 	return created, nil
 }
@@ -175,7 +192,7 @@ func (s *Store) ListUsers(ctx context.Context, limit, offset int) ([]User, int, 
 // UpdateUser is the full replace behind PUT /Users/{id}. id and created_at are
 // left alone; updated_at is set here rather than by a trigger. It returns both
 // images so the audit log records what actually changed.
-func (s *Store) UpdateUser(ctx context.Context, id string, u *User) (*Change, error) {
+func (s *Store) UpdateUser(ctx context.Context, id string, u *User, rec AuditRecord) (*Change, error) {
 	q := `WITH b AS (
 	          SELECT ` + userColumns + ` FROM users WHERE id = $1
 	      ), a AS (
@@ -191,17 +208,33 @@ func (s *Store) UpdateUser(ctx context.Context, id string, u *User) (*Change, er
 	      )
 	      SELECT ` + beforeColumns + `, ` + afterColumns + ` FROM b, a`
 
-	change, err := scanChange(s.pool.QueryRow(ctx, q,
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("update user %q: begin: %w", id, err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
+
+	change, err := scanChange(tx.QueryRow(ctx, q,
 		id, u.UserName, u.GivenName, u.FamilyName, u.Email, u.Active))
 	if err != nil {
 		switch {
 		case isMissingRow(err):
+			s.auditRefusal(ctx, rec, ActionReplace, id, "no such user")
 			return nil, fmt.Errorf("update user %q: %w", id, ErrNotFound)
 		case isUniqueViolation(err):
+			s.auditRefusal(ctx, rec, ActionReplace, id, "duplicate userName")
 			return nil, fmt.Errorf("update user %q: %w", id, ErrDuplicateUserName)
 		default:
 			return nil, fmt.Errorf("update user %q: %w", id, err)
 		}
+	}
+
+	if err := insertAudit(ctx, tx, rec, ActionReplace, id, ResultSuccess, "", change.Before, change.After); err != nil {
+		return nil, fmt.Errorf("update user %q: %w", id, err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("update user %q: commit: %w", id, err)
 	}
 	return change, nil
 }
@@ -209,7 +242,7 @@ func (s *Store) UpdateUser(ctx context.Context, id string, u *User) (*Change, er
 // DeactivateUser is the soft delete behind DELETE /Users/{id}: the row stays so
 // audit history keeps pointing at a real user. Returns both images for the
 // audit log, and is idempotent so a retried delete succeeds.
-func (s *Store) DeactivateUser(ctx context.Context, id string) (*Change, error) {
+func (s *Store) DeactivateUser(ctx context.Context, id string, rec AuditRecord) (*Change, error) {
 	q := `WITH b AS (
 	          SELECT ` + userColumns + ` FROM users WHERE id = $1
 	      ), a AS (
@@ -219,12 +252,27 @@ func (s *Store) DeactivateUser(ctx context.Context, id string) (*Change, error) 
 	      )
 	      SELECT ` + beforeColumns + `, ` + afterColumns + ` FROM b, a`
 
-	change, err := scanChange(s.pool.QueryRow(ctx, q, id))
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("deactivate user %q: begin: %w", id, err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
+
+	change, err := scanChange(tx.QueryRow(ctx, q, id))
 	if err != nil {
 		if isMissingRow(err) {
+			s.auditRefusal(ctx, rec, ActionDeactivate, id, "no such user")
 			return nil, fmt.Errorf("deactivate user %q: %w", id, ErrNotFound)
 		}
 		return nil, fmt.Errorf("deactivate user %q: %w", id, err)
+	}
+
+	if err := insertAudit(ctx, tx, rec, ActionDeactivate, id, ResultSuccess, "", change.Before, change.After); err != nil {
+		return nil, fmt.Errorf("deactivate user %q: %w", id, err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("deactivate user %q: commit: %w", id, err)
 	}
 	return change, nil
 }

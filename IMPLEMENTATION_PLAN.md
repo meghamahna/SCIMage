@@ -126,13 +126,17 @@ store or handler with no tests against the real database isn't verified.
 - [x] Use `crypto/subtle.ConstantTimeCompare` for bearer token checks
       (landed with Phase 5)
 - [x] Structured audit log for every mutating call: actor, action,
-      target user id, timestamp, before/after state, written as JSON
-      lines. Resolved by a data-modifying CTE: the before-image is read
-      in the same statement as the `UPDATE`, so both halves share one
-      snapshot and no concurrent write can slip between them. Postgres
-      only gained `OLD` in `RETURNING` at 18, and this runs on 16.
-      Refusals are recorded too — a burst of denials is the signal, and
-      it's invisible if only successes land
+      target user id, timestamp, before/after state. Written to an
+      `audit_log` table **in the mutation's own transaction**, so a user
+      cannot be created, replaced or deactivated without its entry — if
+      the entry fails to insert, the change rolls back with it. The
+      before-image comes from a data-modifying CTE reading the row in
+      the same statement as the `UPDATE`; Postgres only gained `OLD` in
+      `RETURNING` at 18 and this runs on 16. Refusals are recorded too —
+      a burst of denials is the signal, and it's invisible if only
+      successes land. Landed as JSON lines first, then moved into
+      Postgres: a file and a database have no shared commit, so
+      "atomic" was not achievable while the log lived on disk
 - [x] Rate limiting per token (token bucket), keyed on the caller and
       applied inside auth so an unauthenticated flood can't spend a real
       caller's budget
@@ -143,11 +147,9 @@ store or handler with no tests against the real database isn't verified.
       place immediately: `golang.org/x/text` v0.29.0 had a reachable
       infinite-loop bug via `pgxpool.New`, now on v0.40.0
 
-Known gap: Postgres and a file can't commit atomically, so a failed audit
-write is shouted to the standard log rather than failing the request — the
-mutation is already durable by then, and refusing the response would tell
-the client a lie. An audit table written in the mutation's transaction is
-the only way to close that, at the cost of the JSON-lines stream SAGE reads.
+SAGE reads the `audit_log` table directly rather than a file. A JSON-lines
+export is easy to add if anyone wants one for log shipping, but shipping two
+half-authoritative copies of the audit trail would be worse than shipping one.
 
 ### Phase 8 — SAGE: SCIM Audit & Governance Engine
 This tool reads the audit log and produces a plain-English summary for
