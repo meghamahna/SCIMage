@@ -18,6 +18,11 @@ func main() {
 }
 
 func run() error {
+	token, err := scim.TokenFromEnv()
+	if err != nil {
+		return err
+	}
+
 	dsn, err := store.DSNFromEnv()
 	if err != nil {
 		return err
@@ -36,7 +41,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           scim.NewHandler(s).Routes(),
+		Handler:           scim.NewHandler(s, token).Routes(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

@@ -14,7 +14,7 @@ deny() {
 
 if [[ -n "$path" ]]; then
   allow_path='\.env\.(example|sample|template)$'
-  deny_path='(^|/)\.env(\.[A-Za-z0-9_-]+)?$|\.pem$|\.key$|(^|/)id_(rsa|ed25519|ecdsa)$|credentials\.json$|(^|/)secrets?\.ya?ml$|\.pgpass$|(^|/)\.netrc$'
+  deny_path='(^|/)\.env(\..+)?$|\.pem$|\.key$|(^|/)id_(rsa|ed25519|ecdsa)$|credentials\.json$|(^|/)secrets?\.ya?ml$|\.pgpass$|(^|/)\.netrc$'
   if [[ "$path" =~ $deny_path ]] && ! [[ "$path" =~ $allow_path ]]; then
     deny "Secrets belong in environment variables, not files. '$path' is a secrets file."
   fi

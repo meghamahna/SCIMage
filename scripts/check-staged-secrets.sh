@@ -22,7 +22,7 @@ aws_key_re='AKIA[0-9A-Z]{16}'
 dsn_password_re='postgres(ql)?://[^:/@[:space:]]+:[^@/[:space:]]+@'
 bearer_re='Bearer[[:space:]]+[A-Za-z0-9._~+/-]{20,}'
 assign_secret_re='(password|passwd|pwd|secret|api[_-]?key|access[_-]?key|bearer[_-]?token|db[_-]?pass)[[:space:]]*[:=]{1,2}[[:space:]]*["'"'"'][^"'"'"'$][^"'"'"']{5,}["'"'"']'
-env_file_re='^\+\+\+ b/(.*/)?\.env(\.[A-Za-z0-9_-]+)?$'
+env_file_re='^\+\+\+ b/(.*/)?\.env(\..+)?$'
 env_file_allow_re='\.env\.(example|sample|template)$'
 
 # Placeholder values match as whole values only (no wildcards) — a real

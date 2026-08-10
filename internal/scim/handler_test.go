@@ -22,7 +22,13 @@ import (
 	"github.com/meghamahna/SCIMage/internal/store"
 )
 
-const nonexistentID = "00000000-0000-4000-8000-000000000000"
+const (
+	nonexistentID = "00000000-0000-4000-8000-000000000000"
+
+	// Long enough to satisfy MinTokenLen. Not a credential — the real one comes
+	// from SCIM_TOKEN at runtime.
+	testToken = "handler-test-token-0123456789"
+)
 
 var (
 	handler http.Handler
@@ -49,7 +55,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "connect cleanup pool: %v\n", err)
 		os.Exit(1)
 	}
-	handler = NewHandler(s).Routes()
+	handler = NewHandler(s, testToken).Routes()
 
 	code := m.Run()
 
@@ -91,6 +97,7 @@ func do(t *testing.T, method, target string, body any) *httptest.ResponseRecorde
 
 	req := httptest.NewRequest(method, target, r)
 	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Authorization", "Bearer "+testToken)
 
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
