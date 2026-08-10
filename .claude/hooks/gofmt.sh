@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PostToolUse / Write, Edit — auto-format Go files that were just written.
+# PostToolUse / Write, Edit — formats Go files after a write.
 set -euo pipefail
 
 input=$(cat)

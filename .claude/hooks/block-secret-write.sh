@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PreToolUse / Write, Edit — refuse to persist secret-shaped files or hardcoded credentials.
+# PreToolUse / Write, Edit — blocks secret files and hardcoded credentials.
 set -euo pipefail
 
 input=$(cat)
@@ -16,7 +16,7 @@ if [[ -n "$path" ]]; then
   allow_path='\.env\.(example|sample|template)$'
   deny_path='(^|/)\.env(\.[A-Za-z0-9_-]+)?$|\.pem$|\.key$|(^|/)id_(rsa|ed25519|ecdsa)$|credentials\.json$|(^|/)secrets?\.ya?ml$|\.pgpass$|(^|/)\.netrc$'
   if [[ "$path" =~ $deny_path ]] && ! [[ "$path" =~ $allow_path ]]; then
-    deny "Blocked by project policy: writing to '$path' would create/modify a secrets file. Secrets in this project come from environment variables set at runtime only — never files."
+    deny "Secrets belong in environment variables, not files. '$path' is a secrets file."
   fi
 fi
 
@@ -41,21 +41,29 @@ dsn_password_re='postgres(ql)?://[^:/@[:space:]]+:[^@/[:space:]]+@'
 bearer_re='Bearer[[:space:]]+[A-Za-z0-9._~+/-]{20,}'
 assign_secret_re='(password|passwd|pwd|secret|api[_-]?key|access[_-]?key|bearer[_-]?token|db[_-]?pass)[[:space:]]*[:=]{1,2}[[:space:]]*["'"'"'][^"'"'"'$][^"'"'"']{5,}["'"'"']'
 
+# Placeholder values match as whole values only (no wildcards) — a real
+# secret with a placeholder-word prefix still gets caught.
+placeholder='changeme|change_me|change-me|placeholder|replaceme|replace_me|replace-me|yourpassword|your_password|your-password|yoursecret|your_secret|your-secret|yourtoken|your_token|your-token|xxxxxxxx|dummy|sample|fakepassword|fake_password|fake-password|fake|example|test|testing|password|secret'
+safe_dsn_re="postgres(ql)?://[^:/@[:space:]]+:(${placeholder})@"
+safe_bearer_re="Bearer[[:space:]]+(${placeholder})([^A-Za-z0-9._~+/-]|\$)"
+safe_assign_secret_re="(password|passwd|pwd|secret|api[_-]?key|access[_-]?key|bearer[_-]?token|db[_-]?pass)[[:space:]]*[:=]{1,2}[[:space:]]*[\"'](${placeholder})[\"']"
+
 if echo "$content" | grep -qE -- "$private_key_re"; then
-  deny "Blocked by project policy: this change embeds a PEM private key literal in a tracked file."
+  deny "This embeds a PEM private key literal."
 fi
 if echo "$content" | grep -qE -- "$aws_key_re"; then
-  deny "Blocked by project policy: this change embeds what looks like an AWS access key ID in a tracked file."
+  deny "This embeds an AWS access key ID."
 fi
 if [[ "$is_doc_file" == false ]]; then
-  if echo "$content" | grep -qE -- "$dsn_password_re"; then
-    deny "Blocked by project policy: this change embeds a database connection string with a plaintext password. Use DATABASE_URL from the environment instead."
+  if echo "$content" | grep -E -- "$dsn_password_re" | grep -qviE -- "$safe_dsn_re"; then
+    deny "This embeds a database URL with a plaintext password. Use DATABASE_URL from the environment."
   fi
-  if echo "$content" | grep -qE -- "$bearer_re"; then
-    deny "Blocked by project policy: this change embeds a literal Bearer token. The SCIM bearer token must come from an environment variable, never hardcoded."
+  unsafe_bearer=$(echo "$content" | grep -viE -- "$safe_bearer_re" || true)
+  if [[ -n "$unsafe_bearer" ]] && echo "$unsafe_bearer" | grep -qE -- "$bearer_re"; then
+    deny "This embeds a literal Bearer token. Read the SCIM token from an environment variable."
   fi
-  if [[ "$is_test_file" == false ]] && echo "$content" | grep -Eiq -- "$assign_secret_re"; then
-    deny "Blocked by project policy: this change hardcodes what looks like a credential (password/secret/api key) as a literal string. Read it from an environment variable instead."
+  if [[ "$is_test_file" == false ]] && echo "$content" | grep -Ei -- "$assign_secret_re" | grep -qviE -- "$safe_assign_secret_re"; then
+    deny "This hardcodes a credential literal. Read it from an environment variable."
   fi
 fi
 

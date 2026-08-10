@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PreToolUse / Bash — refuse shell commands that dump secret files or the full environment.
+# PreToolUse / Bash — blocks commands that dump secret files or the environment.
 set -euo pipefail
 
 input=$(cat)
@@ -14,11 +14,11 @@ allow_file='\.env\.(example|sample|template)'
 blocked_reason=""
 
 if echo "$cmd" | grep -qiE "^[[:space:]]*${view_bin}\b" && echo "$cmd" | grep -qiE "$secret_file" && ! echo "$cmd" | grep -qiE "$allow_file"; then
-  blocked_reason="This command appears to read a secrets file directly. Secrets must never be loaded into the assistant's context — they come from environment variables at runtime only."
+  blocked_reason="This reads a secrets file directly. Ask the user for the value instead."
 elif echo "$cmd" | grep -qiE '(^|[|;&]) *(printenv|env)[[:space:]]*($|[|>]|;|&&|\|\|)'; then
-  blocked_reason="This command dumps the process environment, which may contain secrets (DB credentials, bearer token). Ask the user directly instead of reading env values."
+  blocked_reason="This dumps the process environment, which may contain secrets. Ask the user directly."
 elif echo "$cmd" | grep -qiE '\bset\b[[:space:]]*\|[[:space:]]*grep'; then
-  blocked_reason="This command greps shell-exported variables, which may expose secrets. Ask the user directly instead."
+  blocked_reason="This greps shell-exported variables, which may expose secrets. Ask the user directly."
 fi
 
 if [[ -n "$blocked_reason" ]]; then
