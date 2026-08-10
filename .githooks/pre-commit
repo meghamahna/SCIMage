@@ -37,8 +37,9 @@ if command -v go >/dev/null 2>&1; then
       fail=1
     fi
 
-    # via with-env.sh, or the store integration tests skip and report green
-    if ! scripts/with-env.sh go test ./... 2>&1; then
+    # via with-env.sh, or the store integration tests skip and report green.
+    # -p 1: both packages share the users table — see the Makefile.
+    if ! scripts/with-env.sh go test -p 1 ./... 2>&1; then
       echo "pre-commit: BLOCKED — go test failed" >&2
       fail=1
     fi
