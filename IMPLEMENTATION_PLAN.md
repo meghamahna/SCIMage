@@ -108,6 +108,15 @@ store or handler with no tests against the real database isn't verified.
 - [x] HTTP handler tests via `httptest` (landed with Phase 4)
 - [x] Duplicate-`userName` conflict test, including the case-variant
       collision — solid interview talking point on constraint handling
+- [x] Deterministic under repeated runs. Both packages write to the same
+      `users` table and `go test` parallelises across packages, so the
+      store's exact row-count assertions raced against the handler tests
+      creating users — reproducible at `-count=20`, invisible at
+      `-count=1`. `make test` and the pre-commit hook now pass `-p 1`.
+      That's a stopgap: it serialises packages but doesn't stop two
+      developers sharing one compose Postgres from colliding. Per-tenant
+      scoping of the store would make the isolation structural and let
+      `-p 1` go
 
 ### Phase 7 — Security hardening
 - [ ] Validate every incoming SCIM payload against the expected schema

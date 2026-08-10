@@ -46,10 +46,15 @@ migrate-down:
 migrate-version:
 	scripts/with-env.sh scripts/migrate.sh version
 
-# Loads .env so the store integration tests can reach the compose Postgres.
-# They hit the real database, never a mock — start it with `make up` first.
+# Loads .env so the integration tests can reach the compose Postgres. They hit
+# the real database, never a mock — start it with `make up` first.
+#
+# -p 1 runs one package at a time. Both test packages write to the same users
+# table, and go test parallelises across packages by default, so without it the
+# store's row-count assertions race against the handler tests creating users.
+# Per-tenant scoping would make the isolation structural and let this go.
 test:
-	scripts/with-env.sh go test ./...
+	scripts/with-env.sh go test -p 1 ./...
 
 run:
 	scripts/with-env.sh go run ./cmd/server
