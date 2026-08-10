@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -14,6 +15,24 @@ import (
 )
 
 const nonexistentID = "00000000-0000-4000-8000-000000000000"
+
+// The store never deletes audit entries — it only soft-deletes users — so the
+// suite clears the rows it wrote, the same way it clears its users.
+func TestMain(m *testing.M) {
+	code := m.Run()
+
+	if dsn, err := DSNFromEnv(); err == nil {
+		if s, err := New(context.Background(), dsn); err == nil {
+			if _, err := s.pool.Exec(context.Background(),
+				`DELETE FROM audit_log WHERE actor_token = $1`, testAudit.ActorToken); err != nil {
+				fmt.Fprintf(os.Stderr, "cleanup audit_log: %v\n", err)
+			}
+			s.Close()
+		}
+	}
+
+	os.Exit(code)
+}
 
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
@@ -50,7 +69,7 @@ func (s *Store) hardDelete(ctx context.Context, t *testing.T, id string) {
 func createUser(t *testing.T, s *Store, u *User) *User {
 	t.Helper()
 
-	created, err := s.CreateUser(context.Background(), u)
+	created, err := s.CreateUser(context.Background(), u, testAudit)
 	if err != nil {
 		t.Fatalf("CreateUser(%q): %v", u.UserName, err)
 	}
@@ -102,6 +121,9 @@ func allUsers(t *testing.T, s *Store) ([]User, int) {
 }
 
 func ptr(s string) *string { return &s }
+
+// testAudit is the actor every store test writes entries as.
+var testAudit = AuditRecord{ActorToken: "tok_storetest", ActorIP: "127.0.0.1"}
 
 func TestCreateUser(t *testing.T) {
 	s := newTestStore(t)
@@ -170,7 +192,7 @@ func TestCreateUserDuplicateUserName(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := s.CreateUser(context.Background(), &User{UserName: tc.userName, Active: true})
+			got, err := s.CreateUser(context.Background(), &User{UserName: tc.userName, Active: true}, testAudit)
 			if got != nil {
 				s.hardDelete(context.Background(), t, got.ID)
 			}
@@ -314,7 +336,7 @@ func TestListUsers(t *testing.T) {
 
 		_, totalBefore := allUsers(t, s)
 
-		if _, err := s.DeactivateUser(ctx, u.ID); err != nil {
+		if _, err := s.DeactivateUser(ctx, u.ID, testAudit); err != nil {
 			t.Fatalf("DeactivateUser: %v", err)
 		}
 
@@ -387,17 +409,27 @@ func TestUpdateUser(t *testing.T) {
 		})
 
 		newName := uniqueUserName()
-		updated, err := s.UpdateUser(ctx, created.ID, &User{
+		changed, err := s.UpdateUser(ctx, created.ID, &User{
 			UserName:   newName,
 			GivenName:  ptr("Barb"),
 			FamilyName: nil, // a full replace clears omitted attributes
 			Email:      ptr("barb@example.com"),
 			Active:     false,
-		})
+		}, testAudit)
 		if err != nil {
 			t.Fatalf("UpdateUser: %v", err)
 		}
 
+		// The before-image is what the audit log records as the prior state, so
+		// it has to be the row as it stood before this statement, not after.
+		if changed.Before == nil || changed.Before.UserName != created.UserName {
+			t.Errorf("Before.UserName = %v, want %q", changed.Before, created.UserName)
+		}
+		if changed.Before != nil && !changed.Before.Active {
+			t.Error("Before.Active = false, want the pre-update value true")
+		}
+
+		updated := changed.After
 		if updated.ID != created.ID {
 			t.Errorf("ID changed: %q -> %q", created.ID, updated.ID)
 		}
@@ -421,7 +453,7 @@ func TestUpdateUser(t *testing.T) {
 	})
 
 	t.Run("unknown id is ErrNotFound", func(t *testing.T) {
-		_, err := s.UpdateUser(ctx, nonexistentID, &User{UserName: uniqueUserName(), Active: true})
+		_, err := s.UpdateUser(ctx, nonexistentID, &User{UserName: uniqueUserName(), Active: true}, testAudit)
 		if !errors.Is(err, ErrNotFound) {
 			t.Fatalf("error = %v, want ErrNotFound", err)
 		}
@@ -431,7 +463,7 @@ func TestUpdateUser(t *testing.T) {
 		taken := createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
 		mover := createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
 
-		_, err := s.UpdateUser(ctx, mover.ID, &User{UserName: taken.UserName, Active: true})
+		_, err := s.UpdateUser(ctx, mover.ID, &User{UserName: taken.UserName, Active: true}, testAudit)
 		if !errors.Is(err, ErrDuplicateUserName) {
 			t.Fatalf("error = %v, want ErrDuplicateUserName", err)
 		}
@@ -445,12 +477,15 @@ func TestDeactivateUser(t *testing.T) {
 	t.Run("clears active but keeps the row", func(t *testing.T) {
 		created := createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
 
-		deactivated, err := s.DeactivateUser(ctx, created.ID)
+		changed, err := s.DeactivateUser(ctx, created.ID, testAudit)
 		if err != nil {
 			t.Fatalf("DeactivateUser: %v", err)
 		}
-		if deactivated.Active {
-			t.Error("Active = true, want false")
+		if changed.After.Active {
+			t.Error("After.Active = true, want false")
+		}
+		if changed.Before == nil || !changed.Before.Active {
+			t.Error("Before.Active = false, want the pre-delete value true")
 		}
 
 		got, err := s.GetUser(ctx, created.ID)
@@ -468,16 +503,16 @@ func TestDeactivateUser(t *testing.T) {
 	t.Run("is idempotent", func(t *testing.T) {
 		created := createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
 
-		if _, err := s.DeactivateUser(ctx, created.ID); err != nil {
+		if _, err := s.DeactivateUser(ctx, created.ID, testAudit); err != nil {
 			t.Fatalf("first DeactivateUser: %v", err)
 		}
-		if _, err := s.DeactivateUser(ctx, created.ID); err != nil {
+		if _, err := s.DeactivateUser(ctx, created.ID, testAudit); err != nil {
 			t.Fatalf("second DeactivateUser: %v", err)
 		}
 	})
 
 	t.Run("unknown id is ErrNotFound", func(t *testing.T) {
-		if _, err := s.DeactivateUser(ctx, nonexistentID); !errors.Is(err, ErrNotFound) {
+		if _, err := s.DeactivateUser(ctx, nonexistentID, testAudit); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("error = %v, want ErrNotFound", err)
 		}
 	})

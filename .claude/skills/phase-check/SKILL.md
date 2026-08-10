@@ -16,10 +16,12 @@ suggesting a `phase-N:` commit.
    lowest-numbered phase with any unchecked `- [ ]` box — that's the
    one under review. List its specific checklist items.
 
-2. **Tests.** Run `go test ./...`. If the phase touches `internal/store`,
-   confirm Postgres is up first (`docker compose ps`) — integration
-   tests must hit the real database per CLAUDE.md, never a mock. A
-   failing or skipped test means the phase is not done.
+2. **Tests.** Run `make test` — it loads `.env` and passes `-p 1`, both
+   of which the suite needs. A bare `go test ./...` skips every
+   integration test and still exits 0, so it proves nothing. Confirm
+   Postgres is up first (`docker compose ps`) — integration tests must
+   hit the real database per CLAUDE.md, never a mock. A failing or
+   skipped test means the phase is not done.
 
 3. **Formatting.** Run `gofmt -l .` and, if installed, `goimports -l .`.
    Both must print nothing. If either lists files, run `gofmt -w` /
@@ -31,9 +33,11 @@ suggesting a `phase-N:` commit.
    phase number alone; re-check if the diff touches these areas):
    - Auth/token comparison code uses `crypto/subtle.ConstantTimeCompare`,
      never `==`. Grep for the token comparison and confirm.
-   - Every create/update/deactivate handler writes a structured audit
-     log entry (actor, action, target user id, timestamp, before/after
-     state). Grep the handler for the audit-log call.
+   - Every create/replace/deactivate path writes an `audit_log` row
+     (actor, action, target user id, timestamp, before/after state)
+     inside the same transaction as the change, so the two commit
+     together. The store owns that write — confirm a new mutating path
+     goes through it rather than committing and recording separately.
    - Incoming SCIM payloads are validated against the expected schema
      before any DB call in that code path.
    - No secret is hardcoded or read from a file — only `os.Getenv` /

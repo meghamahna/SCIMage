@@ -1,9 +1,12 @@
 package scim
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"slices"
@@ -26,15 +29,25 @@ type Handler struct {
 	store *store.Store
 	token string
 
+	// actor identifies the caller in audit entries: a short fingerprint of the
+	// token, never the token. 32 bits is plenty to tell callers apart and
+	// useless for recovering a 256-bit secret.
+	actor   string
+	limiter *limiter
+
 	// externalURL overrides the Host header when set, which matters behind a
 	// TLS-terminating proxy: r.TLS is nil there, so derived links would be http.
 	externalURL string
 }
 
 func NewHandler(s *store.Store, token string) *Handler {
+	sum := sha256.Sum256([]byte(token))
+
 	return &Handler{
 		store:       s,
 		token:       token,
+		actor:       "tok_" + hex.EncodeToString(sum[:4]),
+		limiter:     limiterFromEnv(),
 		externalURL: strings.TrimSuffix(os.Getenv("SCIM_BASE_URL"), "/"),
 	}
 }
@@ -55,7 +68,9 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("/Users/{id}", methodNotAllowed)
 	mux.HandleFunc("/", unknownResource)
 
-	return requireBearer(h.token)(mux)
+	// Throttle inside auth, so an unauthenticated flood can't spend a real
+	// caller's budget.
+	return requireBearer(h.token)(h.limiter.throttle(h.actor, mux))
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
@@ -65,7 +80,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	su := toStoreUser(in)
-	created, err := h.store.CreateUser(r.Context(), &su)
+	created, err := h.store.CreateUser(r.Context(), &su, h.auditRecord(r))
 	if err != nil {
 		if errors.Is(err, store.ErrDuplicateUserName) {
 			writeError(w, http.StatusConflict, "uniqueness", "userName is already in use")
@@ -131,8 +146,17 @@ func (h *Handler) replace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	id := r.PathValue("id")
+
+	// id is readOnly in RFC 7643 §3.1. A body naming a different user is a
+	// client bug worth refusing rather than silently ignoring.
+	if in.ID != "" && in.ID != id {
+		writeError(w, http.StatusBadRequest, "mutability", "id in the body does not match the request path")
+		return
+	}
+
 	su := toStoreUser(in)
-	updated, err := h.store.UpdateUser(r.Context(), r.PathValue("id"), &su)
+	changed, err := h.store.UpdateUser(r.Context(), id, &su, h.auditRecord(r))
 	if err != nil {
 		switch {
 		case errors.Is(err, store.ErrNotFound):
@@ -145,12 +169,14 @@ func (h *Handler) replace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, fromStoreUser(updated, h.baseURL(r)))
+	writeJSON(w, http.StatusOK, fromStoreUser(changed.After, h.baseURL(r)))
 }
 
 // DELETE is a soft delete: the row survives with active=false.
 func (h *Handler) deactivate(w http.ResponseWriter, r *http.Request) {
-	if _, err := h.store.DeactivateUser(r.Context(), r.PathValue("id")); err != nil {
+	id := r.PathValue("id")
+
+	if _, err := h.store.DeactivateUser(r.Context(), id, h.auditRecord(r)); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			notFound(w)
 			return
@@ -160,6 +186,23 @@ func (h *Handler) deactivate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// auditRecord is the caller's identity. The store writes the entry inside the
+// mutation's transaction, so there is no path that changes a user without
+// recording it — the same reasoning as Routes applying auth itself.
+func (h *Handler) auditRecord(r *http.Request) store.AuditRecord {
+	return store.AuditRecord{ActorToken: h.actor, ActorIP: clientIP(r)}
+}
+
+// X-Forwarded-For is ignored: it is caller-controlled, and trusting it would
+// let anyone forge the IP in the audit trail.
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 // decodeUser writes the error response itself and reports whether the payload

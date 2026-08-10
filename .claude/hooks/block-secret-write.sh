@@ -56,23 +56,28 @@ safe_dsn_var_re='postgres(ql)?://[^:/@[:space:]]+:(\$\{[A-Za-z_][A-Za-z0-9_]*\}|
 safe_bearer_re="Bearer[[:space:]]+(${placeholder})([^A-Za-z0-9._~+/-]|\$)"
 safe_assign_secret_re="(password|passwd|pwd|secret|api[_-]?key|access[_-]?key|bearer[_-]?token|db[_-]?pass)[[:space:]]*[:=]{1,2}[[:space:]]*[\"'](${placeholder})[\"']"
 
-if echo "$content" | grep -qE -- "$private_key_re"; then
+# Herestrings, never `echo | grep -q`: grep -q exits at its first match and
+# SIGPIPEs the upstream echo, so under `pipefail` the pipeline returns 141 and
+# the check silently passes. It only shows up once the content outgrows the pipe
+# buffer, which makes it look intermittent.
+if grep -qE -- "$private_key_re" <<<"$content"; then
   deny "This embeds a PEM private key literal."
 fi
-if echo "$content" | grep -qE -- "$aws_key_re"; then
+if grep -qE -- "$aws_key_re" <<<"$content"; then
   deny "This embeds an AWS access key ID."
 fi
 if [[ "$is_doc_file" == false ]]; then
   # -o so each DSN is judged on its own, not whichever one shares its line.
-  if echo "$content" | grep -oE -- "$dsn_password_re" | grep -viE -- "$safe_dsn_re" | grep -qviE -- "$safe_dsn_var_re"; then
+  if unsafe_dsn=$(grep -oE -- "$dsn_password_re" <<<"$content" | grep -viE -- "$safe_dsn_re" | grep -viE -- "$safe_dsn_var_re") && [[ -n "$unsafe_dsn" ]]; then
     deny "This embeds a database URL with a plaintext password. Use DATABASE_URL from the environment."
   fi
-  unsafe_bearer=$(echo "$content" | grep -viE -- "$safe_bearer_re" || true)
-  if [[ -n "$unsafe_bearer" ]] && echo "$unsafe_bearer" | grep -qE -- "$bearer_re"; then
+  if unsafe_bearer=$(grep -viE -- "$safe_bearer_re" <<<"$content" | grep -E -- "$bearer_re") && [[ -n "$unsafe_bearer" ]]; then
     deny "This embeds a literal Bearer token. Read the SCIM token from an environment variable."
   fi
-  if [[ "$is_test_file" == false ]] && echo "$content" | grep -Ei -- "$assign_secret_re" | grep -qviE -- "$safe_assign_secret_re"; then
-    deny "This hardcodes a credential literal. Read it from an environment variable."
+  if [[ "$is_test_file" == false ]]; then
+    if unsafe_assign=$(grep -Ei -- "$assign_secret_re" <<<"$content" | grep -viE -- "$safe_assign_secret_re") && [[ -n "$unsafe_assign" ]]; then
+      deny "This hardcodes a credential literal. Read it from an environment variable."
+    fi
   fi
 fi
 

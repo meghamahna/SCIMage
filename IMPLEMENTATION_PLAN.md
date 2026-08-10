@@ -18,12 +18,15 @@ built to show.
 - `golang-migrate` for schema migrations
 
 ## Project structure
-```
-/cmd/server            - main.go, entrypoint
-/cmd/sage        - AI-assisted audit log reviewer
-/internal/scim          - HTTP handlers, request/response models
-/internal/store          - Postgres-backed user store
-/migrations             - SQL migration files
+```text
+/cmd/server           entrypoint for the SCIM server
+/cmd/scimage-admin    tenant and token administration (Phase 10)
+/cmd/sage             audit reviewer (Phase 12)
+/internal/scim        HTTP handlers, SCIM models, auth, rate limiting
+/internal/store       Postgres-backed store and audit log, raw SQL
+/migrations           SQL migration files
+/scripts              env loading, migrations, secret scanning
+/.github/workflows    CI
 docker-compose.yml
 README.md
 ```
@@ -83,25 +86,24 @@ returned slice length as `itemsPerPage`, not the requested count.
 - [x] Map SCIM user JSON to and from `users` table rows in one place
       (`internal/scim/mapper.go`) to keep the HTTP layer clean
 
-Routing is `net/http`'s method-pattern mux, no framework. Responses are
+Routing is `net/http`'s method-pattern mux. Responses are
 `application/scim+json`; errors use the SCIM Error schema with `status` as a
-string. `cmd/server` wires the store to the handler — no auth yet, that's
-Phase 5, so **don't expose this build.**
+string. `cmd/server` wires the store to the handler.
 
 ### Phase 5 — Auth
 - [x] Bearer token middleware, token from env var
 
-`Routes()` applies the middleware itself, and a missing or too-short token
-rejects every request rather than serving openly — hashing both sides means
-an empty token would otherwise match a request carrying no header at all.
-Unknown paths are rejected before routing, so a 404 can't tell an anonymous
-caller which resources exist. Comparison is `subtle.ConstantTimeCompare`
-over SHA-256 digests: comparing raw tokens returns early on a length
-mismatch and would leak the token's length.
+`Routes()` applies the middleware itself, so authentication covers the whole
+surface. A token below the minimum length rejects every request, which keeps
+configuration errors failing closed. Unknown paths are rejected before
+routing, so responses stay uniform for an unauthenticated caller.
+
+Comparison is `subtle.ConstantTimeCompare` over SHA-256 digests. Hashing
+gives both sides a fixed width, so the comparison is constant-time with
+respect to the token's length as well as its content.
 
 ### Phase 6 — Tests
-These landed alongside the code they cover rather than in one late pass — a
-store or handler with no tests against the real database isn't verified.
+These landed alongside the code they cover, so each phase shipped verified.
 - [x] Spin up Postgres for tests via `docker-compose` (`make test`)
 - [x] Integration tests for create/get/update/deactivate against the
       real store
@@ -112,34 +114,114 @@ store or handler with no tests against the real database isn't verified.
       `users` table and `go test` parallelises across packages, so the
       store's exact row-count assertions raced against the handler tests
       creating users — reproducible at `-count=20`, invisible at
-      `-count=1`. `make test` and the pre-commit hook now pass `-p 1`.
-      That's a stopgap: it serialises packages but doesn't stop two
-      developers sharing one compose Postgres from colliding. Per-tenant
-      scoping of the store would make the isolation structural and let
-      `-p 1` go
+      `-count=1`. `make test` and the pre-commit hook now pass `-p 1`,
+      which serialises packages within a run. Per-tenant scoping of the
+      store will make that isolation structural, at which point `-p 1`
+      becomes redundant
 
 ### Phase 7 — Security hardening
-- [ ] Validate every incoming SCIM payload against the expected schema
-      before it reaches the DB, with proper SCIM error responses
+- [x] Validate every incoming SCIM payload against the expected schema
+      before it reaches the DB, with proper SCIM error responses (landed
+      with Phase 4; extended here to reject a body `id` that contradicts
+      the path, which RFC 7643 §3.1 makes readOnly)
 - [x] Use `crypto/subtle.ConstantTimeCompare` for bearer token checks
       (landed with Phase 5)
-- [ ] Structured audit log for every mutating call: actor, action,
-      target user id, timestamp, before/after state, written as JSON
-      lines. `UpdateUser`/`DeactivateUser` currently return only the
-      after-state, so capturing before/after atomically needs either
-      `UPDATE ... RETURNING` of the old row or a transaction on the
-      store — decide that rather than doing a non-atomic read-then-write
-- [ ] Rate limiting per token (token bucket)
-- [ ] All secrets via env vars, with rotation documented in the README
-- [ ] `govulncheck` as a CI step for dependency scanning
+- [x] Structured audit log for every mutating call: actor, action,
+      target user id, timestamp, before/after state. Written to an
+      `audit_log` table **in the mutation's own transaction**, so a user
+      cannot be created, replaced or deactivated without its entry — if
+      the entry fails to insert, the change rolls back with it. The
+      before-image comes from a data-modifying CTE reading the row in
+      the same statement as the `UPDATE`; Postgres only gained `OLD` in
+      `RETURNING` at 18 and this runs on 16. Refusals are recorded as
+      well, which makes a burst of denials visible to a reviewer. The log
+      lives in Postgres so it shares the mutation's commit — the property
+      that makes "atomic" accurate
+- [x] Rate limiting per token (token bucket), keyed on the caller and
+      applied inside auth, so each authenticated caller has its own budget
+- [x] All secrets via env vars, with the rotation procedure documented in
+      the README. Dual-token rotation, which removes the restart from that
+      procedure, is on the roadmap
+- [x] `govulncheck` as a CI step for dependency scanning. It earned its
+      place immediately: `golang.org/x/text` v0.29.0 had a reachable
+      infinite-loop bug via `pgxpool.New`, now on v0.40.0
 
-### Phase 8 — SAGE: SCIM Audit & Governance Engine
-This tool reads the audit log and produces a plain-English summary for
-a human reviewer. It surfaces signal — it never makes an authorization
-or provisioning decision. Keeping every actual decision in deterministic
-code, with AI purely advisory, is the design choice worth explaining in
-an interview. The name reflects that: a sage advises, it doesn't decide.
-- [ ] CLI (`cmd/sage`) that reads the JSON-lines audit log
+SAGE reads the `audit_log` table directly. Keeping one authoritative copy of
+the audit trail is what makes the transactional guarantee meaningful; a
+JSON-lines export for log shipping can be layered on top of it.
+
+### Phase 8 — Identity provider interoperability
+The next milestone, and what an Okta or Entra tenant exercises during setup.
+Each item below is something a real client calls, so this phase is best built
+against a live developer tenant rather than from the spec alone.
+- [ ] `externalId` on `users` — the attribute IdPs use as their own key for
+      reconciliation. Migration, model, mapper
+- [ ] Discovery endpoints: `/ServiceProviderConfig`, `/ResourceTypes`,
+      `/Schemas`. Static documents that declare exactly what this server
+      supports, so the declaration and the behaviour stay in step
+- [ ] Filtering for `userName eq` and `externalId eq`. A narrow, correct
+      subset covers what clients send before every create; other
+      expressions answer with `invalidFilter`
+- [ ] `PATCH /Users/{id}` for the operations clients actually send, chiefly
+      `replace` on `active` for deprovisioning
+- [ ] Verify end to end against an Okta developer tenant and an Entra
+      tenant, and record the run in the README
+
+### Phase 9 — Change delivery
+How provisioned users reach the application's own data, which is what makes
+this deployable by someone other than its author.
+- [ ] Signed outbound webhooks on every mutation, with retries and a
+      dead-letter path
+- [ ] A `UserStore` interface, with the current Postgres store as the
+      default implementation, so a Go application can back SCIMage with its
+      own schema
+
+### Phase 10 — Multi-tenancy and issued API tokens
+The shape real SCIM service providers ship. It also gives the audit `actor`
+and SAGE's per-caller volume signal something to distinguish.
+
+**Addressing.** Tenant in the path — one host, one certificate, no wildcard
+DNS for self-hosters: `https://<host>/scim/v2/{tenantID}/Users`. That URL is
+what a customer enters as Okta's *Base URL* or Entra's *Tenant URL*.
+
+**Token format.** `scimage_<keyID>_<secret>`. The key ID makes the row
+indexable, since a constant-time comparison needs a single candidate, and the
+secret authenticates. The `scimage_` prefix lets GitHub secret scanning
+recognise a leaked token.
+
+- [ ] Migration: `tenants` and `scim_tokens`; `users` gains `tenant_id`;
+      uniqueness becomes `(tenant_id, lower(user_name))`, so the same
+      `userName` at two customers is two people
+- [ ] Issue 32 bytes from `crypto/rand`, store `sha256(secret)`. SHA-256
+      suits a high-entropy machine-generated secret and keeps bulk
+      provisioning fast; a password KDF is designed for low-entropy human
+      input
+- [ ] Show the full token once at creation
+- [ ] Verification order: parse key ID → look up row → check revoked and
+      expired → constant-time compare the hash → confirm the token's tenant
+      matches the tenant in the URL
+- [ ] Token metadata: label, `created_at`, `created_by`, `last_used_at`,
+      `expires_at`, `revoked_at`
+- [ ] Rotation with overlap: several live tokens per tenant, revoked
+      individually, so a rotation needs no restart
+- [ ] `cmd/scimage-admin`: `tenant create`, `token issue`, `token list`,
+      `token revoke`. A CLI keeps the privileged surface off the network
+- [ ] Every store query scoped by `tenant_id`, with cross-tenant isolation
+      covered by tests. Per-tenant scoping also makes test isolation
+      structural, retiring `-p 1`
+
+### Phase 11 — Groups
+- [ ] `/Groups` resource: create, fetch, list, replace, delete
+- [ ] Membership, including `PATCH` on members
+- [ ] Group tests against the real store
+
+### Phase 12 — SAGE: SCIM Audit & Governance Engine
+This tool reads the audit log and produces a plain-English summary for a
+human reviewer. It surfaces signal, while every authorization and
+provisioning decision stays in deterministic code — AI purely advisory, which
+is the design choice worth explaining in an interview. The name reflects
+that: a sage advises, the code decides.
+- [ ] CLI (`cmd/sage`) that reads the `audit_log` table
 - [ ] Calls an LLM (Claude API) with recent entries to flag patterns
       worth a look: bulk deactivations in a short window, off-hours
       changes, a token spiking in call volume
@@ -147,16 +229,25 @@ an interview. The name reflects that: a sage advises, it doesn't decide.
       minute
 - [ ] README section explaining the advisory-only design
 
-### Phase 9 — Polish and release
-- [ ] README: setup (`docker compose up`, migrations, run server),
-      endpoint table, schema, architecture diagram
-- [ ] `make` targets: `make up`, `make migrate`, `make test`, `make run`
-- [ ] Push to GitHub, tag v0.1.0
+### Phase 13 — Release engineering
+- [x] README: setup, endpoint table, security practices, architecture diagram
+- [x] `make` targets: `make up`, `make migrate`, `make test`, `make run`
+- [ ] `CHANGELOG.md`, `ROADMAP.md`, `SECURITY.md`, `CONTRIBUTING.md`
+- [ ] `/healthz` and `/readyz`, plus graceful shutdown
+- [ ] Published container image and tagged releases via GoReleaser
+- [ ] Okta and Entra setup guides, and a threat model
+- [ ] Tag v1.0.0 once Phase 8 has been verified against a live tenant
 
 ## Time estimate
 Phases 1-2 (Docker + schema): one evening.
 Phases 3-5 (store + endpoints + auth): two evenings.
-Phase 6 (tests): one evening.
+Phase 6 (tests): landed alongside the phases above.
 Phase 7 (security hardening): one evening.
-Phase 8 (SAGE): one evening.
-Phase 9 (polish): under an hour.
+Phase 8 (IdP interoperability): a few evenings, paced by a live tenant.
+Phase 9 (change delivery): several evenings — webhook delivery earns its
+own design pass.
+Phase 10 (multi-tenancy + tokens): a week, touching schema, store, router
+and CLI.
+Phase 11 (Groups): a week.
+Phase 12 (SAGE): one evening.
+Phase 13 (release engineering): spread across the phases above.

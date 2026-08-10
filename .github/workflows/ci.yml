@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # The store and handler tests run against real Postgres, never a mock, so CI
+    # needs the same database docker-compose provides locally. These credentials
+    # belong to an ephemeral service container and are not a secret.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: scimage
+          POSTGRES_PASSWORD: changeme
+          POSTGRES_DB: scimage
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U scimage -d scimage"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    # No DATABASE_URL: store.DSNFromEnv assembles one from these, which is also
+    # what keeps a connection string out of this file.
+    env:
+      POSTGRES_USER: scimage
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: scimage
+      POSTGRES_PORT: 5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "not gofmt-clean:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Apply migrations
+        run: |
+          docker run --rm --network host \
+            --volume "$PWD/migrations:/migrations:ro" \
+            migrate/migrate:v4.18.1 \
+            -path=/migrations \
+            -database "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT}/${POSTGRES_DB}?sslmode=disable" \
+            up
+
+      # -p 1: both test packages write to the same users table — see the Makefile.
+      - name: go test
+        run: go test -p 1 ./...
+
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
