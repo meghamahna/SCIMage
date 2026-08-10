@@ -83,10 +83,10 @@ that approval request is a good one.
 ## When starting a session
 1. Read `IMPLEMENTATION_PLAN.md` to see which phase is next
    (unchecked boxes)
-2. Confirm `docker compose up -d` is running before working on
-   anything that touches the store
-3. Run `go test ./...` before considering a phase done
-4. One-time per clone: `git config core.hooksPath .githooks` — this
-   activates the real git pre-commit hook (secrets scan, `gofmt`,
-   `go vet`, `go test`). It's a local git config, so it doesn't travel
-   with the repo automatically.
+2. Confirm `make up` is running before working on anything that
+   touches the store
+3. Run `make test` before considering a phase done
+4. One-time per clone: `make hooks-install`. This activates the real
+   git pre-commit hook (secrets scan, `gofmt`, `go vet`, `go test`).
+   It sets a local git config, so it doesn't travel with the repo
+   automatically and has to be run again on every fresh clone.
