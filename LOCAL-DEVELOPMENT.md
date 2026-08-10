@@ -97,11 +97,16 @@ a migration you can't reverse is a migration you can't safely deploy.
 
 ## View it
 
-The server listens on `:8080` (override with `SCIM_ADDR`). There is no
-auth yet — bearer tokens land in Phase 5, so don't expose this build.
+The server listens on `:8080` (override with `SCIM_ADDR`). Every request
+needs the bearer token from your `.env` — the server won't start without
+`SCIM_TOKEN` set. Audit logging is still Phase 7, so mutations aren't
+recorded yet.
 
 ```bash
+set -a; source .env; set +a
+
 curl -X POST http://localhost:8080/Users \
+  -H "Authorization: Bearer $SCIM_TOKEN" \
   -H "Content-Type: application/scim+json" \
   -d '{
     "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
@@ -110,7 +115,8 @@ curl -X POST http://localhost:8080/Users \
     "emails": [{"value": "jdoe@example.com", "primary": true}]
   }'
 
-curl "http://localhost:8080/Users?startIndex=1&count=10"
+curl -H "Authorization: Bearer $SCIM_TOKEN" \
+  "http://localhost:8080/Users?startIndex=1&count=10"
 ```
 
 Set `SCIM_BASE_URL` if the server sits behind a proxy — `Location` and

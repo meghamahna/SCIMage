@@ -89,7 +89,15 @@ string. `cmd/server` wires the store to the handler — no auth yet, that's
 Phase 5, so **don't expose this build.**
 
 ### Phase 5 — Auth
-- [ ] Bearer token middleware, token from env var
+- [x] Bearer token middleware, token from env var
+
+`Routes()` applies the middleware itself, and a missing or too-short token
+rejects every request rather than serving openly — hashing both sides means
+an empty token would otherwise match a request carrying no header at all.
+Unknown paths are rejected before routing, so a 404 can't tell an anonymous
+caller which resources exist. Comparison is `subtle.ConstantTimeCompare`
+over SHA-256 digests: comparing raw tokens returns early on a length
+mismatch and would leak the token's length.
 
 ### Phase 6 — Tests
 These landed alongside the code they cover rather than in one late pass — a
@@ -104,7 +112,8 @@ store or handler with no tests against the real database isn't verified.
 ### Phase 7 — Security hardening
 - [ ] Validate every incoming SCIM payload against the expected schema
       before it reaches the DB, with proper SCIM error responses
-- [ ] Use `crypto/subtle.ConstantTimeCompare` for bearer token checks
+- [x] Use `crypto/subtle.ConstantTimeCompare` for bearer token checks
+      (landed with Phase 5)
 - [ ] Structured audit log for every mutating call: actor, action,
       target user id, timestamp, before/after state, written as JSON
       lines. `UpdateUser`/`DeactivateUser` currently return only the

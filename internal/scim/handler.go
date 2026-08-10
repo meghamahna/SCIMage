@@ -24,19 +24,23 @@ const (
 
 type Handler struct {
 	store *store.Store
+	token string
 
 	// externalURL overrides the Host header when set, which matters behind a
 	// TLS-terminating proxy: r.TLS is nil there, so derived links would be http.
 	externalURL string
 }
 
-func NewHandler(s *store.Store) *Handler {
+func NewHandler(s *store.Store, token string) *Handler {
 	return &Handler{
 		store:       s,
+		token:       token,
 		externalURL: strings.TrimSuffix(os.Getenv("SCIM_BASE_URL"), "/"),
 	}
 }
 
+// Routes applies bearer auth itself rather than leaving it to the caller. A
+// missing or too-short token rejects every request rather than serving openly.
 func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /Users", h.create)
@@ -51,7 +55,7 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("/Users/{id}", methodNotAllowed)
 	mux.HandleFunc("/", unknownResource)
 
-	return mux
+	return requireBearer(h.token)(mux)
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
