@@ -74,25 +74,30 @@ not 500s. `ListUsers` clamps to `store.MaxPageSize` (200) — report the
 returned slice length as `itemsPerPage`, not the requested count.
 
 ### Phase 4 — HTTP layer (SCIM endpoints)
-- [ ] `POST /Users` — 201 + Location header on success, 409 on
+- [x] `POST /Users` — 201 + Location header on success, 409 on
       duplicate `userName`
-- [ ] `GET /Users/{id}` — fetch a single user
-- [ ] `GET /Users` — list with pagination via `startIndex` / `count`
-- [ ] `PUT /Users/{id}` — full replace
-- [ ] `DELETE /Users/{id}` — soft delete, sets `active = false`
-- [ ] Map SCIM user JSON to and from `users` table rows in one place
+- [x] `GET /Users/{id}` — fetch a single user
+- [x] `GET /Users` — list with pagination via `startIndex` / `count`
+- [x] `PUT /Users/{id}` — full replace
+- [x] `DELETE /Users/{id}` — soft delete, sets `active = false`
+- [x] Map SCIM user JSON to and from `users` table rows in one place
       (`internal/scim/mapper.go`) to keep the HTTP layer clean
+
+Routing is `net/http`'s method-pattern mux, no framework. Responses are
+`application/scim+json`; errors use the SCIM Error schema with `status` as a
+string. `cmd/server` wires the store to the handler — no auth yet, that's
+Phase 5, so **don't expose this build.**
 
 ### Phase 5 — Auth
 - [ ] Bearer token middleware, token from env var
 
 ### Phase 6 — Tests
-Three of these landed with Phase 3 — a store with no tests against the real
-database isn't verified.
+These landed alongside the code they cover rather than in one late pass — a
+store or handler with no tests against the real database isn't verified.
 - [x] Spin up Postgres for tests via `docker-compose` (`make test`)
 - [x] Integration tests for create/get/update/deactivate against the
       real store
-- [ ] HTTP handler tests via `httptest` — needs Phase 4
+- [x] HTTP handler tests via `httptest` (landed with Phase 4)
 - [x] Duplicate-`userName` conflict test, including the case-variant
       collision — solid interview talking point on constraint handling
 
@@ -102,7 +107,10 @@ database isn't verified.
 - [ ] Use `crypto/subtle.ConstantTimeCompare` for bearer token checks
 - [ ] Structured audit log for every mutating call: actor, action,
       target user id, timestamp, before/after state, written as JSON
-      lines
+      lines. `UpdateUser`/`DeactivateUser` currently return only the
+      after-state, so capturing before/after atomically needs either
+      `UPDATE ... RETURNING` of the old row or a transaction on the
+      store — decide that rather than doing a non-atomic read-then-write
 - [ ] Rate limiting per token (token bucket)
 - [ ] All secrets via env vars, with rotation documented in the README
 - [ ] `govulncheck` as a CI step for dependency scanning

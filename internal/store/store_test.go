@@ -7,9 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
-	"net/url"
-	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -18,39 +15,15 @@ import (
 
 const nonexistentID = "00000000-0000-4000-8000-000000000000"
 
-func dsn(t *testing.T) string {
-	t.Helper()
-
-	if v := os.Getenv("DATABASE_URL"); v != "" {
-		return v
-	}
-
-	user, pass, name := os.Getenv("POSTGRES_USER"), os.Getenv("POSTGRES_PASSWORD"), os.Getenv("POSTGRES_DB")
-	if user == "" || pass == "" || name == "" {
-		t.Skip("no database configured — run `make test`")
-	}
-
-	port := os.Getenv("POSTGRES_PORT")
-	if port == "" {
-		port = "5432"
-	}
-
-	// url.UserPassword percent-encodes, so a password with reserved characters
-	// can't corrupt the DSN.
-	u := url.URL{
-		Scheme:   "postgres",
-		User:     url.UserPassword(user, pass),
-		Host:     net.JoinHostPort("localhost", port),
-		Path:     name,
-		RawQuery: "sslmode=disable",
-	}
-	return u.String()
-}
-
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
 
-	s, err := New(context.Background(), dsn(t))
+	dsn, err := DSNFromEnv()
+	if err != nil {
+		t.Skipf("no database configured — run `make test` (%v)", err)
+	}
+
+	s, err := New(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("connect to test database: %v", err)
 	}

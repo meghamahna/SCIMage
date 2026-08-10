@@ -5,6 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
+	"os"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -37,4 +40,33 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 
 func (s *Store) Close() {
 	s.pool.Close()
+}
+
+// DSNFromEnv prefers DATABASE_URL and otherwise assembles one from the
+// POSTGRES_* variables docker-compose.yml already uses.
+func DSNFromEnv() (string, error) {
+	if v := os.Getenv("DATABASE_URL"); v != "" {
+		return v, nil
+	}
+
+	user, pass, name := os.Getenv("POSTGRES_USER"), os.Getenv("POSTGRES_PASSWORD"), os.Getenv("POSTGRES_DB")
+	if user == "" || pass == "" || name == "" {
+		return "", errors.New("set DATABASE_URL, or POSTGRES_USER, POSTGRES_PASSWORD and POSTGRES_DB")
+	}
+
+	port := os.Getenv("POSTGRES_PORT")
+	if port == "" {
+		port = "5432"
+	}
+
+	// url.UserPassword percent-encodes, so reserved characters in the password
+	// can't corrupt the DSN.
+	u := url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(user, pass),
+		Host:     net.JoinHostPort("localhost", port),
+		Path:     name,
+		RawQuery: "sslmode=disable",
+	}
+	return u.String(), nil
 }
