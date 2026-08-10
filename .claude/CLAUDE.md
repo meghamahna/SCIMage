@@ -52,18 +52,17 @@ docker-compose.yml
   around it.
 
 ## Keep the focus on the project, not the harness
-The hooks, scripts, and `.claude/` config are scaffolding. They exist
-to protect the actual deliverable — the SCIM server — and they are not
-themselves the work. Do not spend session time tuning, refactoring, or
-polishing them.
+The hooks, scripts, and `.claude/` config are scaffolding, not the
+work. When one gets in the way, make the smallest fix that unblocks
+the task, confirm it didn't weaken the check, and get back to the
+phase. If it needs more than that, say so and ask. Raise harness-only
+review nits as a note rather than acting on them.
 
-When a hook gets in the way: make the smallest fix that unblocks the
-real task, confirm it didn't weaken the check it was there to make,
-and move straight back to the phase you're on. If a hook problem looks
-like it needs more than a quick fix, say so and ask rather than
-disappearing into it. Same for reviewer findings — fix what's wrong in
-the project code, and raise harness-only nits as a note instead of
-acting on them.
+## Comments and docs
+Keep them short. Explain *why* where it isn't obvious — a schema
+choice, a spec requirement, a non-obvious failure mode. Don't narrate
+what the code already says, and don't write a paragraph where a line
+does.
 
 ## AI usage in this project
 The only AI component is `cmd/sage` — **SAGE: SCIM Audit & Governance

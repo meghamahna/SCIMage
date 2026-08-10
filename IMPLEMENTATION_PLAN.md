@@ -50,26 +50,28 @@ README.md
   );
   CREATE UNIQUE INDEX idx_users_user_name_lower ON users (lower(user_name));
   ```
-  Two deliberate changes from the SQL originally sketched here: `userName`
-  is `caseExact=false` in RFC 7643 §4.1, so uniqueness has to be enforced
-  on `lower(user_name)` or `bjensen` and `BJensen` both insert — which
-  would make the Phase 4 409 and the Phase 6 conflict test meaningless.
-  That unique index also serves lookups, so the separate
-  `CREATE INDEX idx_users_user_name` alongside a column-level `UNIQUE`
-  would have been a second btree on the same column for no benefit.
-- [x] Apply migration on container startup via a make target
-      (`make up` chains into `make migrate` once Postgres is accepting
-      connections; `scripts/migrate.sh` needs no host-installed
-      `migrate` binary)
+  Changed from the SQL originally sketched here: `userName` is
+  `caseExact=false` (RFC 7643 §4.1), so uniqueness goes on
+  `lower(user_name)` — otherwise `bjensen` and `BJensen` both insert and
+  the Phase 4 409 means nothing. That index also serves lookups, so the
+  separate `CREATE INDEX` alongside a column `UNIQUE` was redundant.
+- [x] Apply migration on container startup via a make target — `make up`
+      chains into `make migrate`; no host `migrate` binary needed
 
 ### Phase 3 — Store layer
-- [ ] Implement `internal/store` with plain SQL:
+- [x] Implement `internal/store` with plain SQL:
   - `CreateUser`
   - `GetUser(id)`
-  - `ListUsers(limit, offset)`
+  - `ListUsers(limit, offset)` — also returns the total row count, which
+    SCIM's `ListResponse` needs for `totalResults`
   - `UpdateUser(id, ...)`
   - `DeactivateUser(id)` — sets `active = false`, preserving history
-- [ ] Use a connection pool (`pgxpool`)
+- [x] Use a connection pool (`pgxpool`)
+
+For Phase 4: `ErrNotFound` and `ErrDuplicateUserName` map to 404 and 409,
+and a malformed id returns `ErrNotFound` so junk path parameters are 404s,
+not 500s. `ListUsers` clamps to `store.MaxPageSize` (200) — report the
+returned slice length as `itemsPerPage`, not the requested count.
 
 ### Phase 4 — HTTP layer (SCIM endpoints)
 - [ ] `POST /Users` — 201 + Location header on success, 409 on
@@ -85,12 +87,14 @@ README.md
 - [ ] Bearer token middleware, token from env var
 
 ### Phase 6 — Tests
-- [ ] Spin up Postgres for tests via `docker-compose`
-- [ ] Integration tests for create/get/update/deactivate against the
+Three of these landed with Phase 3 — a store with no tests against the real
+database isn't verified.
+- [x] Spin up Postgres for tests via `docker-compose` (`make test`)
+- [x] Integration tests for create/get/update/deactivate against the
       real store
-- [ ] HTTP handler tests via `httptest`
-- [ ] Duplicate-`userName` conflict test — solid interview talking
-      point on constraint handling
+- [ ] HTTP handler tests via `httptest` — needs Phase 4
+- [x] Duplicate-`userName` conflict test, including the case-variant
+      collision — solid interview talking point on constraint handling
 
 ### Phase 7 — Security hardening
 - [ ] Validate every incoming SCIM payload against the expected schema

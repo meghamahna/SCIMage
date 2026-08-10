@@ -1,18 +1,15 @@
 #!/usr/bin/env bash
-# Runs golang-migrate against the Postgres started by docker-compose.
-# Invoked by `make migrate`, `make migrate-down`, `make migrate-version`.
+# Runs golang-migrate against the compose Postgres. Use via `make migrate`.
 #
-#   scripts/migrate.sh [migrate args...]     (defaults to: up)
+#   scripts/with-env.sh scripts/migrate.sh [args...]   (defaults to: up)
 #
-# The connection string is never written to disk: it is assembled here at
-# runtime from the environment (.env, which is gitignored). It is still passed
-# in argv, so it is visible in `ps` while the command runs — acceptable for a
-# local dev database, and golang-migrate's CLI offers no env-var alternative
-# to -database.
+# Expects POSTGRES_* in the environment; with-env.sh is the one place .env gets
+# loaded. The DSN is assembled at runtime, never written to disk — argv is
+# visible in `ps`, which is acceptable for a local dev database and is all
+# golang-migrate's CLI offers.
 #
-# If a `migrate` binary is on PATH it is used directly; otherwise the official
-# migrate/migrate image is run on the compose network, so a fresh clone needs
-# nothing beyond Docker.
+# Falls back to the migrate/migrate image when no host binary is installed, so
+# a fresh clone needs nothing beyond Docker.
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -20,18 +17,6 @@ cd "$repo_root"
 
 MIGRATE_IMAGE=${MIGRATE_IMAGE:-migrate/migrate:v4.18.1}
 service=postgres
-
-if [[ -f .env ]]; then
-  # An already-exported shell variable wins over .env, matching how docker
-  # compose resolves the same names — otherwise `POSTGRES_DB=x make up` would
-  # start one database and migrate a different one.
-  preset=$(export -p)
-  set -a
-  # shellcheck disable=SC1091
-  source .env
-  set +a
-  eval "$preset"
-fi
 
 for var in POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB; do
   if [[ -z "${!var:-}" ]]; then
@@ -45,8 +30,7 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
-# Percent-encode the credentials so a password containing URL-reserved
-# characters (@ : / ?) doesn't silently corrupt the DSN.
+# Percent-encode so a password with URL-reserved characters can't corrupt the DSN.
 urlenc() { jq -rn --arg s "$1" '$s|@uri'; }
 user_enc=$(urlenc "$POSTGRES_USER")
 pass_enc=$(urlenc "$POSTGRES_PASSWORD")
@@ -55,9 +39,8 @@ db_enc=$(urlenc "$POSTGRES_DB")
 args=("$@")
 [[ ${#args[@]} -eq 0 ]] && args=(up)
 
-# `docker compose up -d` returns as soon as the container starts, which is
-# before Postgres accepts connections — wait it out so this is safe to chain
-# straight off `make up`.
+# `docker compose up -d` returns before Postgres accepts connections, so this
+# is safe to chain straight off `make up`.
 wait_for_postgres() {
   local cid=$1 i
   for ((i = 0; i < 60; i++)); do
@@ -88,9 +71,8 @@ if command -v migrate >/dev/null 2>&1; then
   exec migrate -path migrations -database "$dsn" "${args[@]}"
 fi
 
-# No host binary — run the CLI in a container attached to the same network as
-# Postgres, where the service name resolves and the port is always 5432
-# regardless of what POSTGRES_PORT publishes on the host.
+# On the compose network the service name resolves and the port is always 5432,
+# whatever POSTGRES_PORT publishes on the host.
 network=$(docker inspect -f '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}}{{"\n"}}{{end}}' "$cid" | head -n1)
 if [[ -z "$network" ]]; then
   echo "migrate: could not determine the compose network for '$service'" >&2
