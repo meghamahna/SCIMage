@@ -78,11 +78,11 @@ make migrate-down            # roll back the most recent migration
 make migrate-version         # which version the database is on
 ```
 
-You don't need `migrate` installed. [`scripts/migrate.sh`](scripts/migrate.sh)
+[`scripts/migrate.sh`](scripts/migrate.sh)
 uses a host binary if you have one and otherwise runs the official
 `migrate/migrate` image on the compose network. Either way the
-connection string is assembled at runtime from `.env` — it's never
-written to disk.
+connection string is assembled at runtime from `.env` and passed straight
+to the CLI.
 
 To add a migration, create the next numbered pair by hand:
 
@@ -91,16 +91,15 @@ migrations/000002_<description>.up.sql
 migrations/000002_<description>.down.sql
 ```
 
-Always write the `down` half, and test the round trip
-(`make migrate && make migrate-down && make migrate`) before committing —
-a migration you can't reverse is a migration you can't safely deploy.
+Write the `down` half alongside it, and test the round trip
+(`make migrate && make migrate-down && make migrate`) before committing, so
+the migration is safe to reverse in a deployment.
 
 ## View it
 
 The server listens on `:8080` (override with `SCIM_ADDR`). Every request
-needs the bearer token from your `.env` — the server won't start without
-`SCIM_TOKEN` set. Audit logging is still Phase 7, so mutations aren't
-recorded yet.
+carries the bearer token from your `.env`, which the server validates at
+startup.
 
 ```bash
 set -a; source .env; set +a
@@ -119,14 +118,22 @@ curl -H "Authorization: Bearer $SCIM_TOKEN" \
   "http://localhost:8080/Users?startIndex=1&count=10"
 ```
 
-Set `SCIM_BASE_URL` if the server sits behind a proxy — `Location` and
-`meta.location` are derived from the `Host` header otherwise, which is
-client-controlled and reports `http` behind TLS termination.
+Set `SCIM_BASE_URL` when running behind a proxy, so `Location` and
+`meta.location` use your external URL and scheme. Left unset, they derive
+from the request's `Host` header, which suits local development.
+
+Every create, replace and deactivate writes a row to `audit_log` in the same
+transaction as the change:
+
+```bash
+docker compose exec postgres psql -U scimage -d scimage -c \
+  "SELECT at, actor_token, action, result, target_id FROM audit_log ORDER BY at DESC LIMIT 10;"
+```
 
 ## Run tests
 
 ```bash
-make up      # the store tests need a running Postgres
+make up      # the integration tests use a real Postgres
 make test
 ```
 
@@ -137,10 +144,9 @@ after themselves. They skip when no database is configured, so a plain
 ## Troubleshooting
 
 **`password authentication failed for user "scimage"`** after editing
-`POSTGRES_PASSWORD` in `.env` — Postgres only applies that variable
-when it initializes a *fresh* data volume. Editing `.env` after the
-container already exists doesn't change the live database user's
-password. Either:
+`POSTGRES_PASSWORD` in `.env` — Postgres applies that variable when it
+initializes a *fresh* data volume, so an existing container keeps the
+password it was created with. Two ways forward:
 
 - sync the running instance to match your new `.env` value:
 
