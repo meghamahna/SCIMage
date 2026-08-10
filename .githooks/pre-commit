@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Real git pre-commit hook — runs regardless of which tool or editor made the
+# commit, unlike the Claude Code hooks in .claude/hooks/ which only apply
+# when Claude itself runs `git commit`. Install once with:
+#   git config core.hooksPath .githooks
+set -euo pipefail
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+fail=0
+
+echo "pre-commit: checking staged diff for secrets..."
+if ! reason=$(scripts/check-staged-secrets.sh); then
+  echo "pre-commit: BLOCKED — $reason" >&2
+  fail=1
+fi
+
+if command -v go >/dev/null 2>&1; then
+  staged_go_files=$(git diff --cached --name-only --diff-filter=ACM -- '*.go' || true)
+
+  if [[ -n "$staged_go_files" ]]; then
+    echo "pre-commit: checking gofmt..."
+    unformatted=$(gofmt -l $staged_go_files 2>/dev/null || true)
+    if [[ -n "$unformatted" ]]; then
+      echo "pre-commit: BLOCKED — these files are not gofmt-clean:" >&2
+      echo "$unformatted" >&2
+      echo "pre-commit: run: gofmt -w $unformatted" >&2
+      fail=1
+    fi
+
+    if command -v goimports >/dev/null 2>&1; then
+      unimported=$(goimports -l $staged_go_files 2>/dev/null || true)
+      if [[ -n "$unimported" ]]; then
+        echo "pre-commit: BLOCKED — these files need goimports:" >&2
+        echo "$unimported" >&2
+        fail=1
+      fi
+    fi
+
+    echo "pre-commit: running go vet..."
+    if ! go vet ./... 2>&1; then
+      echo "pre-commit: BLOCKED — go vet failed" >&2
+      fail=1
+    fi
+
+    echo "pre-commit: running go test..."
+    if ! go test ./... 2>&1; then
+      echo "pre-commit: BLOCKED — go test failed" >&2
+      fail=1
+    fi
+  fi
+else
+  echo "pre-commit: go not found on PATH — skipping gofmt/vet/test (secrets check still ran)" >&2
+fi
+
+if [[ "$fail" -ne 0 ]]; then
+  echo "pre-commit: one or more checks failed. Fix the issues above, or in a genuine emergency use 'git commit --no-verify' (and explain why in the commit message)." >&2
+  exit 1
+fi
+
+echo "pre-commit: all checks passed."
+exit 0

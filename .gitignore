@@ -1,0 +1,33 @@
+# Secrets — never commit. See CLAUDE.md: all secrets come from the environment at runtime.
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+*.pem
+*.key
+id_rsa
+id_ed25519
+credentials.json
+secrets.yaml
+secrets.yml
+.netrc
+
+# Go build artifacts
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+*.prof
+coverage.out
+go.work
+go.work.sum
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Personal Claude Code overrides — never shared
+.claude/settings.local.json
