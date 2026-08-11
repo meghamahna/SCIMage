@@ -46,10 +46,10 @@ flowchart LR
     ROUTER -->|GET /Users, /Users/:id| READ[List / Fetch]
     ROUTER -->|PUT /Users/:id| UPDATE[Replace]
     ROUTER -->|DELETE /Users/:id| DEACTIVATE[Deactivate]
-    CREATE --> TX[(Postgres: users + audit_log<br/>one transaction)]
+    CREATE --> TX[("Postgres — users + audit_log<br/>written in one transaction")]
     UPDATE --> TX
     DEACTIVATE --> TX
-    READ --> DB[(Postgres: users)]
+    READ --> DB[("Postgres — users")]
 ```
 
 The request path is deliberately plain: auth middleware checks the bearer token, the rate limiter admits the request, the router dispatches to a handler, the handler validates the payload and maps it to a Postgres row. Postgres is the single source of truth. Standard library `net/http` and raw SQL keep the behaviour visible in the code.
