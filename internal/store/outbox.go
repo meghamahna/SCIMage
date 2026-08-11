@@ -46,9 +46,9 @@ func changeEventType(before, after *User) string {
 }
 
 const (
-	DeliveryPending   = "pending"
-	DeliveryDelivered = "delivered"
-	DeliveryDead      = "dead"
+	DeliveryPending    = "pending"
+	DeliveryDelivered  = "delivered"
+	DeliveryDeadLetter = "dead_letter"
 )
 
 // Delivery is one queued event, as the dispatcher sees it.
@@ -185,7 +185,7 @@ func (s *Store) DeadLetterDelivery(ctx context.Context, id int64, cause string) 
 	const q = `UPDATE webhook_deliveries SET status = $2, last_error = $3
 	           WHERE id = $1 AND status = $4`
 
-	return s.updateDelivery(ctx, q, "dead-letter delivery", id, DeliveryDead, truncateCause(cause), DeliveryPending)
+	return s.updateDelivery(ctx, q, "dead-letter delivery", id, DeliveryDeadLetter, truncateCause(cause), DeliveryPending)
 }
 
 // A missing row is an error rather than a silent no-op: the dispatcher only
@@ -214,7 +214,7 @@ func (s *Store) DeadLetters(ctx context.Context, limit int) ([]Delivery, error) 
 	           ORDER BY created_at DESC, id DESC
 	           LIMIT $2`
 
-	rows, err := s.pool.Query(ctx, q, DeliveryDead, limit)
+	rows, err := s.pool.Query(ctx, q, DeliveryDeadLetter, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list dead letters: %w", err)
 	}

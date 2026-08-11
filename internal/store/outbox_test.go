@@ -435,8 +435,8 @@ func TestDeadLetteredDeliveriesStayReadable(t *testing.T) {
 	}
 
 	status, _, _, lastError := deliveryStatus(t, s, queued.ID)
-	if status != DeliveryDead {
-		t.Errorf("status = %q, want %q", status, DeliveryDead)
+	if status != DeliveryDeadLetter {
+		t.Errorf("status = %q, want %q", status, DeliveryDeadLetter)
 	}
 	if lastError == nil || *lastError != "receiver returned 400 Bad Request" {
 		t.Errorf("last_error = %v, want the cause", lastError)

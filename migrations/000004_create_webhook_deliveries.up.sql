@@ -15,7 +15,7 @@ CREATE TABLE webhook_deliveries (
     target_id       UUID,
     payload         JSONB NOT NULL,
 
-    -- pending -> delivered, or pending -> dead once the attempts run out.
+    -- pending -> delivered, or pending -> dead_letter once the attempts run out.
     status          TEXT NOT NULL DEFAULT 'pending',
     attempts        INT NOT NULL DEFAULT 0,
 
@@ -27,7 +27,7 @@ CREATE TABLE webhook_deliveries (
     last_error      TEXT,
     delivered_at    TIMESTAMPTZ,
 
-    CONSTRAINT webhook_deliveries_status CHECK (status IN ('pending', 'delivered', 'dead'))
+    CONSTRAINT webhook_deliveries_status CHECK (status IN ('pending', 'delivered', 'dead_letter'))
 );
 
 -- The dispatcher's only hot query: due and still pending. Partial, so delivered
@@ -37,6 +37,6 @@ CREATE INDEX idx_webhook_deliveries_due
     WHERE status = 'pending';
 
 -- Reviewing the dead-letter queue is the other question worth answering fast.
-CREATE INDEX idx_webhook_deliveries_dead
+CREATE INDEX idx_webhook_deliveries_dead_letter
     ON webhook_deliveries (created_at DESC)
-    WHERE status = 'dead';
+    WHERE status = 'dead_letter';
