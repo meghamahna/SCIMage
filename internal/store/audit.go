@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -81,7 +81,8 @@ func insertAudit(ctx context.Context, q querier, rec AuditRecord, action, target
 // A failure here can't roll anything back, so it is logged and swallowed.
 func (s *Store) auditRefusal(ctx context.Context, rec AuditRecord, action, targetID, detail string) {
 	if err := insertAudit(ctx, s.pool, rec, action, targetID, ResultDenied, detail, nil, nil); err != nil {
-		log.Printf("store: could not record refused %s on %q: %v", action, targetID, err)
+		slog.Error("could not record a refused mutation",
+			"action", action, "target_id", targetID, "error", err)
 	}
 }
 

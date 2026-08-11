@@ -108,7 +108,7 @@ func allUsers(t *testing.T, s *Store) ([]User, int) {
 	total := 0
 
 	for offset := 0; ; offset += 50 {
-		page, pageTotal, err := s.ListUsers(context.Background(), 50, offset)
+		page, pageTotal, err := s.ListUsers(context.Background(), 50, offset, UserFilter{})
 		if err != nil {
 			t.Fatalf("ListUsers(50, %d): %v", offset, err)
 		}
@@ -249,7 +249,7 @@ func TestListUsers(t *testing.T) {
 
 	// Total counts every row in the shared database, so assertions are relative
 	// to what was already there.
-	_, before, err := s.ListUsers(ctx, 1, 0)
+	_, before, err := s.ListUsers(ctx, 1, 0, UserFilter{})
 	if err != nil {
 		t.Fatalf("ListUsers baseline: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestListUsers(t *testing.T) {
 	}
 
 	t.Run("total reflects every row", func(t *testing.T) {
-		_, total, err := s.ListUsers(ctx, 1, 0)
+		_, total, err := s.ListUsers(ctx, 1, 0, UserFilter{})
 		if err != nil {
 			t.Fatalf("ListUsers: %v", err)
 		}
@@ -270,7 +270,7 @@ func TestListUsers(t *testing.T) {
 	})
 
 	t.Run("limit caps the page", func(t *testing.T) {
-		users, _, err := s.ListUsers(ctx, 2, 0)
+		users, _, err := s.ListUsers(ctx, 2, 0, UserFilter{})
 		if err != nil {
 			t.Fatalf("ListUsers: %v", err)
 		}
@@ -360,7 +360,7 @@ func TestListUsers(t *testing.T) {
 	})
 
 	t.Run("offset past the end keeps the total", func(t *testing.T) {
-		users, total, err := s.ListUsers(ctx, 10, before+created+10)
+		users, total, err := s.ListUsers(ctx, 10, before+created+10, UserFilter{})
 		if err != nil {
 			t.Fatalf("ListUsers: %v", err)
 		}
@@ -373,7 +373,7 @@ func TestListUsers(t *testing.T) {
 	})
 
 	t.Run("rejects a negative limit", func(t *testing.T) {
-		if _, _, err := s.ListUsers(ctx, -1, 0); err == nil {
+		if _, _, err := s.ListUsers(ctx, -1, 0, UserFilter{}); err == nil {
 			t.Error("expected an error for a negative limit, got nil")
 		}
 	})
@@ -385,7 +385,7 @@ func TestListUsers(t *testing.T) {
 		}
 		createUsersSharingTimestamp(t, s, ids)
 
-		users, _, err := s.ListUsers(ctx, MaxPageSize*100, 0)
+		users, _, err := s.ListUsers(ctx, MaxPageSize*100, 0, UserFilter{})
 		if err != nil {
 			t.Fatalf("ListUsers: %v", err)
 		}

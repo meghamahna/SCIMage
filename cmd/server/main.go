@@ -2,22 +2,30 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"time"
 
+	"github.com/meghamahna/SCIMage/internal/logging"
 	"github.com/meghamahna/SCIMage/internal/scim"
 	"github.com/meghamahna/SCIMage/internal/store"
 )
 
 func main() {
 	if err := run(); err != nil {
-		log.Fatalf("server: %v", err)
+		slog.Error("server stopped", "error", err)
+		os.Exit(1)
 	}
 }
 
 func run() error {
+	closeLogs, err := logging.Setup()
+	if err != nil {
+		return err
+	}
+	defer closeLogs.Close()
+
 	token, err := scim.TokenFromEnv()
 	if err != nil {
 		return err
@@ -45,6 +53,6 @@ func run() error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	log.Printf("listening on %s", addr)
+	slog.Info("listening", "addr", addr)
 	return srv.ListenAndServe()
 }

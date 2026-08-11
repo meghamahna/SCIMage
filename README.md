@@ -29,7 +29,12 @@ SCIMage is the *service provider* side of SCIM — the endpoint an identity prov
 | GET    | `/Users/{id}` | Fetches one user                                                                |
 | GET    | `/Users`      | Lists users, paginated with `startIndex` and `count`                            |
 | PUT    | `/Users/{id}` | Replaces a user's attributes                                                    |
+| PATCH  | `/Users/{id}` | Applies operations to a user — how identity providers deprovision               |
 | DELETE | `/Users/{id}` | Deactivates a user, preserving the row and its history                          |
+
+Plus the discovery endpoints a client reads before provisioning — `/ServiceProviderConfig`, `/ResourceTypes` and `/Schemas` — which declare exactly the attributes this server stores.
+
+`GET /Users` supports `filter=userName eq "…"` and `filter=externalId eq "…"`, the lookups a provider uses to decide whether a user already exists. Other expressions answer `400` with `scimType: invalidFilter`, so a client is told plainly rather than handed an unfiltered list that would read as a match.
 
 Responses use `application/scim+json`, and errors use the SCIM Error schema with the appropriate `scimType`.
 
@@ -42,14 +47,17 @@ flowchart LR
     IDP[Identity provider] -->|SCIM request, Bearer token| AUTH[Auth middleware]
     AUTH --> RL[Rate limiter]
     RL --> ROUTER{Router}
+    ROUTER -->|GET /ServiceProviderConfig, /Schemas, /ResourceTypes| DISCOVERY[Discovery]
     ROUTER -->|POST /Users| CREATE[Create]
-    ROUTER -->|GET /Users, /Users/:id| READ[List / Fetch]
+    ROUTER -->|GET /Users, /Users/:id| READ[List / Fetch / Filter]
     ROUTER -->|PUT /Users/:id| UPDATE[Replace]
+    ROUTER -->|PATCH /Users/:id| PATCHOP[Patch]
     ROUTER -->|DELETE /Users/:id| DEACTIVATE[Deactivate]
-    CREATE --> TX[(Postgres: users + audit_log<br/>one transaction)]
+    CREATE --> TX[("Postgres — users + audit_log<br/>written in one transaction")]
     UPDATE --> TX
+    PATCHOP --> TX
     DEACTIVATE --> TX
-    READ --> DB[(Postgres: users)]
+    READ --> DB[("Postgres — users")]
 ```
 
 The request path is deliberately plain: auth middleware checks the bearer token, the rate limiter admits the request, the router dispatches to a handler, the handler validates the payload and maps it to a Postgres row. Postgres is the single source of truth. Standard library `net/http` and raw SQL keep the behaviour visible in the code.
@@ -74,8 +82,31 @@ These are load-bearing, and each one is covered by tests:
 | `SCIM_ADDR`                           | Listen address. Defaults to `:8080`.                                                    |
 | `SCIM_BASE_URL`                       | External base URL, used for `Location` and `meta.location` when running behind a proxy. |
 | `SCIM_RATE_LIMIT` / `SCIM_RATE_BURST` | Token bucket, in requests per second. Defaults to 20/40.                                |
+| `LOG_DIR`                             | Directory for dated log files. Defaults to `logs/`; set it empty for stdout only.       |
+| `LOG_LEVEL`                           | `debug`, `info`, `warn` or `error`. Defaults to `info`.                                 |
+| `SCIM_LOG_REQUESTS`                   | Set to `1` to record request bodies, which include user attributes. Off by default.     |
 
 Generate a token with `openssl rand -hex 32`. The server requires at least 16 characters.
+
+### Logs
+
+Operational logs are structured JSON with RFC 3339 timestamps, written to
+stdout and to a dated file under `logs/`:
+
+```json
+{"time":"2026-08-11T04:17:05.34Z","level":"INFO","msg":"request","method":"PATCH","path":"/Users/5f6e3041","status":200}
+```
+
+One file per day keeps a long-running process from producing a single unbounded
+file. In a container, set `LOG_DIR=` (empty) and let the runtime collect stdout.
+
+`SCIM_LOG_REQUESTS=1` adds the full request body to each entry, which is how a
+client's actual behaviour gets diagnosed. Those entries contain user attributes,
+so the log directory is created `0700`, files `0600`, and `logs/` and `*.log`
+are gitignored.
+
+These are operational logs. The audit trail is separate and lives in the
+`audit_log` table, because a change and its record have to commit together.
 
 ### Rotating the token
 
@@ -132,8 +163,7 @@ Store and handler tests run against a real Postgres instance via `docker-compose
 
 Tracked in detail in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
 
-- **Identity provider interoperability** *(next)* — the discovery endpoints (`/ServiceProviderConfig`, `/Schemas`, `/ResourceTypes`), `externalId` storage, `userName` and `externalId` filtering, and `PATCH` operations. This is what an Okta or Entra tenant exercises during setup, so it's built and verified against a live developer tenant.
-- **Change delivery** — signed outbound webhooks with retries, and a `UserStore` interface, so provisioned users flow into an application's own schema.
+- **Change delivery** *(next)* — signed outbound webhooks with retries, and a `UserStore` interface, so provisioned users flow into an application's own schema.
 - **Multi-tenancy with issued API tokens** — per-tenant SCIM URLs, tokens stored as hashes and shown once at creation, revocation, and overlap-window rotation that needs no restart.
 - **`/Groups`** — group resources and membership.
 - **SAGE: SCIM Audit & Governance Engine** — a companion CLI (`cmd/sage`) that reads the audit trail and writes a plain-English summary of what merits a human's attention: bulk deactivations in a short window, off-hours changes, or a caller's volume rising sharply. SAGE is advisory by design: it surfaces signal, while every create, replace and deactivate stays in deterministic Go code. A sage advises; the code decides.

@@ -24,6 +24,10 @@ coverage.out
 go.work
 go.work.sum
 
+# Logs — request logging records user attributes, so these never get committed
+/logs/
+*.log
+
 # Editor / OS
 .DS_Store
 .vscode/
