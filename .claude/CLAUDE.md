@@ -7,7 +7,7 @@ to demonstrate real backend engineering skill for a Go/identity role —
 correctness, testing, and security practices all matter more than
 feature breadth.
 
-Full build plan lives in `IMPLEMENTATION_PLAN.md`. Work through it in
+Full build plan lives in `docs/IMPLEMENTATION_PLAN.md`. Work through it in
 phase order. When a phase is complete, check its boxes off in that
 file before moving to the next phase.
 
@@ -103,7 +103,7 @@ for your approval regardless — the subagent's job is to make sure
 that approval request is a good one.
 
 ## When starting a session
-1. Read `IMPLEMENTATION_PLAN.md` to see which phase is next
+1. Read `docs/IMPLEMENTATION_PLAN.md` to see which phase is next
    (unchecked boxes)
 2. Confirm `make up` is running before working on anything that
    touches the store

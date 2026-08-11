@@ -313,45 +313,32 @@ func TestBackoffGrowsAndIsCapped(t *testing.T) {
 	}
 }
 
-// A batch is sent sequentially, so its lease has to cover the whole batch. If
-// it only covered one delivery, the rows queued behind the current send would
-// come due again mid-batch: a second dispatcher would double-POST them, and
-// because the attempt is counted at claim time, each delivery would burn two
-// attempts per real retry and dead-letter at half its configured budget.
-func TestClaimLeaseCoversTheWholeBatch(t *testing.T) {
-	cfg := testConfig("https://receiver.example/hook")
-	cfg.Batch = 20
-	cfg.Timeout = 10 * time.Second
-	cfg.Poll = 5 * time.Second
-
-	d := New(newFakeQueue(), cfg)
-
-	// The worst case a claim has to survive: every row in the batch taking the
-	// full request timeout.
-	if want := cfg.Poll + time.Duration(cfg.Batch)*cfg.Timeout; d.leaseFor() != want {
-		t.Errorf("leaseFor() = %v, want %v", d.leaseFor(), want)
-	}
-	if d.leaseFor() <= time.Duration(cfg.Batch)*cfg.Timeout {
-		t.Errorf("leaseFor() = %v, shorter than the batch it covers", d.leaseFor())
-	}
-}
-
-// The lease the dispatcher actually asks for is the one it computed.
-func TestDrainClaimsWithTheBatchLease(t *testing.T) {
+// A batch is sent sequentially, so the lease a claim takes has to outlast the
+// whole batch. A lease covering one send would let the rows queued behind the
+// current attempt come due mid-batch: a second dispatcher would deliver them
+// again and, since the attempt is counted at claim time, each row would spend
+// its retry budget at double rate.
+func TestClaimLeaseOutlastsTheWholeBatch(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer srv.Close()
 
+	cfg := testConfig(srv.URL)
+	cfg.Batch = 20
+	cfg.Timeout = 10 * time.Second
+
 	q := newFakeQueue(delivery(1, 1))
-	d := newDispatcher(t, q, srv.URL)
+	d := New(q, cfg)
 
 	if err := d.drain(context.Background()); err != nil {
 		t.Fatalf("drain: %v", err)
 	}
 
-	if q.lease != d.leaseFor() {
-		t.Errorf("claimed with a lease of %v, want %v", q.lease, d.leaseFor())
+	// The worst case a claim has to survive: every row taking the full timeout.
+	worstCase := time.Duration(cfg.Batch) * cfg.Timeout
+	if q.lease <= worstCase {
+		t.Errorf("claimed with a lease of %v, want longer than the %v a full batch can take", q.lease, worstCase)
 	}
 }
 

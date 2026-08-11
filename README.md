@@ -2,7 +2,7 @@
 
 # 🛡️ SCIMage
 
-### A SCIM 2.0 provisioning server, built from the other side of the wire
+### A SCIM 2.0 provisioning server that tells your app what changed
 
 ![Go](https://img.shields.io/badge/Go-00ADD8?style=flat&logo=go&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/Postgres-16-4169E1?style=flat&logo=postgresql&logoColor=white)
@@ -65,7 +65,7 @@ flowchart LR
 
 The request path is deliberately plain: auth middleware checks the bearer token, the rate limiter admits the request, the router dispatches to a handler, the handler validates the payload and maps it to a Postgres row. Postgres is the single source of truth. Standard library `net/http` and raw SQL keep the behaviour visible in the code.
 
-The handler depends on a `UserStore` interface. The bundled Postgres store is the default implementation, and an application with its own user table can supply another. An implementation carries two obligations: write the audit entry in the change's own transaction, and return a non-nil result alongside a nil error.
+The handler depends on a `UserStore` interface, so an application with its own user table can supply an implementation and skip webhooks entirely. [Architecture](docs/ARCHITECTURE.md) covers the request path, the storage model and that interface's contract in full.
 
 ## 📤 Change delivery
 
@@ -73,11 +73,9 @@ Provisioning pays off once the change reaches the system that needs it. Every mu
 
 **The queue shares the mutation's commit.** The outbound event is written to a `webhook_deliveries` row inside the same transaction as the change and its audit entry, so a committed change is always queued and a rolled-back one leaves the queue as it was.
 
-**Delivery is at-least-once, with a dead-letter path.** A dispatcher claims due rows with `FOR UPDATE SKIP LOCKED`, counting the attempt and extending a lease in one statement, so concurrent dispatchers take disjoint sets and an interrupted dispatcher's rows return once the lease expires. The lease spans the whole batch, matching the sequential send.
+**Delivery is at-least-once, with a dead-letter path.** Failures retry on a doubling backoff, and a receiver that rejects a payload outright parks it for review rather than retrying into the same answer.
 
-Failures retry on a doubling backoff with jitter. A `4xx` other than `408`/`429` parks immediately, since the receiver has already given its verdict. Parked rows keep their payload and last error for review; replay arrives with the admin CLI in Phase 10. Requests reach the configured endpoint only — a `3xx` is reported for the operator to resolve, keeping a signed payload of user attributes on its intended host.
-
-**Requests are signed with HMAC-SHA256** over the timestamp, delivery id, event type and body. Signing the timestamp lets a receiver enforce freshness. Signing the delivery id and event type keeps the deduplication key and the routing header authentic, so a receiver can trust both on sight.
+**Requests are signed with HMAC-SHA256** over the timestamp, delivery id, event type and body — so a receiver can enforce freshness and trust its deduplication key and routing header.
 
 ```http
 POST /scim-events HTTP/1.1
@@ -91,9 +89,7 @@ Content-Type: application/json
 
 Events name what happened to the user. A user moving from active to inactive emits `user.deactivated` whether the provider sent `DELETE` or `PATCH active:false`. Both images travel with the event, so a receiver reconciling its own copy sees the transition itself.
 
-Retries are independent, so events for one user can arrive in any order. `occurredAt` carries the database clock: apply idempotently and prefer the newest `occurredAt` per user. `webhook.Verify` is exported for Go receivers and compares with `hmac.Equal`.
-
-Set `SCIM_WEBHOOK_URL` to turn change delivery on. The store queues events while a dispatcher drains them.
+Set `SCIM_WEBHOOK_URL` to turn change delivery on. [Architecture](docs/ARCHITECTURE.md#change-delivery) covers the outbox, claim leases, retry rules and the signing scheme; `webhook.Verify` is exported for Go receivers.
 
 ## 🔒 Security practices
 
@@ -107,46 +103,9 @@ These are load-bearing, and each one is covered by tests:
 - **Rate limiting per caller.** A token bucket returns `429` with `Retry-After`, so a runaway sync loop stays bounded.
 - **Secrets from the environment.** The bearer token, webhook secret and database credentials are read from environment variables at runtime. Git hooks scan staged diffs for credential-shaped content, and CI runs `govulncheck` against dependencies.
 
-### Configuration
+Every setting comes from an environment variable — see [Configuration](docs/CONFIGURATION.md) for the full list and the token rotation procedure.
 
-| Variable                              | Purpose                                                                                 |
-|---------------------------------------|-----------------------------------------------------------------------------------------|
-| `SCIM_TOKEN`                          | Bearer token every request presents. Required, and validated at startup.                |
-| `DATABASE_URL`                        | Postgres connection string. Assembled from `POSTGRES_*` when absent.                    |
-| `SCIM_ADDR`                           | Listen address. Defaults to `:8080`.                                                    |
-| `SCIM_BASE_URL`                       | External base URL, used for `Location` and `meta.location` when running behind a proxy. |
-| `SCIM_RATE_LIMIT` / `SCIM_RATE_BURST` | Token bucket, in requests per second. Defaults to 20/40.                                |
-| `SCIM_WEBHOOK_URL`                    | Endpoint for change events. Set it to turn change delivery on.                          |
-| `SCIM_WEBHOOK_SECRET`                 | HMAC signing secret. Required alongside a webhook URL; minimum 16 characters.           |
-| `SCIM_WEBHOOK_ALLOW_HTTP`             | Set to `1` to allow a plaintext endpoint. For a local receiver — events carry PII.      |
-| `SCIM_WEBHOOK_MAX_ATTEMPTS`           | Attempts before a delivery is dead-lettered. Defaults to 6.                             |
-| `LOG_DIR`                             | Directory for dated log files. Defaults to `logs/`; set it empty for stdout only.       |
-| `LOG_LEVEL`                           | `debug`, `info`, `warn` or `error`. Defaults to `info`.                                 |
-| `SCIM_LOG_REQUESTS`                   | Set to `1` to record request bodies, which include user attributes. Off by default.     |
-
-Generate secrets with `openssl rand -hex 32`. The server requires at least 16 characters.
-
-### Logs
-
-Operational logs are structured JSON with RFC 3339 timestamps, written to stdout and to a dated file under `logs/`:
-
-```json
-{"time":"2026-08-11T04:17:05.34Z","level":"INFO","msg":"request","method":"PATCH","path":"/Users/5f6e3041","status":200}
-```
-
-One file per day keeps each log file bounded for a long-running process. In a container, set `LOG_DIR=` (empty) and let the runtime collect stdout.
-
-`SCIM_LOG_REQUESTS=1` adds the full request body to each entry, which is how a client's actual behaviour gets diagnosed. Those entries contain user attributes, so the log directory is created `0700`, files `0600`, and `logs/` and `*.log` are gitignored.
-
-These are operational logs. The audit trail is separate and lives in the `audit_log` table, so a change and its record commit together.
-
-### Rotating the token
-
-1. Generate a new token: `openssl rand -hex 32`
-2. Set it as `SCIM_TOKEN` and restart the server.
-3. Update the token in your identity provider.
-
-Treat `SCIM_TOKEN` as a privileged credential — it authorizes directory changes — and rotate it whenever exposure is suspected. Dual-token rotation, which removes the restart from this sequence, is on the roadmap.
+Operational logs are structured JSON on stdout and in a dated file under `LOG_DIR`. The audit trail is separate and lives in the `audit_log` table, so a change and its record commit together.
 
 ## 🚀 Getting started
 
@@ -164,7 +123,7 @@ make up
 make run
 ```
 
-The server starts on `:8080`. Migrations run through `golang-migrate`, and `make migrate` uses a host `migrate` binary when one is present and the official container otherwise. See [LOCAL-DEVELOPMENT.md](LOCAL-DEVELOPMENT.md) for prerequisites and the full set of targets.
+The server starts on `:8080`. Migrations run through `golang-migrate`, and `make migrate` uses a host `migrate` binary when one is present and the official container otherwise. See [Local development](docs/LOCAL-DEVELOPMENT.md) for prerequisites and the full set of targets.
 
 ## 📬 Example request
 
@@ -193,12 +152,19 @@ Store and audit tests run against a real Postgres instance via `docker-compose`,
 
 ## 🗺️ Roadmap
 
-Tracked in detail in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
+Tracked in detail in the [implementation plan](docs/IMPLEMENTATION_PLAN.md).
 
 - **Multi-tenancy with issued API tokens** *(next)* — per-tenant SCIM URLs, tokens stored as hashes and shown once at creation, revocation, and overlap-window rotation that keeps the server running.
 - **`/Groups`** — group resources and membership.
 - **SAGE: SCIM Audit & Governance Engine** — a companion CLI (`cmd/sage`) that reads the audit trail and writes a plain-English summary of what merits a human's attention: bulk deactivations in a short window, off-hours changes, or a caller's volume rising sharply. SAGE is advisory by design: it surfaces signal, while every create, replace and deactivate stays in deterministic Go code. A sage advises; the code decides.
 - **Release engineering** — health and readiness endpoints, a published container image, tagged releases, and setup guides for Okta and Entra.
+
+## 📚 Documentation
+
+- [Architecture](docs/ARCHITECTURE.md) — request path, storage model, change delivery internals
+- [Configuration](docs/CONFIGURATION.md) — every environment variable, and token rotation
+- [Local development](docs/LOCAL-DEVELOPMENT.md) — prerequisites and every `make` target
+- [Implementation plan](docs/IMPLEMENTATION_PLAN.md) — the phase-by-phase build, with decisions recorded
 
 ## 🧰 Tech
 
