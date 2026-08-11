@@ -26,7 +26,7 @@ const (
 )
 
 type Handler struct {
-	store *store.Store
+	store UserStore
 	token string
 
 	// actor identifies the caller in audit entries: a short fingerprint of the
@@ -40,7 +40,7 @@ type Handler struct {
 	externalURL string
 }
 
-func NewHandler(s *store.Store, token string) *Handler {
+func NewHandler(s UserStore, token string) *Handler {
 	sum := sha256.Sum256([]byte(token))
 
 	return &Handler{
