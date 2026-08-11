@@ -9,7 +9,7 @@ characters for both `SCIM_TOKEN` and `SCIM_WEBHOOK_SECRET`.
 ## Core
 
 | Variable | Purpose |
-|---|---|
+| --- | --- |
 | `SCIM_TOKEN` | Bearer token every request presents. Required, and validated at startup. |
 | `DATABASE_URL` | Postgres connection string. Assembled from `POSTGRES_*` when absent. |
 | `SCIM_ADDR` | Listen address. Defaults to `:8080`. |
@@ -21,7 +21,7 @@ plain HTTP there, so links derived from the `Host` header would advertise `http`
 ## Rate limiting
 
 | Variable | Purpose |
-|---|---|
+| --- | --- |
 | `SCIM_RATE_LIMIT` | Sustained requests per second per caller. Defaults to 20. |
 | `SCIM_RATE_BURST` | Burst allowance. Defaults to 40. |
 
@@ -31,7 +31,7 @@ bursts, then goes quiet for hours. Set `SCIM_RATE_LIMIT=0` to opt out.
 ## Change delivery
 
 | Variable | Purpose |
-|---|---|
+| --- | --- |
 | `SCIM_WEBHOOK_URL` | Endpoint for change events. Set it to turn change delivery on. |
 | `SCIM_WEBHOOK_SECRET` | HMAC signing secret. Required alongside a webhook URL. |
 | `SCIM_WEBHOOK_ALLOW_HTTP` | Set to `1` to allow a plaintext endpoint. |
@@ -52,7 +52,7 @@ for what retries and what parks immediately.
 ## Logging
 
 | Variable | Purpose |
-|---|---|
+| --- | --- |
 | `LOG_DIR` | Directory for dated log files. Defaults to `logs/`; set it empty for stdout only. |
 | `LOG_LEVEL` | `debug`, `info`, `warn` or `error`. Defaults to `info`. |
 | `SCIM_LOG_REQUESTS` | Set to `1` to record request bodies. Off by default. |
@@ -67,7 +67,7 @@ the runtime collect stdout.
 Used when `DATABASE_URL` is absent, and by `docker-compose.yml`.
 
 | Variable | Purpose |
-|---|---|
+| --- | --- |
 | `POSTGRES_USER` | Database user. |
 | `POSTGRES_PASSWORD` | Database password. |
 | `POSTGRES_DB` | Database name. |

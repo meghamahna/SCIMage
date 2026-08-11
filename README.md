@@ -15,7 +15,7 @@ SCIMage is a focused SCIM 2.0 server written in Go. It implements the core `/Use
 
 ## 💡 Why I built this
 
-I spent two years building JML (joiner mover leaver) automation on the identity provider side, configuring Okta Workflows to push user provisioning into 60+ SaaS applications. That gave me a solid understanding of the SCIM spec from the client's point of view.
+I spent years building JML (joiner mover leaver) automation on the identity provider side, configuring Okta Workflows to push user provisioning into 60+ SaaS applications. That gave me a solid understanding of the SCIM spec from the client's point of view.
 
 This project is the other half: the server that receives those SCIM calls and applies them, which is the side most SaaS products build and maintain themselves. It demonstrates both ends of the handshake.
 
@@ -63,33 +63,17 @@ flowchart LR
     DISPATCH -.->|"attempts exhausted"| DLQ[("Dead-letter queue")]
 ```
 
-The request path is deliberately plain: auth middleware checks the bearer token, the rate limiter admits the request, the router dispatches to a handler, the handler validates the payload and maps it to a Postgres row. Postgres is the single source of truth. Standard library `net/http` and raw SQL keep the behaviour visible in the code.
+A mutation writes the user row, its audit entry and its outbound event in one transaction, so a change always carries its record and its notification. The handler depends on a `UserStore` interface, so an application with its own user table can supply an implementation and skip webhooks entirely.
 
-The handler depends on a `UserStore` interface, so an application with its own user table can supply an implementation and skip webhooks entirely. [Architecture](docs/ARCHITECTURE.md) covers the request path, the storage model and that interface's contract in full.
+[Architecture](docs/ARCHITECTURE.md) covers the request path, the storage model and that interface's contract.
 
 ## 📤 Change delivery
 
 Provisioning pays off once the change reaches the system that needs it. Every mutation queues a signed webhook, so a user created by an identity provider lands in your application directly.
 
-**The queue shares the mutation's commit.** The outbound event is written to a `webhook_deliveries` row inside the same transaction as the change and its audit entry, so a committed change is always queued and a rolled-back one leaves the queue as it was.
+The event is queued in the mutation's own transaction, so a committed change is always queued. Delivery is at-least-once with retries and a dead-letter queue, and requests are signed with HMAC-SHA256 over the timestamp, delivery id, event type and body. Events name what happened to the user: a person moving from active to inactive emits `user.deactivated` whether the provider sent `DELETE` or `PATCH active:false`.
 
-**Delivery is at-least-once, with a dead-letter path.** Failures retry on a doubling backoff, and a receiver that rejects a payload outright parks it for review rather than retrying into the same answer.
-
-**Requests are signed with HMAC-SHA256** over the timestamp, delivery id, event type and body — so a receiver can enforce freshness and trust its deduplication key and routing header.
-
-```http
-POST /scim-events HTTP/1.1
-X-SCIMage-Event: user.deactivated
-X-SCIMage-Delivery-Id: 4172
-X-SCIMage-Signature: t=1772357400,v1=9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
-Content-Type: application/json
-
-{"type":"user.deactivated","occurredAt":"2026-03-01T09:30:00Z","userId":"…","before":{…},"after":{…}}
-```
-
-Events name what happened to the user. A user moving from active to inactive emits `user.deactivated` whether the provider sent `DELETE` or `PATCH active:false`. Both images travel with the event, so a receiver reconciling its own copy sees the transition itself.
-
-Set `SCIM_WEBHOOK_URL` to turn change delivery on. [Architecture](docs/ARCHITECTURE.md#change-delivery) covers the outbox, claim leases, retry rules and the signing scheme; `webhook.Verify` is exported for Go receivers.
+Set `SCIM_WEBHOOK_URL` to turn it on. [Architecture](docs/ARCHITECTURE.md#change-delivery) covers the outbox, claim leases, retry rules, the signing scheme and the event payload; `webhook.Verify` is exported for Go receivers.
 
 ## 🔒 Security practices
 
@@ -152,12 +136,9 @@ Store and audit tests run against a real Postgres instance via `docker-compose`,
 
 ## 🗺️ Roadmap
 
-Tracked in detail in the [implementation plan](docs/IMPLEMENTATION_PLAN.md).
+Phases 1–9 are complete: schema, endpoints, auth, audit, hardening, identity-provider interoperability, and change delivery. Multi-tenancy with issued API tokens is next, followed by `/Groups`, SAGE, and release engineering.
 
-- **Multi-tenancy with issued API tokens** *(next)* — per-tenant SCIM URLs, tokens stored as hashes and shown once at creation, revocation, and overlap-window rotation that keeps the server running.
-- **`/Groups`** — group resources and membership.
-- **SAGE: SCIM Audit & Governance Engine** — a companion CLI (`cmd/sage`) that reads the audit trail and writes a plain-English summary of what merits a human's attention: bulk deactivations in a short window, off-hours changes, or a caller's volume rising sharply. SAGE is advisory by design: it surfaces signal, while every create, replace and deactivate stays in deterministic Go code. A sage advises; the code decides.
-- **Release engineering** — health and readiness endpoints, a published container image, tagged releases, and setup guides for Okta and Entra.
+The [implementation plan](docs/IMPLEMENTATION_PLAN.md) has the phase-by-phase detail, with the decisions and trade-offs recorded as they were made.
 
 ## 📚 Documentation
 

@@ -31,7 +31,7 @@ rejected before routing so responses stay uniform for an unauthenticated caller.
 Three tables, described in `/migrations`:
 
 | Table | Holds |
-|---|---|
+| --- | --- |
 | `users` | The provisioned directory. Deactivation is a soft delete, so history keeps a subject |
 | `audit_log` | One row per mutating call: actor, action, target, timestamp, before/after |
 | `webhook_deliveries` | The outbound queue: payload, status, attempts, lease |
@@ -124,7 +124,7 @@ Failures retry on a doubling backoff from 5s, capped at 5 minutes, with up to 20
 jitter so a batch that failed together returns spread out.
 
 | Response | Outcome |
-|---|---|
+| --- | --- |
 | `2xx` | Delivered |
 | `5xx`, `408`, `429`, transport error | Retry until attempts run out |
 | Other `4xx` | Dead-letter immediately — the receiver has given its verdict |
@@ -152,6 +152,20 @@ stripped of NUL and invalid UTF-8 before it reaches the column — a malformed
 error body stays writable, and the delivery keeps moving.
 
 ### Signing
+
+A delivery on the wire:
+
+```http
+POST /scim-events HTTP/1.1
+X-SCIMage-Event: user.deactivated
+X-SCIMage-Delivery-Id: 4172
+X-SCIMage-Signature: t=1772357400,v1=9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+Content-Type: application/json
+
+{"type":"user.deactivated","occurredAt":"2026-03-01T09:30:00Z","userId":"…","before":{…},"after":{…}}
+```
+
+The signature header carries the scheme version, the timestamp and the MAC:
 
 ```text
 X-SCIMage-Signature: t=<unix seconds>,v1=<hex hmac-sha256>
@@ -183,7 +197,7 @@ with `hmac.Equal`, which is constant-time.
 Events name what happened to the user rather than which endpoint was called:
 
 | Event | Emitted when |
-|---|---|
+| --- | --- |
 | `user.created` | A user is created |
 | `user.deactivated` | A replace takes a user from active to inactive, or a `DELETE` arrives |
 | `user.replaced` | Any other change, including reactivation |
