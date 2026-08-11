@@ -80,7 +80,7 @@ func TestAuditReplaceRecordsBothImages(t *testing.T) {
 	t.Cleanup(func() { hardDelete(t, created.ID) })
 
 	in := newUser()
-	inactive := false
+	inactive := Bool(false)
 	in.Active = &inactive
 	if rr := do(t, http.MethodPut, "/Users/"+created.ID, in); rr.Code != http.StatusOK {
 		t.Fatalf("PUT = %d, want 200: %s", rr.Code, rr.Body)

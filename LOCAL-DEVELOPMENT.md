@@ -122,6 +122,23 @@ Set `SCIM_BASE_URL` when running behind a proxy, so `Location` and
 `meta.location` use your external URL and scheme. Left unset, they derive
 from the request's `Host` header, which suits local development.
 
+## Logs
+
+Structured JSON goes to stdout and to `logs/scimage-<date>.log`. To see what an
+identity provider actually sends — the fastest way to diagnose an integration:
+
+```bash
+SCIM_LOG_REQUESTS=1 make run
+
+# in another terminal
+tail -f logs/scimage-$(date -u +%F).log | jq 'select(.msg == "request")'
+```
+
+Those entries include request bodies and therefore user attributes, so the
+directory is `0700`, files are `0600`, and `logs/` is gitignored.
+
+## Audit trail
+
 Every create, replace and deactivate writes a row to `audit_log` in the same
 transaction as the change:
 

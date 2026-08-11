@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 type User struct {
 	ID         string    `json:"id"`
 	UserName   string    `json:"userName"`
+	ExternalID *string   `json:"externalId,omitempty"`
 	GivenName  *string   `json:"givenName,omitempty"`
 	FamilyName *string   `json:"familyName,omitempty"`
 	Email      *string   `json:"email,omitempty"`
@@ -27,7 +29,40 @@ type User struct {
 }
 
 // Order must match scanUser.
-const userColumns = `id, user_name, given_name, family_name, email, active, created_at, updated_at`
+const userColumns = `id, user_name, external_id, given_name, family_name, email, active, created_at, updated_at`
+
+// UserFilter narrows a listing to the equality matches SCIM clients use to
+// reconcile. The zero value lists everything.
+//
+// userName matches case-insensitively via the same lower(user_name) index that
+// enforces uniqueness, so a lookup agrees with what a create would allow.
+type UserFilter struct {
+	UserName   string
+	ExternalID string
+}
+
+// clause builds the WHERE fragment and its arguments. Values are always bound,
+// never interpolated.
+func (f UserFilter) clause() (string, []any) {
+	var (
+		conds []string
+		args  []any
+	)
+
+	if f.UserName != "" {
+		args = append(args, f.UserName)
+		conds = append(conds, "lower(user_name) = lower($"+strconv.Itoa(len(args))+")")
+	}
+	if f.ExternalID != "" {
+		args = append(args, f.ExternalID)
+		conds = append(conds, "external_id = $"+strconv.Itoa(len(args)))
+	}
+
+	if len(conds) == 0 {
+		return "", nil
+	}
+	return " WHERE " + strings.Join(conds, " AND "), args
+}
 
 // Change is the before/after pair every mutation hands to the audit log.
 // Before is nil for a create.
@@ -68,6 +103,7 @@ func scanUser(row pgx.Row) (*User, error) {
 	err := row.Scan(
 		&u.ID,
 		&u.UserName,
+		&u.ExternalID,
 		&u.GivenName,
 		&u.FamilyName,
 		&u.Email,
@@ -84,10 +120,10 @@ func scanUser(row pgx.Row) (*User, error) {
 func scanChange(row pgx.Row) (*Change, error) {
 	var before, after User
 	err := row.Scan(
-		&before.ID, &before.UserName, &before.GivenName, &before.FamilyName,
-		&before.Email, &before.Active, &before.CreatedAt, &before.UpdatedAt,
-		&after.ID, &after.UserName, &after.GivenName, &after.FamilyName,
-		&after.Email, &after.Active, &after.CreatedAt, &after.UpdatedAt,
+		&before.ID, &before.UserName, &before.ExternalID, &before.GivenName,
+		&before.FamilyName, &before.Email, &before.Active, &before.CreatedAt, &before.UpdatedAt,
+		&after.ID, &after.UserName, &after.ExternalID, &after.GivenName,
+		&after.FamilyName, &after.Email, &after.Active, &after.CreatedAt, &after.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -99,8 +135,8 @@ func scanChange(row pgx.Row) (*Change, error) {
 // and timestamps. The clash is case-insensitive: RFC 7643 makes userName
 // caseExact=false, so "bjensen" and "BJensen" are the same identity.
 func (s *Store) CreateUser(ctx context.Context, u *User, rec AuditRecord) (*User, error) {
-	const q = `INSERT INTO users (user_name, given_name, family_name, email, active)
-	           VALUES ($1, $2, $3, $4, $5)
+	const q = `INSERT INTO users (user_name, external_id, given_name, family_name, email, active)
+	           VALUES ($1, $2, $3, $4, $5, $6)
 	           RETURNING ` + userColumns
 
 	tx, err := s.pool.Begin(ctx)
@@ -110,7 +146,7 @@ func (s *Store) CreateUser(ctx context.Context, u *User, rec AuditRecord) (*User
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
 
 	created, err := scanUser(tx.QueryRow(ctx, q,
-		u.UserName, u.GivenName, u.FamilyName, u.Email, u.Active))
+		u.UserName, u.ExternalID, u.GivenName, u.FamilyName, u.Email, u.Active))
 	if err != nil {
 		if isUniqueViolation(err) {
 			s.auditRefusal(ctx, rec, ActionCreate, "", "duplicate userName")
@@ -152,23 +188,25 @@ func (s *Store) GetUser(ctx context.Context, id string) (*User, error) {
 // created_at ties are broken by id, since a bulk insert shares one now() and
 // paging would otherwise skip or repeat rows. Inactive users are included:
 // DeactivateUser keeps the row precisely so it stays listed.
-func (s *Store) ListUsers(ctx context.Context, limit, offset int) ([]User, int, error) {
+func (s *Store) ListUsers(ctx context.Context, limit, offset int, f UserFilter) ([]User, int, error) {
 	if limit < 0 || offset < 0 {
 		return nil, 0, fmt.Errorf("list users: limit and offset must not be negative (got %d, %d)", limit, offset)
 	}
 	limit = min(limit, MaxPageSize)
 
+	where, args := f.clause()
+
 	var total int
-	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&total); err != nil {
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM users`+where, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count users: %w", err)
 	}
 
-	const q = `SELECT ` + userColumns + `
-	           FROM users
-	           ORDER BY created_at, id
-	           LIMIT $1 OFFSET $2`
+	q := `SELECT ` + userColumns + `
+	      FROM users` + where + `
+	      ORDER BY created_at, id
+	      LIMIT $` + strconv.Itoa(len(args)+1) + ` OFFSET $` + strconv.Itoa(len(args)+2)
 
-	rows, err := s.pool.Query(ctx, q, limit, offset)
+	rows, err := s.pool.Query(ctx, q, append(args, limit, offset)...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list users: %w", err)
 	}
@@ -198,10 +236,11 @@ func (s *Store) UpdateUser(ctx context.Context, id string, u *User, rec AuditRec
 	      ), a AS (
 	          UPDATE users
 	          SET user_name = $2,
-	              given_name = $3,
-	              family_name = $4,
-	              email = $5,
-	              active = $6,
+	              external_id = $3,
+	              given_name = $4,
+	              family_name = $5,
+	              email = $6,
+	              active = $7,
 	              updated_at = now()
 	          WHERE id = $1
 	          RETURNING ` + userColumns + `
@@ -215,7 +254,7 @@ func (s *Store) UpdateUser(ctx context.Context, id string, u *User, rec AuditRec
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
 
 	change, err := scanChange(tx.QueryRow(ctx, q,
-		id, u.UserName, u.GivenName, u.FamilyName, u.Email, u.Active))
+		id, u.UserName, u.ExternalID, u.GivenName, u.FamilyName, u.Email, u.Active))
 	if err != nil {
 		switch {
 		case isMissingRow(err):

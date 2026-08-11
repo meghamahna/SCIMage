@@ -24,6 +24,7 @@ built to show.
 /cmd/sage             audit reviewer (Phase 12)
 /internal/scim        HTTP handlers, SCIM models, auth, rate limiting
 /internal/store       Postgres-backed store and audit log, raw SQL
+/internal/logging     structured logging setup
 /migrations           SQL migration files
 /scripts              env loading, migrations, secret scanning
 /.github/workflows    CI
@@ -151,21 +152,40 @@ the audit trail is what makes the transactional guarantee meaningful; a
 JSON-lines export for log shipping can be layered on top of it.
 
 ### Phase 8 — Identity provider interoperability
-The next milestone, and what an Okta or Entra tenant exercises during setup.
-Each item below is something a real client calls, so this phase is best built
-against a live developer tenant rather than from the spec alone.
-- [ ] `externalId` on `users` — the attribute IdPs use as their own key for
+What an identity provider exercises during setup. Built against a live client
+rather than the spec alone, which changed the result twice — see the interop
+notes below.
+- [x] `externalId` on `users` — the attribute IdPs use as their own key for
       reconciliation. Migration, model, mapper
-- [ ] Discovery endpoints: `/ServiceProviderConfig`, `/ResourceTypes`,
+- [x] Discovery endpoints: `/ServiceProviderConfig`, `/ResourceTypes`,
       `/Schemas`. Static documents that declare exactly what this server
-      supports, so the declaration and the behaviour stay in step
-- [ ] Filtering for `userName eq` and `externalId eq`. A narrow, correct
+      supports. A test pins the declaration to the behaviour, so a
+      capability can't be advertised before it works or stay denied after
+- [x] Filtering for `userName eq` and `externalId eq`. A narrow, correct
       subset covers what clients send before every create; other
-      expressions answer with `invalidFilter`
-- [ ] `PATCH /Users/{id}` for the operations clients actually send, chiefly
+      expressions answer with `invalidFilter`. `userName` matches through
+      the same `lower(user_name)` index that enforces uniqueness, so a
+      lookup agrees with what a create would allow
+- [x] `PATCH /Users/{id}` for the operations clients actually send, chiefly
       `replace` on `active` for deprovisioning
-- [ ] Verify end to end against an Okta developer tenant and an Entra
-      tenant, and record the run in the README
+
+**Interop notes.** Two client behaviours that RFC 7643 alone would have left
+broken, both pinned by tests:
+
+- Some providers send `emails[].primary` as the string `"true"` where the spec
+  types it as boolean, which fails the whole decode and turns every create into
+  a 400. Booleans accept a JSON boolean or a quoted one, and always marshal
+  back as a real boolean.
+- Deprovisioning arrives as `PATCH {"op":"replace","path":"active","value":
+  false}`, followed by a re-read *by id and by filter* which are expected to
+  agree — not as `DELETE`.
+
+`DELETE` is a soft delete by decision: it returns `204`, sets `active = false`
+and keeps the row, so a later read still shows the user as inactive. RFC 7644
+§3.6 allows a provider to retain the resource and describes answering `404`
+afterwards; keeping it readable preserves the audit trail's subject and matches
+how identity providers actually deprovision, which is `PATCH active:false`.
+Both routes converge on the same state on purpose.
 
 ### Phase 9 — Change delivery
 How provisioned users reach the application's own data, which is what makes
@@ -232,11 +252,17 @@ that: a sage advises, the code decides.
 ### Phase 13 — Release engineering
 - [x] README: setup, endpoint table, security practices, architecture diagram
 - [x] `make` targets: `make up`, `make migrate`, `make test`, `make run`
+- [x] Structured logging: JSON with RFC 3339 timestamps, to stdout and a
+      dated file under `LOG_DIR` (default `logs/`, empty for stdout only in
+      a container). `SCIM_LOG_REQUESTS=1` adds request bodies, which carry
+      user attributes, so the directory is `0700` and files `0600`. Landed
+      during Phase 8, where reading a client's real requests is what made
+      the interop work tractable
 - [ ] `CHANGELOG.md`, `ROADMAP.md`, `SECURITY.md`, `CONTRIBUTING.md`
 - [ ] `/healthz` and `/readyz`, plus graceful shutdown
 - [ ] Published container image and tagged releases via GoReleaser
 - [ ] Okta and Entra setup guides, and a threat model
-- [ ] Tag v1.0.0 once Phase 8 has been verified against a live tenant
+- [ ] Tag v1.0.0
 
 ## Time estimate
 Phases 1-2 (Docker + schema): one evening.

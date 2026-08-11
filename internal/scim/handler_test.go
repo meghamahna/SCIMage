@@ -192,7 +192,7 @@ func active(t *testing.T, u User) bool {
 	if u.Active == nil {
 		t.Fatal("active is absent from the response")
 	}
-	return *u.Active
+	return bool(*u.Active)
 }
 
 func TestCreateUser(t *testing.T) {
@@ -244,7 +244,7 @@ func TestCreateUser(t *testing.T) {
 
 	t.Run("active=false is honoured", func(t *testing.T) {
 		in := newUser()
-		inactive := false
+		inactive := Bool(false)
 		in.Active = &inactive
 
 		if out := createUser(t, in); active(t, out) {
@@ -494,18 +494,6 @@ func TestListUsers(t *testing.T) {
 		}
 	})
 
-	// Answering an unfiltered list would read as a match to an IdP probing for
-	// an existing user, and point it at the wrong one.
-	t.Run("filter is rejected, not ignored", func(t *testing.T) {
-		rr := do(t, http.MethodGet, `/Users?filter=userName+eq+%22jdoe%22`, nil)
-
-		if rr.Code != http.StatusBadRequest {
-			t.Fatalf("status = %d, want 400: %s", rr.Code, rr.Body)
-		}
-		if got := decodeBody[Error](t, rr).ScimType; got != "invalidFilter" {
-			t.Errorf("scimType = %q, want invalidFilter", got)
-		}
-	})
 }
 
 func TestReplaceUser(t *testing.T) {
@@ -628,7 +616,7 @@ func TestUnroutedRequests(t *testing.T) {
 		name, method, target string
 		want                 int
 	}{
-		{"PATCH is not implemented", http.MethodPatch, "/Users/" + nonexistentID, http.StatusNotImplemented},
+		{"PATCH on the collection", http.MethodPatch, "/Users", http.StatusMethodNotAllowed},
 		{"DELETE on the collection", http.MethodDelete, "/Users", http.StatusMethodNotAllowed},
 		{"unknown resource", http.MethodGet, "/Groups", http.StatusNotFound},
 	} {

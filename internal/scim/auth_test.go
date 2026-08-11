@@ -132,6 +132,7 @@ func TestRoutesRequireAuth(t *testing.T) {
 	routes := NewHandler(nil, authTestToken).Routes()
 
 	for _, tc := range []struct{ method, target string }{
+		{http.MethodGet, "/ServiceProviderConfig"},
 		{http.MethodPost, "/Users"},
 		{http.MethodGet, "/Users"},
 		{http.MethodGet, "/Users/" + nonexistentID},
@@ -141,15 +142,22 @@ func TestRoutesRequireAuth(t *testing.T) {
 		{http.MethodGet, "/Groups"},
 	} {
 		t.Run(tc.method+" "+tc.target, func(t *testing.T) {
-			r := httptest.NewRequest(tc.method, tc.target, nil)
-			rr := httptest.NewRecorder()
-			routes.ServeHTTP(rr, r)
+			rr := sendUnauthenticated(t, routes, tc.method, tc.target)
 
 			if rr.Code != http.StatusUnauthorized {
 				t.Errorf("status = %d, want 401 without a token", rr.Code)
 			}
 		})
 	}
+}
+
+// sendUnauthenticated drives a handler with no Authorization header.
+func sendUnauthenticated(t *testing.T, h http.Handler, method, target string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(method, target, nil))
+	return rr
 }
 
 func TestTokenFromEnv(t *testing.T) {

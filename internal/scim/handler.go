@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -60,7 +60,14 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("GET /Users", h.list)
 	mux.HandleFunc("GET /Users/{id}", h.get)
 	mux.HandleFunc("PUT /Users/{id}", h.replace)
+	mux.HandleFunc("PATCH /Users/{id}", h.patch)
 	mux.HandleFunc("DELETE /Users/{id}", h.deactivate)
+
+	// Discovery (RFC 7644 §4). A client reads these before provisioning, to
+	// learn what this server supports.
+	mux.HandleFunc("GET /ServiceProviderConfig", h.serviceProviderConfig)
+	mux.HandleFunc("GET /ResourceTypes", h.resourceTypes)
+	mux.HandleFunc("GET /Schemas", h.schemas)
 
 	// Without these, an unrouted method or path gets net/http's plain-text
 	// error, which a SCIM client can't parse.
@@ -68,9 +75,10 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("/Users/{id}", methodNotAllowed)
 	mux.HandleFunc("/", unknownResource)
 
-	// Throttle inside auth, so an unauthenticated flood can't spend a real
-	// caller's budget.
-	return requireBearer(h.token)(h.limiter.throttle(h.actor, mux))
+	// Throttle inside auth, so each authenticated caller has its own budget.
+	// Request logging wraps the outside, to record what a client actually sent
+	// including the calls auth rejects.
+	return logRequests(requireBearer(h.token)(h.limiter.throttle(h.actor, mux)))
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
@@ -110,16 +118,18 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
-	// Okta and Entra probe with a userName filter before every create. Answering
-	// an unfiltered list would read as "matched" and point them at the wrong user.
-	if r.URL.Query().Has("filter") {
-		writeError(w, http.StatusBadRequest, "invalidFilter", "filtering is not supported")
+	// Identity providers resolve a user by filter before deciding whether to
+	// create one, so an unsupported expression is refused rather than answered
+	// with an unfiltered list, which would read as a match.
+	filter, err := parseFilter(r.URL.Query().Get("filter"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalidFilter", err.Error())
 		return
 	}
 
 	startIndex, count := pageParams(r)
 
-	users, total, err := h.store.ListUsers(r.Context(), count, startIndex-1)
+	users, total, err := h.store.ListUsers(r.Context(), count, startIndex-1, filter)
 	if err != nil {
 		serverError(w, "list users", err)
 		return
@@ -165,6 +175,68 @@ func (h *Handler) replace(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "uniqueness", "userName is already in use")
 		default:
 			serverError(w, "update user", err)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, fromStoreUser(changed.After, h.baseURL(r)))
+}
+
+// PATCH applies a set of operations to the stored resource. It reads the
+// current row, folds the operations onto it, and writes the result back through
+// the same full-replace path a PUT uses — so a partial update still gets the
+// audit entry and the uniqueness checks.
+//
+// The read and the write are separate statements, so a concurrent change to the
+// same user between them would be overwritten. Provisioning traffic for one user
+// is serial in practice; making this airtight needs the operations applied
+// inside the store's transaction.
+func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+
+	var ops PatchOp
+	if err := json.NewDecoder(r.Body).Decode(&ops); err != nil {
+		writeError(w, http.StatusBadRequest, "invalidSyntax", "request body is not valid JSON")
+		return
+	}
+
+	existing, err := h.store.GetUser(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			notFound(w)
+			return
+		}
+		serverError(w, "get user for patch", err)
+		return
+	}
+
+	patched, err := applyPatch(fromStoreUser(existing, h.baseURL(r)), ops)
+	if err != nil {
+		scimType := "invalidValue"
+		if errors.Is(err, errUnsupportedPath) {
+			scimType = "invalidPath"
+		}
+		writeError(w, http.StatusBadRequest, scimType, err.Error())
+		return
+	}
+
+	if detail := validate(patched); detail != "" {
+		writeError(w, http.StatusBadRequest, "invalidValue", detail)
+		return
+	}
+
+	su := toStoreUser(patched)
+	changed, err := h.store.UpdateUser(r.Context(), id, &su, h.auditRecord(r))
+	if err != nil {
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			notFound(w)
+		case errors.Is(err, store.ErrDuplicateUserName):
+			writeError(w, http.StatusConflict, "uniqueness", "userName is already in use")
+		default:
+			serverError(w, "patch user", err)
 		}
 		return
 	}
@@ -290,13 +362,7 @@ func (h *Handler) baseURL(r *http.Request) string {
 	return "http://" + r.Host
 }
 
-// PATCH is a real SCIM operation this server doesn't implement; anything else
-// on a known path is a genuine method error.
 func methodNotAllowed(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodPatch {
-		writeError(w, http.StatusNotImplemented, "", "PATCH is not supported; use PUT")
-		return
-	}
 	writeError(w, http.StatusMethodNotAllowed, "", r.Method+" is not supported on this resource")
 }
 
@@ -308,7 +374,7 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", contentType)
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(body); err != nil {
-		log.Printf("scim: write response: %v", err)
+		slog.Error("write response", "error", err)
 	}
 }
 
@@ -327,6 +393,6 @@ func notFound(w http.ResponseWriter) {
 
 // serverError keeps the cause in the log and out of the response.
 func serverError(w http.ResponseWriter, op string, err error) {
-	log.Printf("scim: %s: %v", op, err)
+	slog.Error(op, "error", err)
 	writeError(w, http.StatusInternalServerError, "", "internal server error")
 }

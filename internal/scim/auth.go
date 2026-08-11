@@ -4,7 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -44,7 +44,8 @@ func TokenFromEnv() (string, error) {
 func requireBearer(token string) func(http.Handler) http.Handler {
 	usable := len(token) >= minTokenLen
 	if !usable {
-		log.Print("scim: no usable SCIM_TOKEN — every request will be rejected")
+		slog.Warn("no usable SCIM_TOKEN configured; every request will be rejected",
+			"minimum_length", minTokenLen)
 	}
 	want := sha256.Sum256([]byte(token))
 

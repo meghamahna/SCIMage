@@ -1,7 +1,11 @@
 // Package scim implements the SCIM 2.0 /Users endpoints (RFC 7644).
 package scim
 
-import "time"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
 const (
 	userSchema  = "urn:ietf:params:scim:schemas:core:2.0:User"
@@ -12,16 +16,49 @@ const (
 	contentType = "application/scim+json"
 )
 
+// Bool accepts a JSON boolean or a quoted one, and always marshals back as a
+// real boolean.
+//
+// RFC 7643 types these attributes as boolean, but Entra sends
+// emails[].primary as the string "true". A plain bool fails the whole decode,
+// so every create from Entra would be a 400. Being liberal in what we accept
+// here costs nothing and is the difference between working and not.
+type Bool bool
+
+func (b *Bool) UnmarshalJSON(data []byte) error {
+	switch s := strings.ToLower(strings.Trim(strings.TrimSpace(string(data)), `"`)); s {
+	case "true":
+		*b = true
+	case "false", "null", "":
+		*b = false
+	default:
+		return fmt.Errorf("scim: %s is not a boolean", data)
+	}
+	return nil
+}
+
+func (b Bool) MarshalJSON() ([]byte, error) {
+	if b {
+		return []byte("true"), nil
+	}
+	return []byte("false"), nil
+}
+
 // Active is a pointer because SCIM defaults an omitted active to true, which a
 // plain bool can't tell apart from an explicit false.
 type User struct {
-	Schemas  []string `json:"schemas"`
-	ID       string   `json:"id,omitempty"`
-	UserName string   `json:"userName"`
-	Name     *Name    `json:"name,omitempty"`
-	Emails   []Email  `json:"emails,omitempty"`
-	Active   *bool    `json:"active,omitempty"`
-	Meta     *Meta    `json:"meta,omitempty"`
+	Schemas []string `json:"schemas"`
+	ID      string   `json:"id,omitempty"`
+
+	// ExternalID is the client's own identifier for this user. It is stored and
+	// returned unchanged, so an identity provider can reconcile against it.
+	ExternalID string `json:"externalId,omitempty"`
+
+	UserName string  `json:"userName"`
+	Name     *Name   `json:"name,omitempty"`
+	Emails   []Email `json:"emails,omitempty"`
+	Active   *Bool   `json:"active,omitempty"`
+	Meta     *Meta   `json:"meta,omitempty"`
 }
 
 type Name struct {
@@ -31,7 +68,7 @@ type Name struct {
 
 type Email struct {
 	Value   string `json:"value"`
-	Primary bool   `json:"primary,omitempty"`
+	Primary Bool   `json:"primary,omitempty"`
 }
 
 type Meta struct {

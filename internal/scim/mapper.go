@@ -10,12 +10,13 @@ import (
 // so a multi-valued emails array collapses to its primary.
 func toStoreUser(u User) store.User {
 	su := store.User{
-		UserName: strings.TrimSpace(u.UserName),
-		Active:   true,
-		Email:    nonEmpty(primaryEmail(u.Emails)),
+		UserName:   strings.TrimSpace(u.UserName),
+		ExternalID: nonEmpty(strings.TrimSpace(u.ExternalID)),
+		Active:     true,
+		Email:      nonEmpty(primaryEmail(u.Emails)),
 	}
 	if u.Active != nil {
-		su.Active = *u.Active
+		su.Active = bool(*u.Active)
 	}
 	if u.Name != nil {
 		su.GivenName = nonEmpty(strings.TrimSpace(u.Name.GivenName))
@@ -25,7 +26,7 @@ func toStoreUser(u User) store.User {
 }
 
 func fromStoreUser(su *store.User, baseURL string) User {
-	active := su.Active
+	active := Bool(su.Active)
 	u := User{
 		Schemas:  []string{userSchema},
 		ID:       su.ID,
@@ -50,6 +51,9 @@ func fromStoreUser(su *store.User, baseURL string) User {
 	}
 	if su.Email != nil {
 		u.Emails = []Email{{Value: *su.Email, Primary: true}}
+	}
+	if su.ExternalID != nil {
+		u.ExternalID = *su.ExternalID
 	}
 
 	return u
