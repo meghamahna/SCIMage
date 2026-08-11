@@ -36,10 +36,13 @@ Three tables, described in `/migrations`:
 | `audit_log` | One row per mutating call: actor, action, target, timestamp, before/after |
 | `webhook_deliveries` | The outbound queue: payload, status, attempts, lease |
 
-**Every mutation writes all three in one transaction.** The user row, its audit
-entry and its outbound event commit together, so a change always carries its
-record and its notification. The store owns those writes, which keeps a handler
-from being able to skip them.
+**A mutation writes its user row and its audit entry in one transaction**, plus
+its outbound event when change delivery is configured. They commit together, so a
+change always carries its record and its notification. The store owns those
+writes, which keeps a handler from being able to skip them.
+
+With `SCIM_WEBHOOK_URL` unset the store skips the outbox, so the queue stays
+empty while nothing is draining it.
 
 The before-image in an audit entry comes from a CTE reading the row in the same
 statement as the `UPDATE`, since `OLD` in `RETURNING` arrived in Postgres 18 and
@@ -182,13 +185,18 @@ Events name what happened to the user rather than which endpoint was called:
 | Event | Emitted when |
 |---|---|
 | `user.created` | A user is created |
-| `user.deactivated` | A user transitions from active to inactive |
+| `user.deactivated` | A replace takes a user from active to inactive, or a `DELETE` arrives |
 | `user.replaced` | Any other change, including reactivation |
 
 Identity providers deprovision with `PATCH active:false` far more often than with
 `DELETE`, and that `PATCH` is applied through the same full-replace path as a
-`PUT`. Classifying by the active transition is what lets a consumer subscribe to
-deactivations and see every real deprovisioning.
+`PUT`. Classifying a replace by the active transition is what lets a consumer
+subscribe to deactivations and see every real deprovisioning.
+
+`DELETE` means "deactivate whatever the current state", so it reports
+`user.deactivated` even for a user who was already inactive. A replace in that
+same situation reports `user.replaced`, since it changed something other than
+`active`. Both are no-op changes that a receiver applying idempotently absorbs.
 
 Both images travel with the event, so a receiver reconciling its own copy sees
 the transition itself. Delivery is at-least-once and retries are independent, so
