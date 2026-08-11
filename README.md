@@ -53,14 +53,51 @@ flowchart LR
     ROUTER -->|PUT /Users/:id| UPDATE[Replace]
     ROUTER -->|PATCH /Users/:id| PATCHOP[Patch]
     ROUTER -->|DELETE /Users/:id| DEACTIVATE[Deactivate]
-    CREATE --> TX[("Postgres — users + audit_log<br/>written in one transaction")]
+    CREATE --> TX[("Postgres — users + audit_log + outbox<br/>written in one transaction")]
     UPDATE --> TX
     PATCHOP --> TX
     DEACTIVATE --> TX
     READ --> DB[("Postgres — users")]
+    TX -.->|claims due rows| DISPATCH[Webhook dispatcher]
+    DISPATCH -->|"signed POST, retried"| APP[Your application]
+    DISPATCH -.->|"attempts exhausted"| DLQ[("Dead-letter queue")]
 ```
 
 The request path is deliberately plain: auth middleware checks the bearer token, the rate limiter admits the request, the router dispatches to a handler, the handler validates the payload and maps it to a Postgres row. Postgres is the single source of truth. Standard library `net/http` and raw SQL keep the behaviour visible in the code.
+
+The handler talks to a `UserStore` interface rather than to Postgres directly. The bundled store is the default implementation; an application that already has its own user table can supply another and keep the SCIM surface. Two obligations come with that: the audit entry is written in the change's own transaction, and a `nil` error comes with a non-nil result.
+
+## 📤 Change delivery
+
+Provisioning is only useful if the change reaches the system that needs it. Every mutation queues a signed webhook, so a user created by an identity provider lands in your application without it polling.
+
+**The queue shares the mutation's commit.** The outbound event is written to a `webhook_deliveries` row inside the same transaction as the change and its audit entry. A committed change is always queued and a rolled-back one never is — sending from the handler after `COMMIT` cannot give that, because the process can die between the two with no way to tell afterwards whether the event went out.
+
+**Delivery is at-least-once, with a dead-letter path.** A dispatcher claims due rows by pushing a lease forward and counting the attempt in one statement (`FOR UPDATE SKIP LOCKED`), so two dispatchers claim disjoint sets and a crashed one's rows come back when the lease expires. The lease covers the whole batch rather than a single send, because a batch is delivered sequentially — a lease sized for one row would let the rows queued behind the current send come due again mid-batch, double-POSTing them and, since the attempt is counted at claim time, halving each delivery's retry budget.
+
+Failures retry on a doubling backoff with jitter. A `4xx` other than `408`/`429` is parked immediately — the receiver understood the request and rejected it, so retrying sends identical bytes for the same answer. Parked rows keep their payload and last error, so a human can see exactly what failed; replaying one is a manual `UPDATE` until the admin CLI arrives in Phase 10.
+
+Redirects are not followed: the payload carries user attributes and is signed for the configured endpoint, so a `302` would hand both to a host nobody configured.
+
+**Requests are signed with HMAC-SHA256.** The signature covers the timestamp, the delivery id, the event type and the body. The timestamp is inside the signed material rather than merely alongside it, which is what lets a receiver reject stale timestamps knowing a captured request cannot be re-stamped without the secret. The delivery id and event type are covered because a receiver is told to act on both — deduplicating on an unauthenticated key would let a replay through under a fresh id, and routing on a header an attacker can rewrite is no better than not checking it:
+
+```http
+POST /scim-events HTTP/1.1
+X-SCIMage-Event: user.deactivated
+X-SCIMage-Delivery-Id: 4172
+X-SCIMage-Signature: t=1772357400,v1=9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+Content-Type: application/json
+
+{"type":"user.deactivated","occurredAt":"2026-03-01T09:30:00Z","userId":"…","before":{…},"after":{…}}
+```
+
+Events name what happened to the user rather than which endpoint was called, so a receiver doesn't need to know whether its identity provider deprovisions with `DELETE` or `PATCH active:false` — a user going from active to inactive emits `user.deactivated` either way. Both images are included, so a receiver reconciling its own copy can see what changed rather than only what the row now says.
+
+Because retries are independent, events for one user can arrive out of order — a retried `user.created` can land after a later `user.deactivated`. `occurredAt` carries the database clock and both images are present, so a receiver can order them itself; applying idempotently and preferring the newest `occurredAt` per user is the intended pattern.
+
+`webhook.Verify` is exported for Go receivers; it compares with `hmac.Equal`, which is constant-time.
+
+Change delivery is off unless `SCIM_WEBHOOK_URL` is set — with no dispatcher draining it, the queue would only grow.
 
 ## 🔒 Security practices
 
@@ -70,6 +107,7 @@ These are load-bearing, and each one is covered by tests:
 - **Auth applied by the router itself.** `Routes()` wraps every path in the bearer check, so authentication covers the whole surface structurally rather than per handler.
 - **Audit logging in the same transaction as the change.** Create, replace and deactivate each write an entry — actor, action, target user ID, timestamp, before/after state — inside the transaction that makes the change. The entry and the change commit together, so every modification carries a record. Refusals are recorded too, which makes a burst of denied deactivations visible to a reviewer.
 - **Schema validation before the database.** Every incoming SCIM payload is checked against the expected shape, with attribute lengths bounded, before it reaches a query.
+- **Signed outbound webhooks.** Change events are signed with HMAC-SHA256 over the timestamp and body, verified with `hmac.Equal`. A configured URL without a secret is a startup error rather than an unsigned send — a receiver with no way to tell a real event from a forged one is worse than no webhook. Plaintext endpoints are opt-in, and redirects are never followed.
 - **Rate limiting per caller.** A token bucket returns `429` with `Retry-After`, so a runaway sync loop is bounded.
 - **Secrets from the environment.** The bearer token and database credentials are read from environment variables at runtime. Git hooks scan staged diffs for credential-shaped content, and CI runs `govulncheck` against dependencies.
 
@@ -82,6 +120,10 @@ These are load-bearing, and each one is covered by tests:
 | `SCIM_ADDR`                           | Listen address. Defaults to `:8080`.                                                    |
 | `SCIM_BASE_URL`                       | External base URL, used for `Location` and `meta.location` when running behind a proxy. |
 | `SCIM_RATE_LIMIT` / `SCIM_RATE_BURST` | Token bucket, in requests per second. Defaults to 20/40.                                |
+| `SCIM_WEBHOOK_URL`                    | Endpoint for change events. Unset disables change delivery entirely.                    |
+| `SCIM_WEBHOOK_SECRET`                 | HMAC signing secret. Required whenever a webhook URL is set; minimum 16 characters.     |
+| `SCIM_WEBHOOK_ALLOW_HTTP`             | Set to `1` to allow a plaintext endpoint. For a local receiver only — events carry PII. |
+| `SCIM_WEBHOOK_MAX_ATTEMPTS`           | Attempts before a delivery is dead-lettered. Defaults to 6.                             |
 | `LOG_DIR`                             | Directory for dated log files. Defaults to `logs/`; set it empty for stdout only.       |
 | `LOG_LEVEL`                           | `debug`, `info`, `warn` or `error`. Defaults to `info`.                                 |
 | `SCIM_LOG_REQUESTS`                   | Set to `1` to record request bodies, which include user attributes. Off by default.     |
@@ -163,8 +205,7 @@ Store and handler tests run against a real Postgres instance via `docker-compose
 
 Tracked in detail in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
 
-- **Change delivery** *(next)* — signed outbound webhooks with retries, and a `UserStore` interface, so provisioned users flow into an application's own schema.
-- **Multi-tenancy with issued API tokens** — per-tenant SCIM URLs, tokens stored as hashes and shown once at creation, revocation, and overlap-window rotation that needs no restart.
+- **Multi-tenancy with issued API tokens** *(next)* — per-tenant SCIM URLs, tokens stored as hashes and shown once at creation, revocation, and overlap-window rotation that needs no restart.
 - **`/Groups`** — group resources and membership.
 - **SAGE: SCIM Audit & Governance Engine** — a companion CLI (`cmd/sage`) that reads the audit trail and writes a plain-English summary of what merits a human's attention: bulk deactivations in a short window, off-hours changes, or a caller's volume rising sharply. SAGE is advisory by design: it surfaces signal, while every create, replace and deactivate stays in deterministic Go code. A sage advises; the code decides.
 - **Release engineering** — health and readiness endpoints, graceful shutdown, a published container image, tagged releases, and setup guides for Okta and Entra.

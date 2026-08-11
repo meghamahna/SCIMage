@@ -190,11 +190,51 @@ Both routes converge on the same state on purpose.
 ### Phase 9 — Change delivery
 How provisioned users reach the application's own data, which is what makes
 this deployable by someone other than its author.
-- [ ] Signed outbound webhooks on every mutation, with retries and a
-      dead-letter path
-- [ ] A `UserStore` interface, with the current Postgres store as the
+- [x] Signed outbound webhooks on every mutation, with retries and a
+      dead-letter path. The event is queued in the mutation's own
+      transaction, the same discipline as the audit entry — a transactional
+      outbox rather than a send after `COMMIT`, which would lose events on a
+      crash and could fire for a change that rolled back. HMAC-SHA256 over
+      timestamp and body, with the timestamp *inside* the signed material so
+      a capture can't be replayed. A dispatcher claims due rows with `FOR
+      UPDATE SKIP LOCKED`, counting the attempt and pushing a lease forward
+      in the same statement, so two dispatchers never send the same event
+      and a crashed one's rows come back on lease expiry
+- [x] A `UserStore` interface, with the current Postgres store as the
       default implementation, so a Go application can back SCIMage with its
       own schema
+
+**Deferred:** the interface lives in `internal/scim`, so supplying an
+implementation means forking rather than importing. Moving the domain types to
+an importable package is what would make it a real extension point; it is a
+mechanical change and nothing external depends on the current layout, so it
+waits until someone needs it.
+
+**Notes.** A `4xx` other than `408`/`429` is dead-lettered immediately rather
+than retried: the receiver understood the request and rejected it, so another
+attempt sends identical bytes for the same answer. Redirects are not followed —
+the payload carries user attributes and is signed for the configured endpoint,
+so a `302` would hand both to a host nobody configured. `last_error` holds a
+receiver's response body, so it is bounded in runes and stripped of NUL and
+invalid UTF-8; without that, a malformed error body fails its own write and
+leaves the delivery stuck in flight. Graceful shutdown landed here, ahead of
+Phase 13, because the dispatcher needs a defined stop.
+
+Two things review caught that are worth remembering. The claim lease has to
+cover the whole batch, not one send: a batch is delivered sequentially, so a
+per-send lease lets rows queued behind the current attempt come due again
+mid-batch — double-delivering them and, because the attempt is counted at claim
+time, spending each row's retry budget twice as fast. And the delivery id and
+event type are inside the signed material, not just headers alongside it,
+because a receiver is told to deduplicate and route on them; an unauthenticated
+dedup key would let a capture replay under a fresh id.
+
+**Still open.** `delivered` rows are never pruned, so the table grows without
+bound — retention belongs with the Phase 13 operational work. `DeadLetters`
+reads the parked queue but nothing replays it yet; the natural home is
+`cmd/scimage-admin` in Phase 10. Per-endpoint subscriptions are Phase 10 too:
+today there is one endpoint from the environment, and the delivery row gains a
+subscription reference when tenants arrive.
 
 ### Phase 10 — Multi-tenancy and issued API tokens
 The shape real SCIM service providers ship. It also gives the audit `actor`
@@ -259,7 +299,9 @@ that: a sage advises, the code decides.
       during Phase 8, where reading a client's real requests is what made
       the interop work tractable
 - [ ] `CHANGELOG.md`, `ROADMAP.md`, `SECURITY.md`, `CONTRIBUTING.md`
-- [ ] `/healthz` and `/readyz`, plus graceful shutdown
+- [ ] `/healthz` and `/readyz`. Graceful shutdown landed in Phase 9, which
+      needed a defined stop for the webhook dispatcher: SIGINT/SIGTERM drains
+      the listener, then stops the dispatcher
 - [ ] Published container image and tagged releases via GoReleaser
 - [ ] Okta and Entra setup guides, and a threat model
 - [ ] Tag v1.0.0

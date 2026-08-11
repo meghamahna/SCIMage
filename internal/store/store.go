@@ -19,12 +19,22 @@ var (
 )
 
 type Store struct {
-	pool *pgxpool.Pool
+	pool         *pgxpool.Pool
+	changeEvents bool
+}
+
+type Option func(*Store)
+
+// WithChangeEvents queues an outbound webhook delivery for every mutation, in
+// the mutation's own transaction. It is off unless a dispatcher is configured
+// to drain the queue, since otherwise the table would only ever grow.
+func WithChangeEvents() Option {
+	return func(s *Store) { s.changeEvents = true }
 }
 
 // New pings the database so a bad DATABASE_URL fails at startup, not on the
 // first request.
-func New(ctx context.Context, databaseURL string) (*Store, error) {
+func New(ctx context.Context, databaseURL string, opts ...Option) (*Store, error) {
 	pool, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("open postgres pool: %w", err)
@@ -35,7 +45,11 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
 
-	return &Store{pool: pool}, nil
+	s := &Store{pool: pool}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s, nil
 }
 
 func (s *Store) Close() {

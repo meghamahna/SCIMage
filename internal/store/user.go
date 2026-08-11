@@ -159,6 +159,10 @@ func (s *Store) CreateUser(ctx context.Context, u *User, rec AuditRecord) (*User
 		return nil, fmt.Errorf("create user %q: %w", u.UserName, err)
 	}
 
+	if err := s.enqueueChange(ctx, tx, EventUserCreated, created.ID, nil, created); err != nil {
+		return nil, fmt.Errorf("create user %q: %w", u.UserName, err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("create user %q: commit: %w", u.UserName, err)
 	}
@@ -272,6 +276,10 @@ func (s *Store) UpdateUser(ctx context.Context, id string, u *User, rec AuditRec
 		return nil, fmt.Errorf("update user %q: %w", id, err)
 	}
 
+	if err := s.enqueueChange(ctx, tx, changeEventType(change.Before, change.After), id, change.Before, change.After); err != nil {
+		return nil, fmt.Errorf("update user %q: %w", id, err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("update user %q: commit: %w", id, err)
 	}
@@ -307,6 +315,10 @@ func (s *Store) DeactivateUser(ctx context.Context, id string, rec AuditRecord) 
 	}
 
 	if err := insertAudit(ctx, tx, rec, ActionDeactivate, id, ResultSuccess, "", change.Before, change.After); err != nil {
+		return nil, fmt.Errorf("deactivate user %q: %w", id, err)
+	}
+
+	if err := s.enqueueChange(ctx, tx, EventUserDeactivated, id, change.Before, change.After); err != nil {
 		return nil, fmt.Errorf("deactivate user %q: %w", id, err)
 	}
 
