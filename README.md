@@ -2,7 +2,7 @@
 
 # 🛡️ SCIMage
 
-### A SCIM 2.0 provisioning server that tells your app what changed
+### A SCIM 2.0 provisioning server with signed change delivery and an AI-advisory audit trail
 
 ![Go](https://img.shields.io/badge/Go-00ADD8?style=flat&logo=go&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/Postgres-16-4169E1?style=flat&logo=postgresql&logoColor=white)
