@@ -69,7 +69,7 @@ make logs                    # follow logs — SERVICE=postgres to scope to one
 
 ## Migrations
 
-Schema migrations live in [`migrations/`](migrations/) and are managed
+Schema migrations live in [`migrations/`](../migrations/) and are managed
 with [golang-migrate](https://github.com/golang-migrate/migrate).
 
 ```bash
@@ -78,7 +78,7 @@ make migrate-down            # roll back the most recent migration
 make migrate-version         # which version the database is on
 ```
 
-[`scripts/migrate.sh`](scripts/migrate.sh)
+[`scripts/migrate.sh`](../scripts/migrate.sh)
 uses a host binary if you have one and otherwise runs the official
 `migrate/migrate` image on the compose network. Either way the
 connection string is assembled at runtime from `.env` and passed straight

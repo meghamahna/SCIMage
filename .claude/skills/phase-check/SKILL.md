@@ -1,18 +1,18 @@
 ---
 name: phase-check
-description: Verify a SCIM server implementation phase is actually done — tests pass, formatting is clean, and the phase's security principles are satisfied — before checking it off in IMPLEMENTATION_PLAN.md. Use when the user says a phase is done, asks to check off IMPLEMENTATION_PLAN.md boxes, or asks what's left before committing.
+description: Verify a SCIM server implementation phase is actually done — tests pass, formatting is clean, and the phase's security principles are satisfied — before checking it off in docs/IMPLEMENTATION_PLAN.md. Use when the user says a phase is done, asks to check off docs/IMPLEMENTATION_PLAN.md boxes, or asks what's left before committing.
 ---
 
 # Phase completion check
 
 This project's discipline (per CLAUDE.md) is: don't check a box in
-`IMPLEMENTATION_PLAN.md` until it's actually true. This skill is the
+`docs/IMPLEMENTATION_PLAN.md` until it's actually true. This skill is the
 gate — run every applicable step below before ticking anything off or
 suggesting a `phase-N:` commit.
 
 ## Steps
 
-1. **Locate the phase.** Read `IMPLEMENTATION_PLAN.md`. Find the
+1. **Locate the phase.** Read `docs/IMPLEMENTATION_PLAN.md`. Find the
    lowest-numbered phase with any unchecked `- [ ]` box — that's the
    one under review. List its specific checklist items.
 
@@ -52,7 +52,7 @@ suggesting a `phase-N:` commit.
    isn't done, full stop — go back and fix what it flagged.
 
 7. **Report, don't rubber-stamp.** If every applicable step above
-   passed, check off the completed boxes in `IMPLEMENTATION_PLAN.md`
+   passed, check off the completed boxes in `docs/IMPLEMENTATION_PLAN.md`
    and propose a commit message in the `phase-N: short description`
    format. If anything failed, list exactly what's missing and do NOT
    check any boxes — a half-passing phase stays unchecked.

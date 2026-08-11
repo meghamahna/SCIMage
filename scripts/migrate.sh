@@ -54,7 +54,7 @@ wait_for_postgres() {
 }
 
 if ! command -v docker >/dev/null 2>&1; then
-  echo "migrate: docker is required — see LOCAL-DEVELOPMENT.md for prerequisites" >&2
+  echo "migrate: docker is required — see docs/LOCAL-DEVELOPMENT.md for prerequisites" >&2
   exit 1
 fi
 

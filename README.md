@@ -2,7 +2,7 @@
 
 # 🛡️ SCIMage
 
-### A SCIM 2.0 provisioning server, built from the other side of the wire
+### A SCIM 2.0 provisioning server with signed change delivery and an AI-advisory audit trail
 
 ![Go](https://img.shields.io/badge/Go-00ADD8?style=flat&logo=go&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/Postgres-16-4169E1?style=flat&logo=postgresql&logoColor=white)
@@ -15,13 +15,13 @@ SCIMage is a focused SCIM 2.0 server written in Go. It implements the core `/Use
 
 ## 💡 Why I built this
 
-I spent two years building JML (joiner mover leaver) automation on the identity provider side, configuring Okta Workflows to push user provisioning into 60+ SaaS applications. That gave me a solid understanding of the SCIM spec from the client's point of view.
+I spent years building JML (joiner mover leaver) automation on the identity provider side, configuring Okta Workflows to push user provisioning into 60+ SaaS applications. That gave me a solid understanding of the SCIM spec from the client's point of view.
 
 This project is the other half: the server that receives those SCIM calls and applies them, which is the side most SaaS products build and maintain themselves. It demonstrates both ends of the handshake.
 
 ## ⚙️ What it does
 
-SCIMage is the *service provider* side of SCIM — the endpoint an identity provider provisions into. It implements the core `/Users` resource:
+SCIMage is the *service provider* side of SCIM — the endpoint an identity provider provisions into.
 
 | Method | Endpoint      | Behaviour                                                                       |
 |--------|---------------|---------------------------------------------------------------------------------|
@@ -32,13 +32,13 @@ SCIMage is the *service provider* side of SCIM — the endpoint an identity prov
 | PATCH  | `/Users/{id}` | Applies operations to a user — how identity providers deprovision               |
 | DELETE | `/Users/{id}` | Deactivates a user, preserving the row and its history                          |
 
-Plus the discovery endpoints a client reads before provisioning — `/ServiceProviderConfig`, `/ResourceTypes` and `/Schemas` — which declare exactly the attributes this server stores.
+The discovery endpoints `/ServiceProviderConfig`, `/ResourceTypes` and `/Schemas` declare exactly the attributes this server stores. A client reads them before provisioning.
 
-`GET /Users` supports `filter=userName eq "…"` and `filter=externalId eq "…"`, the lookups a provider uses to decide whether a user already exists. Other expressions answer `400` with `scimType: invalidFilter`, so a client is told plainly rather than handed an unfiltered list that would read as a match.
+`GET /Users` supports `filter=userName eq "…"` and `filter=externalId eq "…"`, the lookups a provider uses to decide whether a user already exists. Other expressions answer `400` with `scimType: invalidFilter`, telling the client plainly where the supported set ends.
 
 Responses use `application/scim+json`, and errors use the SCIM Error schema with the appropriate `scimType`.
 
-`userName` uniqueness is enforced case-insensitively, matching the spec's `caseExact=false` characteristic — so `bjensen` and `BJensen` are correctly treated as the same identity.
+`userName` uniqueness is enforced case-insensitively, matching the spec's `caseExact=false` characteristic, so `bjensen` and `BJensen` are one identity.
 
 ## 🏗️ How it's built
 
@@ -53,68 +53,43 @@ flowchart LR
     ROUTER -->|PUT /Users/:id| UPDATE[Replace]
     ROUTER -->|PATCH /Users/:id| PATCHOP[Patch]
     ROUTER -->|DELETE /Users/:id| DEACTIVATE[Deactivate]
-    CREATE --> TX[("Postgres — users + audit_log<br/>written in one transaction")]
+    CREATE --> TX[("Postgres — users + audit_log + outbox<br/>written in one transaction")]
     UPDATE --> TX
     PATCHOP --> TX
     DEACTIVATE --> TX
     READ --> DB[("Postgres — users")]
+    TX -.->|claims due rows| DISPATCH[Webhook dispatcher]
+    DISPATCH -->|"signed POST, retried"| APP[Your application]
+    DISPATCH -.->|"attempts exhausted"| DLQ[("Dead-letter queue")]
 ```
 
-The request path is deliberately plain: auth middleware checks the bearer token, the rate limiter admits the request, the router dispatches to a handler, the handler validates the payload and maps it to a Postgres row. Postgres is the single source of truth. Standard library `net/http` and raw SQL keep the behaviour visible in the code.
+A mutation writes the user row, its audit entry and its outbound event in one transaction, so a change always carries its record and its notification. The handler depends on a `UserStore` interface, so an application with its own user table can supply an implementation and skip webhooks entirely.
+
+[Architecture](docs/ARCHITECTURE.md) covers the request path, the storage model and that interface's contract.
+
+## 📤 Change delivery
+
+Provisioning pays off once the change reaches the system that needs it. Every mutation queues a signed webhook, so a user created by an identity provider lands in your application directly.
+
+The event is queued in the mutation's own transaction, so a committed change is always queued. Delivery is at-least-once with retries and a dead-letter queue, and requests are signed with HMAC-SHA256 over the timestamp, delivery id, event type and body. Events name what happened to the user: a person moving from active to inactive emits `user.deactivated` whether the provider sent `DELETE` or `PATCH active:false`.
+
+Set `SCIM_WEBHOOK_URL` to turn it on. [Architecture](docs/ARCHITECTURE.md#change-delivery) covers the outbox, claim leases, retry rules, the signing scheme and the event payload; `webhook.Verify` is exported for Go receivers.
 
 ## 🔒 Security practices
 
 These are load-bearing, and each one is covered by tests:
 
 - **Constant-time token comparison.** Bearer tokens are compared with `crypto/subtle.ConstantTimeCompare` over SHA-256 digests. Hashing gives both sides a fixed width, keeping the comparison constant-time with respect to the token's length as well as its content.
-- **Auth applied by the router itself.** `Routes()` wraps every path in the bearer check, so authentication covers the whole surface structurally rather than per handler.
-- **Audit logging in the same transaction as the change.** Create, replace and deactivate each write an entry — actor, action, target user ID, timestamp, before/after state — inside the transaction that makes the change. The entry and the change commit together, so every modification carries a record. Refusals are recorded too, which makes a burst of denied deactivations visible to a reviewer.
+- **Auth applied by the router itself.** `Routes()` wraps every path in the bearer check, so authentication covers the whole surface structurally.
+- **Audit logging in the same transaction as the change.** Create, replace and deactivate each write an entry — actor, action, target user ID, timestamp, before/after state — inside the transaction that makes the change, so the entry and the change commit together. Refusals are recorded too, which makes a burst of denied deactivations visible to a reviewer.
 - **Schema validation before the database.** Every incoming SCIM payload is checked against the expected shape, with attribute lengths bounded, before it reaches a query.
-- **Rate limiting per caller.** A token bucket returns `429` with `Retry-After`, so a runaway sync loop is bounded.
-- **Secrets from the environment.** The bearer token and database credentials are read from environment variables at runtime. Git hooks scan staged diffs for credential-shaped content, and CI runs `govulncheck` against dependencies.
+- **Signed outbound webhooks.** Change events are signed with HMAC-SHA256 and verified with `hmac.Equal`. A configured endpoint requires a secret at startup, so every event that goes out is signed. Plaintext endpoints are opt-in for local receivers.
+- **Rate limiting per caller.** A token bucket returns `429` with `Retry-After`, so a runaway sync loop stays bounded.
+- **Secrets from the environment.** The bearer token, webhook secret and database credentials are read from environment variables at runtime. Git hooks scan staged diffs for credential-shaped content, and CI runs `govulncheck` against dependencies.
 
-### Configuration
+Every setting comes from an environment variable — see [Configuration](docs/CONFIGURATION.md) for the full list and the token rotation procedure.
 
-| Variable                              | Purpose                                                                                 |
-|---------------------------------------|-----------------------------------------------------------------------------------------|
-| `SCIM_TOKEN`                          | Bearer token every request presents. Required — the server validates it at startup.     |
-| `DATABASE_URL`                        | Postgres connection string. Assembled from `POSTGRES_*` when unset.                     |
-| `SCIM_ADDR`                           | Listen address. Defaults to `:8080`.                                                    |
-| `SCIM_BASE_URL`                       | External base URL, used for `Location` and `meta.location` when running behind a proxy. |
-| `SCIM_RATE_LIMIT` / `SCIM_RATE_BURST` | Token bucket, in requests per second. Defaults to 20/40.                                |
-| `LOG_DIR`                             | Directory for dated log files. Defaults to `logs/`; set it empty for stdout only.       |
-| `LOG_LEVEL`                           | `debug`, `info`, `warn` or `error`. Defaults to `info`.                                 |
-| `SCIM_LOG_REQUESTS`                   | Set to `1` to record request bodies, which include user attributes. Off by default.     |
-
-Generate a token with `openssl rand -hex 32`. The server requires at least 16 characters.
-
-### Logs
-
-Operational logs are structured JSON with RFC 3339 timestamps, written to
-stdout and to a dated file under `logs/`:
-
-```json
-{"time":"2026-08-11T04:17:05.34Z","level":"INFO","msg":"request","method":"PATCH","path":"/Users/5f6e3041","status":200}
-```
-
-One file per day keeps a long-running process from producing a single unbounded
-file. In a container, set `LOG_DIR=` (empty) and let the runtime collect stdout.
-
-`SCIM_LOG_REQUESTS=1` adds the full request body to each entry, which is how a
-client's actual behaviour gets diagnosed. Those entries contain user attributes,
-so the log directory is created `0700`, files `0600`, and `logs/` and `*.log`
-are gitignored.
-
-These are operational logs. The audit trail is separate and lives in the
-`audit_log` table, because a change and its record have to commit together.
-
-### Rotating the token
-
-1. Generate a new token: `openssl rand -hex 32`
-2. Set it as `SCIM_TOKEN` and restart the server.
-3. Update the token in your identity provider.
-
-Treat `SCIM_TOKEN` as a privileged credential — it authorizes directory changes — and rotate it whenever exposure is suspected. Dual-token rotation, which removes the restart from this sequence, is on the roadmap.
+Operational logs are structured JSON on stdout and in a dated file under `LOG_DIR`. The audit trail is separate and lives in the `audit_log` table, so a change and its record commit together.
 
 ## 🚀 Getting started
 
@@ -132,7 +107,7 @@ make up
 make run
 ```
 
-The server starts on `:8080`. Migrations run through `golang-migrate`, and `make migrate` uses a host `migrate` binary when one is present and the official container otherwise. See [LOCAL-DEVELOPMENT.md](LOCAL-DEVELOPMENT.md) for prerequisites and the full set of targets.
+The server starts on `:8080`. Migrations run through `golang-migrate`, and `make migrate` uses a host `migrate` binary when one is present and the official container otherwise. See [Local development](docs/LOCAL-DEVELOPMENT.md) for prerequisites and the full set of targets.
 
 ## 📬 Example request
 
@@ -157,17 +132,20 @@ make up      # the integration tests use a real Postgres
 make test
 ```
 
-Store and handler tests run against a real Postgres instance via `docker-compose`, exercising the actual SQL and constraints. Handlers are driven through `httptest`. Both suites clean up the rows they create.
+Store and audit tests run against a real Postgres instance via `docker-compose`, exercising the actual SQL and constraints. Handlers are driven through `httptest`, and the webhook dispatcher against a real `httptest` receiver. Every suite cleans up the rows it creates.
 
 ## 🗺️ Roadmap
 
-Tracked in detail in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
+Phases 1–9 are complete: schema, endpoints, auth, audit, hardening, identity-provider interoperability, and change delivery. Multi-tenancy with issued API tokens is next, followed by `/Groups`, SAGE, and release engineering.
 
-- **Change delivery** *(next)* — signed outbound webhooks with retries, and a `UserStore` interface, so provisioned users flow into an application's own schema.
-- **Multi-tenancy with issued API tokens** — per-tenant SCIM URLs, tokens stored as hashes and shown once at creation, revocation, and overlap-window rotation that needs no restart.
-- **`/Groups`** — group resources and membership.
-- **SAGE: SCIM Audit & Governance Engine** — a companion CLI (`cmd/sage`) that reads the audit trail and writes a plain-English summary of what merits a human's attention: bulk deactivations in a short window, off-hours changes, or a caller's volume rising sharply. SAGE is advisory by design: it surfaces signal, while every create, replace and deactivate stays in deterministic Go code. A sage advises; the code decides.
-- **Release engineering** — health and readiness endpoints, graceful shutdown, a published container image, tagged releases, and setup guides for Okta and Entra.
+The [implementation plan](docs/IMPLEMENTATION_PLAN.md) has the phase-by-phase detail, with the decisions and trade-offs recorded as they were made.
+
+## 📚 Documentation
+
+- [Architecture](docs/ARCHITECTURE.md) — request path, storage model, change delivery internals
+- [Configuration](docs/CONFIGURATION.md) — every environment variable, and token rotation
+- [Local development](docs/LOCAL-DEVELOPMENT.md) — prerequisites and every `make` target
+- [Implementation plan](docs/IMPLEMENTATION_PLAN.md) — the phase-by-phase build, with decisions recorded
 
 ## 🧰 Tech
 
