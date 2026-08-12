@@ -34,20 +34,6 @@ SCIMage is the *service provider* side of SCIM: the endpoint an identity provide
 | PATCH  | `/scim/v2/{tenantID}/Users/{id}`  | Applies operations to a user (how identity providers deprovision)               |
 | DELETE | `/scim/v2/{tenantID}/Users/{id}`  | Deactivates a user, preserving the row and its history                          |
 
-**User attributes:**
-
-| Attribute | Notes |
-| --- | --- |
-| `id` | Server-assigned, read-only |
-| `externalId` | The identity provider's own key, for reconciliation |
-| `userName` | Required; unique per tenant, case-insensitively |
-| `name.givenName`, `name.familyName` | |
-| `emails[].value`, `emails[].primary` | Multiple accepted on input; only the primary (or first) is stored and returned |
-| `active` | Defaults to `true`; a `PATCH replace` on this is how identity providers deprovision |
-| `meta.resourceType`, `.created`, `.lastModified`, `.location` | Server-managed |
-
-Not modeled: `displayName`, `title`, `preferredLanguage`, `name.formatted`, `name.middleName`, and typed multi-valued emails. That's a deliberate scope cut, not an oversight; see the Entra validation note below. The `/Schemas` endpoint always reflects this table exactly, since both come from the same code.
-
 The discovery endpoints `/ServiceProviderConfig`, `/ResourceTypes` and `/Schemas` (same `/scim/v2/{tenantID}` prefix) declare exactly the attributes this server stores. A client reads them before provisioning.
 
 `GET .../Users` supports `filter=userName eq "…"` and `filter=externalId eq "…"`, the lookups a provider uses to decide whether a user already exists. Other expressions answer `400` with `scimType: invalidFilter`, telling the client plainly where the supported set ends.
@@ -56,7 +42,7 @@ Responses use `application/scim+json`, and errors use the SCIM Error schema with
 
 `userName` uniqueness is enforced case-insensitively, matching the spec's `caseExact=false` characteristic, so `bjensen` and `BJensen` are one identity.
 
-**Validated against [Microsoft's Entra ID SCIM validator](https://scimvalidator.microsoft.com/).** Core CRUD, filtering, and PATCH all pass; the attributes table above is exactly where it falls short on completeness checks. Full [Entra app gallery](https://learn.microsoft.com/en-us/entra/identity/app-provisioning/) certification would mean adding those attributes; that's out of scope for now.
+**Validated against [Microsoft's Entra ID SCIM validator](https://scimvalidator.microsoft.com/).** Core CRUD, filtering, and PATCH all pass. Known gap: the `User` schema is deliberately reduced to the attributes this server actually stores: `displayName`, `title`, `preferredLanguage`, `name.formatted`/`name.middleName`, and typed multi-valued emails aren't modeled, so Entra's attribute-completeness checks for those fail. Full [Entra app gallery](https://learn.microsoft.com/en-us/entra/identity/app-provisioning/) certification would mean adding them; that's out of scope for now.
 
 ## 🏗️ How it's built
 
