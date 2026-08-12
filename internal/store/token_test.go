@@ -248,7 +248,11 @@ func TestTokenExpiry(t *testing.T) {
 	ctx := context.Background()
 	tenantID := newTestTenant(t, s)
 
-	past := time.Now().Add(-time.Hour)
+	// Postgres timestamptz has microsecond precision; time.Now() on Linux
+	// (unlike macOS in practice) reliably carries real nanoseconds, so an
+	// untruncated value never round-trips equal. Truncate before the compare,
+	// not just at comparison time, so both sides describe the same instant.
+	past := time.Now().Add(-time.Hour).Truncate(time.Millisecond)
 	_, tok, err := s.IssueToken(ctx, tenantID, "expired", "test-suite", &past)
 	if err != nil {
 		t.Fatalf("IssueToken: %v", err)
