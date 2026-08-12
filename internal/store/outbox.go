@@ -51,9 +51,14 @@ const (
 	DeliveryDeadLetter = "dead_letter"
 )
 
-// Delivery is one queued event, as the dispatcher sees it.
+// Delivery is one queued event, as the dispatcher sees it. TenantID is
+// carried for review and for a future per-tenant delivery target; the
+// dispatcher itself still sends every tenant's events to one configured
+// SCIM_WEBHOOK_URL, since that's the app owner's own receiver regardless of
+// which of their customers an event is about.
 type Delivery struct {
 	ID        int64
+	TenantID  string
 	EventType string
 	TargetID  string
 	Payload   []byte
@@ -85,7 +90,7 @@ type ChangeEvent struct {
 // DELETE against an already-inactive user is a real call that the audit log
 // records, so suppressing its event would make the outbound stream disagree
 // with the audit trail. Receivers key on the delivery id and apply idempotently.
-func (s *Store) enqueueChange(ctx context.Context, q querier, eventType, targetID string, before, after *User) error {
+func (s *Store) enqueueChange(ctx context.Context, q querier, tenantID, eventType, targetID string, before, after *User) error {
 	if !s.changeEvents {
 		return nil
 	}
@@ -103,8 +108,8 @@ func (s *Store) enqueueChange(ctx context.Context, q querier, eventType, targetI
 		return fmt.Errorf("marshal %s event for user %q: %w", eventType, targetID, err)
 	}
 
-	const stmt = `INSERT INTO webhook_deliveries (event_type, target_id, payload) VALUES ($1, $2, $3)`
-	if _, err := q.Exec(ctx, stmt, eventType, targetID, payload); err != nil {
+	const stmt = `INSERT INTO webhook_deliveries (tenant_id, event_type, target_id, payload) VALUES ($1, $2, $3, $4)`
+	if _, err := q.Exec(ctx, stmt, tenantID, eventType, targetID, payload); err != nil {
 		return fmt.Errorf("enqueue %s event for user %q: %w", eventType, targetID, err)
 	}
 	return nil
@@ -138,7 +143,7 @@ func (s *Store) ClaimDueDeliveries(ctx context.Context, limit int, lease time.Du
 	               LIMIT $1
 	               FOR UPDATE SKIP LOCKED
 	           )
-	           RETURNING id, event_type, target_id, payload, attempts`
+	           RETURNING id, tenant_id, event_type, target_id, payload, attempts`
 
 	rows, err := s.pool.Query(ctx, q, limit, lease.Seconds(), DeliveryPending)
 	if err != nil {
@@ -208,7 +213,7 @@ func (s *Store) DeadLetters(ctx context.Context, limit int) ([]Delivery, error) 
 		limit = MaxPageSize
 	}
 
-	const q = `SELECT id, event_type, target_id, payload, attempts
+	const q = `SELECT id, tenant_id, event_type, target_id, payload, attempts
 	           FROM webhook_deliveries
 	           WHERE status = $1
 	           ORDER BY created_at DESC, id DESC
@@ -230,7 +235,7 @@ func scanDeliveries(rows pgx.Rows) ([]Delivery, error) {
 			d        Delivery
 			targetID *string
 		)
-		if err := rows.Scan(&d.ID, &d.EventType, &targetID, &d.Payload, &d.Attempts); err != nil {
+		if err := rows.Scan(&d.ID, &d.TenantID, &d.EventType, &targetID, &d.Payload, &d.Attempts); err != nil {
 			return nil, fmt.Errorf("scan delivery: %w", err)
 		}
 		d.TargetID = deref(targetID)

@@ -1,8 +1,6 @@
 package scim
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -26,13 +24,8 @@ const (
 )
 
 type Handler struct {
-	store UserStore
-	token string
-
-	// actor identifies the caller in audit entries: a short fingerprint of the
-	// token, never the token. 32 bits is plenty to tell callers apart and
-	// useless for recovering a 256-bit secret.
-	actor   string
+	store   UserStore
+	tokens  TokenStore
 	limiter *limiter
 
 	// externalURL overrides the Host header when set, which matters behind a
@@ -40,45 +33,47 @@ type Handler struct {
 	externalURL string
 }
 
-func NewHandler(s UserStore, token string) *Handler {
-	sum := sha256.Sum256([]byte(token))
-
+func NewHandler(s UserStore, tokens TokenStore) *Handler {
 	return &Handler{
 		store:       s,
-		token:       token,
-		actor:       "tok_" + hex.EncodeToString(sum[:4]),
+		tokens:      tokens,
 		limiter:     limiterFromEnv(),
 		externalURL: strings.TrimSuffix(os.Getenv("SCIM_BASE_URL"), "/"),
 	}
 }
 
-// Routes applies bearer auth itself rather than leaving it to the caller. A
-// missing or too-short token rejects every request rather than serving openly.
+// Routes applies token auth itself rather than leaving it to the caller. A
+// tenant with no matching, live token rejects every request under its path
+// rather than serving openly.
+//
+// Every path carries {tenantID}: one SCIMage deployment serves many customer
+// organizations, each provisioning through its own URL and its own issued
+// token, isolated from every other tenant's data by that segment.
 func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /Users", h.create)
-	mux.HandleFunc("GET /Users", h.list)
-	mux.HandleFunc("GET /Users/{id}", h.get)
-	mux.HandleFunc("PUT /Users/{id}", h.replace)
-	mux.HandleFunc("PATCH /Users/{id}", h.patch)
-	mux.HandleFunc("DELETE /Users/{id}", h.deactivate)
+	mux.HandleFunc("POST /scim/v2/{tenantID}/Users", h.create)
+	mux.HandleFunc("GET /scim/v2/{tenantID}/Users", h.list)
+	mux.HandleFunc("GET /scim/v2/{tenantID}/Users/{id}", h.get)
+	mux.HandleFunc("PUT /scim/v2/{tenantID}/Users/{id}", h.replace)
+	mux.HandleFunc("PATCH /scim/v2/{tenantID}/Users/{id}", h.patch)
+	mux.HandleFunc("DELETE /scim/v2/{tenantID}/Users/{id}", h.deactivate)
 
 	// Discovery (RFC 7644 §4). A client reads these before provisioning, to
 	// learn what this server supports.
-	mux.HandleFunc("GET /ServiceProviderConfig", h.serviceProviderConfig)
-	mux.HandleFunc("GET /ResourceTypes", h.resourceTypes)
-	mux.HandleFunc("GET /Schemas", h.schemas)
+	mux.HandleFunc("GET /scim/v2/{tenantID}/ServiceProviderConfig", h.serviceProviderConfig)
+	mux.HandleFunc("GET /scim/v2/{tenantID}/ResourceTypes", h.resourceTypes)
+	mux.HandleFunc("GET /scim/v2/{tenantID}/Schemas", h.schemas)
 
 	// Without these, an unrouted method or path gets net/http's plain-text
 	// error, which a SCIM client can't parse.
-	mux.HandleFunc("/Users", methodNotAllowed)
-	mux.HandleFunc("/Users/{id}", methodNotAllowed)
+	mux.HandleFunc("/scim/v2/{tenantID}/Users", methodNotAllowed)
+	mux.HandleFunc("/scim/v2/{tenantID}/Users/{id}", methodNotAllowed)
 	mux.HandleFunc("/", unknownResource)
 
 	// Throttle inside auth, so each authenticated caller has its own budget.
 	// Request logging wraps the outside, to record what a client actually sent
 	// including the calls auth rejects.
-	return logRequests(requireBearer(h.token)(h.limiter.throttle(h.actor, mux)))
+	return logRequests(requireToken(h.tokens)(h.limiter.throttle(mux)))
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +83,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	su := toStoreUser(in)
-	created, err := h.store.CreateUser(r.Context(), &su, h.auditRecord(r))
+	created, err := h.store.CreateUser(r.Context(), r.PathValue("tenantID"), &su, h.auditRecord(r))
 	if err != nil {
 		if errors.Is(err, store.ErrDuplicateUserName) {
 			writeError(w, http.StatusConflict, "uniqueness", "userName is already in use")
@@ -104,7 +99,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
-	u, err := h.store.GetUser(r.Context(), r.PathValue("id"))
+	u, err := h.store.GetUser(r.Context(), r.PathValue("tenantID"), r.PathValue("id"))
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			notFound(w)
@@ -129,7 +124,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 
 	startIndex, count := pageParams(r)
 
-	users, total, err := h.store.ListUsers(r.Context(), count, startIndex-1, filter)
+	users, total, err := h.store.ListUsers(r.Context(), r.PathValue("tenantID"), count, startIndex-1, filter)
 	if err != nil {
 		serverError(w, "list users", err)
 		return
@@ -156,7 +151,7 @@ func (h *Handler) replace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := r.PathValue("id")
+	tenantID, id := r.PathValue("tenantID"), r.PathValue("id")
 
 	// id is readOnly in RFC 7643 §3.1. A body naming a different user is a
 	// client bug worth refusing rather than silently ignoring.
@@ -166,7 +161,7 @@ func (h *Handler) replace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	su := toStoreUser(in)
-	changed, err := h.store.UpdateUser(r.Context(), id, &su, h.auditRecord(r))
+	changed, err := h.store.UpdateUser(r.Context(), tenantID, id, &su, h.auditRecord(r))
 	if err != nil {
 		switch {
 		case errors.Is(err, store.ErrNotFound):
@@ -192,7 +187,7 @@ func (h *Handler) replace(w http.ResponseWriter, r *http.Request) {
 // is serial in practice; making this airtight needs the operations applied
 // inside the store's transaction.
 func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	tenantID, id := r.PathValue("tenantID"), r.PathValue("id")
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 
@@ -202,7 +197,7 @@ func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	existing, err := h.store.GetUser(r.Context(), id)
+	existing, err := h.store.GetUser(r.Context(), tenantID, id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			notFound(w)
@@ -228,7 +223,7 @@ func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	su := toStoreUser(patched)
-	changed, err := h.store.UpdateUser(r.Context(), id, &su, h.auditRecord(r))
+	changed, err := h.store.UpdateUser(r.Context(), tenantID, id, &su, h.auditRecord(r))
 	if err != nil {
 		switch {
 		case errors.Is(err, store.ErrNotFound):
@@ -246,9 +241,9 @@ func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 
 // DELETE is a soft delete: the row survives with active=false.
 func (h *Handler) deactivate(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	tenantID, id := r.PathValue("tenantID"), r.PathValue("id")
 
-	if _, err := h.store.DeactivateUser(r.Context(), id, h.auditRecord(r)); err != nil {
+	if _, err := h.store.DeactivateUser(r.Context(), tenantID, id, h.auditRecord(r)); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			notFound(w)
 			return
@@ -260,11 +255,13 @@ func (h *Handler) deactivate(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// auditRecord is the caller's identity. The store writes the entry inside the
+// auditRecord is the caller's identity, resolved by requireToken and read
+// back out of the request context. The store writes the entry inside the
 // mutation's transaction, so there is no path that changes a user without
 // recording it — the same reasoning as Routes applying auth itself.
 func (h *Handler) auditRecord(r *http.Request) store.AuditRecord {
-	return store.AuditRecord{ActorToken: h.actor, ActorIP: clientIP(r)}
+	id := identityFromContext(r.Context())
+	return store.AuditRecord{ActorToken: id.KeyID, ActorIP: clientIP(r), TenantID: id.TenantID}
 }
 
 // X-Forwarded-For is ignored: it is caller-controlled, and trusting it would
@@ -352,14 +349,19 @@ func pageParams(r *http.Request) (startIndex, count int) {
 	return startIndex, count
 }
 
+// baseURL is this tenant's own root, not the server's: every Location and
+// meta.location a client sees has to point back through the same
+// {tenantID} segment the client itself called through.
 func (h *Handler) baseURL(r *http.Request) string {
-	if h.externalURL != "" {
-		return h.externalURL
+	root := h.externalURL
+	if root == "" {
+		if r.TLS != nil {
+			root = "https://" + r.Host
+		} else {
+			root = "http://" + r.Host
+		}
 	}
-	if r.TLS != nil {
-		return "https://" + r.Host
-	}
-	return "http://" + r.Host
+	return root + "/scim/v2/" + r.PathValue("tenantID")
 }
 
 func methodNotAllowed(w http.ResponseWriter, r *http.Request) {
