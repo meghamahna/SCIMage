@@ -9,7 +9,7 @@ GREEN  := $(ESC)[32m
 YELLOW := $(ESC)[33m
 CYAN   := $(ESC)[36m
 
-.PHONY: help up down stop restart reset ps logs migrate migrate-down migrate-version test run tenant token fmt hooks-install
+.PHONY: help up down stop restart reset ps logs migrate migrate-down migrate-version test run tenant tenant-list token token-list token-revoke audit-list fmt hooks-install
 
 # Bare `make` shows the command list instead of silently running the first
 # target, which used to be `up`.
@@ -110,9 +110,24 @@ fmt: ## Format every Go file
 tenant: ## Create a tenant
 	@scripts/with-env.sh go run ./cmd/scimage-admin tenant create -name "$(NAME)"
 
+tenant-list: ## List every tenant
+	@scripts/with-env.sh go run ./cmd/scimage-admin tenant list
+
 # Usage: make token TENANT=tenant_xxx LABEL="Okta prod"  [EXPIRES=90d]
 token: ## Issue a token for a tenant
 	@scripts/with-env.sh go run ./cmd/scimage-admin token issue -tenant "$(TENANT)" -label "$(LABEL)" $(if $(EXPIRES),-expires "$(EXPIRES)")
+
+# Usage: make token-list TENANT=tenant_xxx
+token-list: ## List a tenant's tokens
+	@scripts/with-env.sh go run ./cmd/scimage-admin token list -tenant "$(TENANT)"
+
+# Usage: make token-revoke KEY=<keyID>
+token-revoke: ## Revoke a token immediately
+	@scripts/with-env.sh go run ./cmd/scimage-admin token revoke "$(KEY)"
+
+# Usage: make audit-list  |  make audit-list TENANT=tenant_xxx
+audit-list: ## Read the admin-audit trail
+	@scripts/with-env.sh go run ./cmd/scimage-admin audit list $(if $(TENANT),-tenant "$(TENANT)")
 
 ##@ Setup
 

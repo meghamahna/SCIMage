@@ -58,17 +58,12 @@ SERVICE=postgres`, not `--service=postgres`.
 | `make run` | Runs the SCIM server | Listens on `:8080` by default (`SCIM_ADDR` to override) |
 | `make fmt` | Formats every Go file | `gofmt` + `goimports` |
 | `make tenant NAME="Acme Corp"` | Creates a tenant | Prints the tenant id and its SCIM base URL |
+| `make tenant-list` | Lists every tenant | |
 | `make token TENANT=<id> LABEL="Okta prod"` | Issues a token for a tenant | Optional `EXPIRES=90d`; token is shown once |
+| `make token-list TENANT=<id>` | Lists a tenant's tokens | Never shows the secret, only metadata |
+| `make token-revoke KEY=<keyID>` | Revokes a token immediately | Irreversible; idempotent on an already-revoked key |
+| `make audit-list [TENANT=<id>]` | Reads the admin-audit trail | Every tenant created, token issued or revoked; omit `TENANT` for every tenant |
 | `make hooks-install` | Activates the real git pre-commit hook | One-time per clone; doesn't travel with the repo |
-
-A few admin actions have no `make` shortcut yet and need the CLI directly:
-
-| Command | What it does | Comments |
-| --- | --- | --- |
-| `go run ./cmd/scimage-admin tenant list` | Lists every tenant | |
-| `go run ./cmd/scimage-admin token list -tenant <id>` | Lists a tenant's tokens | Never shows the secret, only metadata |
-| `go run ./cmd/scimage-admin token revoke <keyID>` | Revokes a token immediately | Irreversible; idempotent on an already-revoked key |
-| `go run ./cmd/scimage-admin audit list [-tenant <id>]` | Reads the admin-audit trail | Every tenant created, token issued or revoked; omit `-tenant` for every tenant |
 
 ## Migrations
 
