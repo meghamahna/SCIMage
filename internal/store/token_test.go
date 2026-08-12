@@ -119,7 +119,7 @@ func TestRevokeToken(t *testing.T) {
 		t.Fatalf("IssueToken: %v", err)
 	}
 
-	if err := s.RevokeToken(ctx, tok.KeyID); err != nil {
+	if err := s.RevokeToken(ctx, tok.KeyID, "test-suite"); err != nil {
 		t.Fatalf("first RevokeToken: %v", err)
 	}
 
@@ -132,16 +132,96 @@ func TestRevokeToken(t *testing.T) {
 	}
 
 	t.Run("is idempotent", func(t *testing.T) {
-		if err := s.RevokeToken(ctx, tok.KeyID); err != nil {
+		if err := s.RevokeToken(ctx, tok.KeyID, "test-suite"); err != nil {
 			t.Fatalf("second RevokeToken: %v", err)
 		}
 	})
 
 	t.Run("unknown key id is an error", func(t *testing.T) {
-		if err := s.RevokeToken(ctx, "no-such-key"); err == nil {
+		if err := s.RevokeToken(ctx, "no-such-key", "test-suite"); err == nil {
 			t.Error("expected an error revoking an unknown key id, got nil")
 		}
 	})
+}
+
+// IssueToken's admin-audit entry is what lets an operator answer "who issued
+// this and why" without trusting the label alone.
+func TestIssueTokenWritesAdminAudit(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	tenantID := newTestTenant(t, s)
+
+	before, err := s.ListAdminAuditEntries(ctx, tenantID, 0)
+	if err != nil {
+		t.Fatalf("ListAdminAuditEntries baseline: %v", err)
+	}
+
+	_, tok, err := s.IssueToken(ctx, tenantID, "Okta prod", "op-alice", nil)
+	if err != nil {
+		t.Fatalf("IssueToken: %v", err)
+	}
+
+	entries, err := s.ListAdminAuditEntries(ctx, tenantID, 0)
+	if err != nil {
+		t.Fatalf("ListAdminAuditEntries: %v", err)
+	}
+	if len(entries) != len(before)+1 {
+		t.Fatalf("admin audit rows went %d -> %d, want one more", len(before), len(entries))
+	}
+
+	got := entries[0] // newest first
+	if got.Action != AdminActionTokenIssue {
+		t.Errorf("Action = %q, want %q", got.Action, AdminActionTokenIssue)
+	}
+	if got.TargetID != tok.KeyID {
+		t.Errorf("TargetID = %q, want %q", got.TargetID, tok.KeyID)
+	}
+	if got.Actor != "op-alice" {
+		t.Errorf("Actor = %q, want %q", got.Actor, "op-alice")
+	}
+	if got.Detail != "Okta prod" {
+		t.Errorf("Detail = %q, want %q", got.Detail, "Okta prod")
+	}
+}
+
+// A revoke that actually changes state is audited; a redundant revoke of an
+// already-dead token is not, so a retried admin command doesn't pollute the
+// trail with duplicate entries.
+func TestRevokeTokenWritesAdminAuditOnlyOnRealChange(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	tenantID := newTestTenant(t, s)
+
+	_, tok, err := s.IssueToken(ctx, tenantID, "test", "test-suite", nil)
+	if err != nil {
+		t.Fatalf("IssueToken: %v", err)
+	}
+
+	if err := s.RevokeToken(ctx, tok.KeyID, "op-bob"); err != nil {
+		t.Fatalf("RevokeToken: %v", err)
+	}
+
+	entries, err := s.ListAdminAuditEntries(ctx, tenantID, 0)
+	if err != nil {
+		t.Fatalf("ListAdminAuditEntries: %v", err)
+	}
+	got := entries[0]
+	if got.Action != AdminActionTokenRevoke || got.Actor != "op-bob" || got.TargetID != tok.KeyID {
+		t.Fatalf("latest entry = %+v, want a token.revoke by op-bob targeting %s", got, tok.KeyID)
+	}
+	countAfterRevoke := len(entries)
+
+	if err := s.RevokeToken(ctx, tok.KeyID, "op-carol"); err != nil {
+		t.Fatalf("second RevokeToken: %v", err)
+	}
+
+	entries, err = s.ListAdminAuditEntries(ctx, tenantID, 0)
+	if err != nil {
+		t.Fatalf("ListAdminAuditEntries after idempotent revoke: %v", err)
+	}
+	if len(entries) != countAfterRevoke {
+		t.Errorf("admin audit rows went %d -> %d after a no-op revoke, want unchanged", countAfterRevoke, len(entries))
+	}
 }
 
 func TestListTokensScopedByTenant(t *testing.T) {

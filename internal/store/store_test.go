@@ -33,17 +33,17 @@ func newTestStore(t *testing.T) *Store {
 
 var tenantSeq atomic.Int64
 
-// newTestTenant creates a throwaway tenant and deletes everything under it —
-// its users, audit entries, deliveries and tokens, then the tenant row itself
-// — when the test ends. Giving every test its own tenant is what makes the
-// suite safe to run without -p 1: two tests' rows can never collide, because
-// every store query is scoped to one tenant.
+// newTestTenant creates a throwaway tenant and deletes everything under it
+// (its users, audit entries, deliveries, tokens and admin-audit entries, then
+// the tenant row itself) when the test ends. Giving every test its own
+// tenant is what makes the suite safe to run without -p 1: two tests' rows
+// can never collide, because every store query is scoped to one tenant.
 func newTestTenant(t *testing.T, s *Store) string {
 	t.Helper()
 	ctx := context.Background()
 
 	name := fmt.Sprintf("test-tenant-%d-%d", time.Now().UnixNano(), tenantSeq.Add(1))
-	tenant, err := s.CreateTenant(ctx, name)
+	tenant, err := s.CreateTenant(ctx, name, "test-suite")
 	if err != nil {
 		t.Fatalf("CreateTenant(%q): %v", name, err)
 	}
@@ -53,6 +53,7 @@ func newTestTenant(t *testing.T, s *Store) string {
 		for _, q := range []string{
 			`DELETE FROM webhook_deliveries WHERE tenant_id = $1`,
 			`DELETE FROM audit_log WHERE tenant_id = $1`,
+			`DELETE FROM admin_audit_log WHERE tenant_id = $1`,
 			`DELETE FROM scim_tokens WHERE tenant_id = $1`,
 			`DELETE FROM users WHERE tenant_id = $1`,
 			`DELETE FROM tenants WHERE id = $1`,

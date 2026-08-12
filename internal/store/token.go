@@ -59,7 +59,8 @@ func ParseToken(raw string) (keyID, secret string, ok bool) {
 // IssueToken generates a new keyID and secret, stores sha256(secret), and
 // returns the full plaintext token. That's the only time it exists in full —
 // the row keeps only the hash, so a database dump can't be replayed as a
-// live credential.
+// live credential. The admin-audit entry is written in the same transaction
+// as the insert, so a token can't exist without a record of who issued it.
 func (s *Store) IssueToken(ctx context.Context, tenantID, label, createdBy string, expiresAt *time.Time) (plaintext string, tok *Token, err error) {
 	keyID, err := randomHex(keyIDBytes)
 	if err != nil {
@@ -75,9 +76,23 @@ func (s *Store) IssueToken(ctx context.Context, tenantID, label, createdBy strin
 	           VALUES ($1, $2, $3, $4, $5, $6)
 	           RETURNING key_id, tenant_id, secret_hash, label, created_at, created_by, last_used_at, expires_at, revoked_at`
 
-	t, err := scanToken(s.pool.QueryRow(ctx, q, keyID, tenantID, hash[:], label, nullable(createdBy), expiresAt))
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return "", nil, fmt.Errorf("issue token for tenant %q: begin: %w", tenantID, err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
+
+	t, err := scanToken(tx.QueryRow(ctx, q, keyID, tenantID, hash[:], label, nullable(createdBy), expiresAt))
 	if err != nil {
 		return "", nil, fmt.Errorf("issue token for tenant %q: %w", tenantID, err)
+	}
+
+	if err := insertAdminAudit(ctx, tx, tenantID, createdBy, AdminActionTokenIssue, keyID, label); err != nil {
+		return "", nil, fmt.Errorf("issue token for tenant %q: %w", tenantID, err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", nil, fmt.Errorf("issue token for tenant %q: commit: %w", tenantID, err)
 	}
 	return tokenPrefix + keyID + "_" + secret, t, nil
 }
@@ -135,22 +150,39 @@ func (s *Store) TouchToken(ctx context.Context, keyID string) error {
 }
 
 // RevokeToken is idempotent, like DeactivateUser: revoking an already-revoked
-// token is not an error, so a retried admin command succeeds.
-func (s *Store) RevokeToken(ctx context.Context, keyID string) error {
-	const q = `UPDATE scim_tokens SET revoked_at = now() WHERE key_id = $1 AND revoked_at IS NULL`
+// token is not an error, so a retried admin command succeeds. An entry is
+// only written for an actual state change, not for a no-op revoke of a token
+// that was already dead.
+func (s *Store) RevokeToken(ctx context.Context, keyID, actor string) error {
+	const q = `UPDATE scim_tokens SET revoked_at = now() WHERE key_id = $1 AND revoked_at IS NULL RETURNING tenant_id`
 
-	tag, err := s.pool.Exec(ctx, q, keyID)
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("revoke token %q: %w", keyID, err)
+		return fmt.Errorf("revoke token %q: begin: %w", keyID, err)
 	}
-	if tag.RowsAffected() > 0 {
-		return nil
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
+
+	var tenantID string
+	if err := tx.QueryRow(ctx, q, keyID).Scan(&tenantID); err != nil {
+		if !isMissingRow(err) {
+			return fmt.Errorf("revoke token %q: %w", keyID, err)
+		}
+		// No row changed: either the key doesn't exist, or it's already
+		// revoked. Only the first of those is an error.
+		if _, err := s.GetTokenByKeyID(ctx, keyID); err != nil {
+			return fmt.Errorf("revoke token %q: %w", keyID, err)
+		}
+		return nil // already revoked
 	}
 
-	if _, err := s.GetTokenByKeyID(ctx, keyID); err != nil {
+	if err := insertAdminAudit(ctx, tx, tenantID, actor, AdminActionTokenRevoke, keyID, ""); err != nil {
 		return fmt.Errorf("revoke token %q: %w", keyID, err)
 	}
-	return nil // already revoked
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("revoke token %q: commit: %w", keyID, err)
+	}
+	return nil
 }
 
 func randomHex(n int) (string, error) {

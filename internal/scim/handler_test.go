@@ -63,7 +63,13 @@ func TestMain(m *testing.M) {
 	// own rate limit. The limiter is covered directly in ratelimit_test.go.
 	os.Setenv("SCIM_RATE_LIMIT", "0")
 
-	tenant, err := testStore.CreateTenant(ctx, "handler-test-tenant")
+	// A fixed literal name would collide with itself on a second run whose
+	// process never reached the cleanup below (killed, crashed, or any
+	// early os.Exit above) — tenant names are unique now, so the leftover
+	// row would block every run after that one, permanently. Unique per
+	// run is the same reasoning newTestTenant uses in internal/store.
+	tenantName := fmt.Sprintf("handler-test-tenant-%d", time.Now().UnixNano())
+	tenant, err := testStore.CreateTenant(ctx, tenantName, "test-suite")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "create test tenant: %v\n", err)
 		os.Exit(1)

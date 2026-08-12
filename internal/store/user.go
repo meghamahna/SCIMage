@@ -340,8 +340,15 @@ func isMissingRow(err error) bool {
 }
 
 func isUniqueViolation(err error) bool {
+	return isUniqueViolationOn(err, uniqueUserNameIndex)
+}
+
+// isUniqueViolationOn matches a specific unique index by name, so a 23505 on
+// one constraint isn't misreported as a clash on another (userName vs.
+// tenant name, say).
+func isUniqueViolationOn(err error, constraint string) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) &&
 		pgErr.Code == "23505" &&
-		pgErr.ConstraintName == uniqueUserNameIndex
+		pgErr.ConstraintName == constraint
 }
