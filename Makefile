@@ -1,4 +1,4 @@
-.PHONY: up down stop restart reset ps logs migrate migrate-down migrate-version test run fmt hooks-install
+.PHONY: up down stop restart reset ps logs migrate migrate-down migrate-version test run tenant token fmt hooks-install
 
 # Start service(s) in the background and bring the schema up to date.
 # Usage: make up  |  make up SERVICE=postgres
@@ -59,6 +59,14 @@ test:
 
 run:
 	scripts/with-env.sh go run ./cmd/server
+
+# Usage: make tenant NAME="Acme Corp"
+tenant:
+	scripts/with-env.sh go run ./cmd/scimage-admin tenant create -name "$(NAME)"
+
+# Usage: make token TENANT=tenant_xxx LABEL="Okta prod"  [EXPIRES=90d]
+token:
+	scripts/with-env.sh go run ./cmd/scimage-admin token issue -tenant "$(TENANT)" -label "$(LABEL)" $(if $(EXPIRES),-expires "$(EXPIRES)")
 
 fmt:
 	gofmt -w .
