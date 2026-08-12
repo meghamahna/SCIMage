@@ -65,6 +65,27 @@ SERVICE=postgres`, not `--service=postgres`.
 | `make audit-list [TENANT=<id>]` | Reads the admin-audit trail | Every tenant created, token issued or revoked; omit `TENANT` for every tenant |
 | `make hooks-install` | Activates the real git pre-commit hook | One-time per clone; doesn't travel with the repo |
 
+## Supported attributes
+
+What `POST`/`PUT`/`PATCH /Users` actually accept and return. The `/Schemas`
+endpoint always reflects this table exactly, since both come from the same
+code (`internal/scim/models.go`, `internal/scim/discovery.go`).
+
+| Attribute | Notes |
+| --- | --- |
+| `id` | Server-assigned, read-only |
+| `externalId` | The identity provider's own key, for reconciliation |
+| `userName` | Required; unique per tenant, case-insensitively |
+| `name.givenName`, `name.familyName` | |
+| `emails[].value`, `emails[].primary` | Multiple accepted on input; only the primary (or first) is stored and returned |
+| `active` | Defaults to `true`; a `PATCH replace` on this is how identity providers deprovision |
+| `meta.resourceType`, `.created`, `.lastModified`, `.location` | Server-managed |
+
+Not modeled: `displayName`, `title`, `preferredLanguage`, `name.formatted`,
+`name.middleName`, and typed multi-valued emails. A deliberate scope cut,
+not an oversight; see the [README](../README.md) for the Entra validator
+results this shows up in.
+
 ## Migrations
 
 Schema migrations live in [`migrations/`](../migrations/) and are managed
