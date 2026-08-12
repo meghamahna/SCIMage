@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -15,24 +14,6 @@ import (
 )
 
 const nonexistentID = "00000000-0000-4000-8000-000000000000"
-
-// The store never deletes audit entries — it only soft-deletes users — so the
-// suite clears the rows it wrote, the same way it clears its users.
-func TestMain(m *testing.M) {
-	code := m.Run()
-
-	if dsn, err := DSNFromEnv(); err == nil {
-		if s, err := New(context.Background(), dsn); err == nil {
-			if _, err := s.pool.Exec(context.Background(),
-				`DELETE FROM audit_log WHERE actor_token = $1`, testAudit.ActorToken); err != nil {
-				fmt.Fprintf(os.Stderr, "cleanup audit_log: %v\n", err)
-			}
-			s.Close()
-		}
-	}
-
-	os.Exit(code)
-}
 
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
@@ -50,65 +31,91 @@ func newTestStore(t *testing.T) *Store {
 	return s
 }
 
+var tenantSeq atomic.Int64
+
+// newTestTenant creates a throwaway tenant and deletes everything under it —
+// its users, audit entries, deliveries and tokens, then the tenant row itself
+// — when the test ends. Giving every test its own tenant is what makes the
+// suite safe to run without -p 1: two tests' rows can never collide, because
+// every store query is scoped to one tenant.
+func newTestTenant(t *testing.T, s *Store) string {
+	t.Helper()
+	ctx := context.Background()
+
+	name := fmt.Sprintf("test-tenant-%d-%d", time.Now().UnixNano(), tenantSeq.Add(1))
+	tenant, err := s.CreateTenant(ctx, name)
+	if err != nil {
+		t.Fatalf("CreateTenant(%q): %v", name, err)
+	}
+
+	t.Cleanup(func() {
+		ctx := context.Background()
+		for _, q := range []string{
+			`DELETE FROM webhook_deliveries WHERE tenant_id = $1`,
+			`DELETE FROM audit_log WHERE tenant_id = $1`,
+			`DELETE FROM scim_tokens WHERE tenant_id = $1`,
+			`DELETE FROM users WHERE tenant_id = $1`,
+			`DELETE FROM tenants WHERE id = $1`,
+		} {
+			if _, err := s.pool.Exec(ctx, q, tenant.ID); err != nil {
+				t.Errorf("cleanup tenant %s: %v", tenant.ID, err)
+			}
+		}
+	})
+
+	return tenant.ID
+}
+
 var userNameSeq atomic.Int64
 
 func uniqueUserName() string {
 	return fmt.Sprintf("test-%d-%d", time.Now().UnixNano(), userNameSeq.Add(1))
 }
 
-// The store only soft-deletes, so tests need a hard delete to leave the shared
-// database as they found it. A failed cleanup would skew the count assertions.
-func (s *Store) hardDelete(ctx context.Context, t *testing.T, id string) {
-	t.Helper()
-
-	if _, err := s.pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, id); err != nil {
-		t.Errorf("cleanup: delete user %q: %v", id, err)
-	}
+// testAudit is the actor every store test writes entries as, for the given
+// test's own tenant.
+func testAudit(tenantID string) AuditRecord {
+	return AuditRecord{TenantID: tenantID, ActorToken: "tok_storetest", ActorIP: "127.0.0.1"}
 }
 
-func createUser(t *testing.T, s *Store, u *User) *User {
+func createUser(t *testing.T, s *Store, tenantID string, u *User) *User {
 	t.Helper()
 
-	created, err := s.CreateUser(context.Background(), u, testAudit)
+	created, err := s.CreateUser(context.Background(), tenantID, u, testAudit(tenantID))
 	if err != nil {
 		t.Fatalf("CreateUser(%q): %v", u.UserName, err)
 	}
-	t.Cleanup(func() { s.hardDelete(context.Background(), t, created.ID) })
 	return created
 }
 
 // One statement, so every row shares a created_at — the case the (created_at,
 // id) tiebreak exists for. Ids go in out of sort order, so a query missing the
 // tiebreak comes back differently.
-func createUsersSharingTimestamp(t *testing.T, s *Store, ids []string) {
+func createUsersSharingTimestamp(t *testing.T, s *Store, tenantID string, ids []string) {
 	t.Helper()
 
 	values := make([]string, 0, len(ids))
-	args := make([]any, 0, len(ids)*2)
+	args := make([]any, 0, len(ids)*3)
 	for i, id := range ids {
-		values = append(values, fmt.Sprintf("($%d, $%d)", i*2+1, i*2+2))
-		args = append(args, id, uniqueUserName())
+		values = append(values, fmt.Sprintf("($%d, $%d, $%d)", i*3+1, i*3+2, i*3+3))
+		args = append(args, id, tenantID, uniqueUserName())
 	}
 
-	q := `INSERT INTO users (id, user_name) VALUES ` + strings.Join(values, ", ")
+	q := `INSERT INTO users (id, tenant_id, user_name) VALUES ` + strings.Join(values, ", ")
 	if _, err := s.pool.Exec(context.Background(), q, args...); err != nil {
 		t.Fatalf("insert users sharing a timestamp: %v", err)
-	}
-
-	for _, id := range ids {
-		t.Cleanup(func() { s.hardDelete(context.Background(), t, id) })
 	}
 }
 
 // Pages the whole table, so assertions don't depend on where a row lands.
-func allUsers(t *testing.T, s *Store) ([]User, int) {
+func allUsers(t *testing.T, s *Store, tenantID string) ([]User, int) {
 	t.Helper()
 
 	var all []User
 	total := 0
 
 	for offset := 0; ; offset += 50 {
-		page, pageTotal, err := s.ListUsers(context.Background(), 50, offset, UserFilter{})
+		page, pageTotal, err := s.ListUsers(context.Background(), tenantID, 50, offset, UserFilter{})
 		if err != nil {
 			t.Fatalf("ListUsers(50, %d): %v", offset, err)
 		}
@@ -122,15 +129,13 @@ func allUsers(t *testing.T, s *Store) ([]User, int) {
 
 func ptr(s string) *string { return &s }
 
-// testAudit is the actor every store test writes entries as.
-var testAudit = AuditRecord{ActorToken: "tok_storetest", ActorIP: "127.0.0.1"}
-
 func TestCreateUser(t *testing.T) {
 	s := newTestStore(t)
+	tenantID := newTestTenant(t, s)
 
 	t.Run("returns the stored row", func(t *testing.T) {
 		name := uniqueUserName()
-		created := createUser(t, s, &User{
+		created := createUser(t, s, tenantID, &User{
 			UserName:   name,
 			GivenName:  ptr("Barbara"),
 			FamilyName: ptr("Jensen"),
@@ -156,7 +161,7 @@ func TestCreateUser(t *testing.T) {
 	})
 
 	t.Run("keeps nullable attributes null", func(t *testing.T) {
-		created := createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
+		created := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
 
 		if created.GivenName != nil || created.FamilyName != nil || created.Email != nil {
 			t.Errorf("expected nil optional attributes, got given=%v family=%v email=%v",
@@ -165,7 +170,7 @@ func TestCreateUser(t *testing.T) {
 	})
 
 	t.Run("honours active=false", func(t *testing.T) {
-		created := createUser(t, s, &User{UserName: uniqueUserName(), Active: false})
+		created := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: false})
 
 		if created.Active {
 			t.Error("Active = true, want false")
@@ -174,12 +179,13 @@ func TestCreateUser(t *testing.T) {
 }
 
 // userName is caseExact=false, so a differently-cased name is the same user and
-// must conflict. This is what POST /Users turns into a 409.
+// must conflict within a tenant. This is what POST /Users turns into a 409.
 func TestCreateUserDuplicateUserName(t *testing.T) {
 	s := newTestStore(t)
+	tenantID := newTestTenant(t, s)
 
 	base := uniqueUserName()
-	createUser(t, s, &User{UserName: base, Active: true})
+	createUser(t, s, tenantID, &User{UserName: base, Active: true})
 
 	tests := []struct {
 		name     string
@@ -192,10 +198,7 @@ func TestCreateUserDuplicateUserName(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := s.CreateUser(context.Background(), &User{UserName: tc.userName, Active: true}, testAudit)
-			if got != nil {
-				s.hardDelete(context.Background(), t, got.ID)
-			}
+			_, err := s.CreateUser(context.Background(), tenantID, &User{UserName: tc.userName, Active: true}, testAudit(tenantID))
 			if !errors.Is(err, ErrDuplicateUserName) {
 				t.Fatalf("CreateUser(%q) error = %v, want ErrDuplicateUserName", tc.userName, err)
 			}
@@ -203,18 +206,34 @@ func TestCreateUserDuplicateUserName(t *testing.T) {
 	}
 }
 
+// The same userName is not a conflict across two different tenants — that's
+// the entire point of scoping uniqueness by tenant_id rather than server-wide.
+func TestCreateUserSameNameDifferentTenants(t *testing.T) {
+	s := newTestStore(t)
+	tenantA := newTestTenant(t, s)
+	tenantB := newTestTenant(t, s)
+
+	name := uniqueUserName()
+	createUser(t, s, tenantA, &User{UserName: name, Active: true})
+
+	if _, err := s.CreateUser(context.Background(), tenantB, &User{UserName: name, Active: true}, testAudit(tenantB)); err != nil {
+		t.Fatalf("CreateUser(%q) in a different tenant: %v, want success", name, err)
+	}
+}
+
 func TestGetUser(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
+	tenantID := newTestTenant(t, s)
 
-	created := createUser(t, s, &User{
+	created := createUser(t, s, tenantID, &User{
 		UserName:  uniqueUserName(),
 		GivenName: ptr("Barbara"),
 		Active:    true,
 	})
 
 	t.Run("returns an existing user", func(t *testing.T) {
-		got, err := s.GetUser(ctx, created.ID)
+		got, err := s.GetUser(ctx, tenantID, created.ID)
 		if err != nil {
 			t.Fatalf("GetUser(%q): %v", created.ID, err)
 		}
@@ -236,41 +255,50 @@ func TestGetUser(t *testing.T) {
 		{"empty id", ""},
 	} {
 		t.Run(tc.name+" is ErrNotFound", func(t *testing.T) {
-			if _, err := s.GetUser(ctx, tc.id); !errors.Is(err, ErrNotFound) {
+			if _, err := s.GetUser(ctx, tenantID, tc.id); !errors.Is(err, ErrNotFound) {
 				t.Fatalf("GetUser(%q) error = %v, want ErrNotFound", tc.id, err)
 			}
 		})
 	}
+
+	t.Run("another tenant's real id is ErrNotFound", func(t *testing.T) {
+		otherTenant := newTestTenant(t, s)
+		if _, err := s.GetUser(ctx, otherTenant, created.ID); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("GetUser(%q) from another tenant error = %v, want ErrNotFound", created.ID, err)
+		}
+	})
 }
 
 func TestListUsers(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
+	tenantID := newTestTenant(t, s)
 
-	// Total counts every row in the shared database, so assertions are relative
-	// to what was already there.
-	_, before, err := s.ListUsers(ctx, 1, 0, UserFilter{})
+	_, before, err := s.ListUsers(ctx, tenantID, 1, 0, UserFilter{})
 	if err != nil {
 		t.Fatalf("ListUsers baseline: %v", err)
+	}
+	if before != 0 {
+		t.Fatalf("baseline total = %d, want 0 for a fresh tenant", before)
 	}
 
 	const created = 3
 	for range created {
-		createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
+		createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
 	}
 
 	t.Run("total reflects every row", func(t *testing.T) {
-		_, total, err := s.ListUsers(ctx, 1, 0, UserFilter{})
+		_, total, err := s.ListUsers(ctx, tenantID, 1, 0, UserFilter{})
 		if err != nil {
 			t.Fatalf("ListUsers: %v", err)
 		}
-		if want := before + created; total != want {
-			t.Errorf("total = %d, want %d", total, want)
+		if total != created {
+			t.Errorf("total = %d, want %d", total, created)
 		}
 	})
 
 	t.Run("limit caps the page", func(t *testing.T) {
-		users, _, err := s.ListUsers(ctx, 2, 0, UserFilter{})
+		users, _, err := s.ListUsers(ctx, tenantID, 2, 0, UserFilter{})
 		if err != nil {
 			t.Fatalf("ListUsers: %v", err)
 		}
@@ -280,7 +308,7 @@ func TestListUsers(t *testing.T) {
 	})
 
 	t.Run("paging covers every row exactly once", func(t *testing.T) {
-		all, total := allUsers(t, s)
+		all, total := allUsers(t, s, tenantID)
 
 		if len(all) != total {
 			t.Errorf("paged over %d rows, but total is %d", len(all), total)
@@ -301,7 +329,7 @@ func TestListUsers(t *testing.T) {
 			"aaaaaaaa-0000-4000-8000-000000000001",
 			"bbbbbbbb-0000-4000-8000-000000000002",
 		}
-		createUsersSharingTimestamp(t, s, ids)
+		createUsersSharingTimestamp(t, s, tenantID, ids)
 
 		want := []string{
 			"aaaaaaaa-0000-4000-8000-000000000001",
@@ -309,7 +337,7 @@ func TestListUsers(t *testing.T) {
 			"cccccccc-0000-4000-8000-000000000003",
 		}
 
-		all, _ := allUsers(t, s)
+		all, _ := allUsers(t, s, tenantID)
 		var got []string
 		for _, u := range all {
 			for _, id := range want {
@@ -332,15 +360,15 @@ func TestListUsers(t *testing.T) {
 	// The point of the soft delete: the row survives, so the listing keeps
 	// showing it and totalResults keeps counting it.
 	t.Run("includes deactivated users", func(t *testing.T) {
-		u := createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
+		u := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
 
-		_, totalBefore := allUsers(t, s)
+		_, totalBefore := allUsers(t, s, tenantID)
 
-		if _, err := s.DeactivateUser(ctx, u.ID, testAudit); err != nil {
+		if _, err := s.DeactivateUser(ctx, tenantID, u.ID, testAudit(tenantID)); err != nil {
 			t.Fatalf("DeactivateUser: %v", err)
 		}
 
-		all, totalAfter := allUsers(t, s)
+		all, totalAfter := allUsers(t, s, tenantID)
 
 		found := false
 		for _, got := range all {
@@ -360,32 +388,39 @@ func TestListUsers(t *testing.T) {
 	})
 
 	t.Run("offset past the end keeps the total", func(t *testing.T) {
-		users, total, err := s.ListUsers(ctx, 10, before+created+10, UserFilter{})
+		_, total, err := s.ListUsers(ctx, tenantID, 1, 0, UserFilter{})
+		if err != nil {
+			t.Fatalf("ListUsers: %v", err)
+		}
+
+		users, total2, err := s.ListUsers(ctx, tenantID, 10, total+10, UserFilter{})
 		if err != nil {
 			t.Fatalf("ListUsers: %v", err)
 		}
 		if len(users) != 0 {
 			t.Errorf("got %d users, want 0", len(users))
 		}
-		if want := before + created; total != want {
-			t.Errorf("total = %d, want %d", total, want)
+		if total2 != total {
+			t.Errorf("total = %d, want %d", total2, total)
 		}
 	})
 
 	t.Run("rejects a negative limit", func(t *testing.T) {
-		if _, _, err := s.ListUsers(ctx, -1, 0, UserFilter{}); err == nil {
+		if _, _, err := s.ListUsers(ctx, tenantID, -1, 0, UserFilter{}); err == nil {
 			t.Error("expected an error for a negative limit, got nil")
 		}
 	})
 
 	t.Run("clamps limit to MaxPageSize", func(t *testing.T) {
+		capTenant := newTestTenant(t, s)
+
 		ids := make([]string, MaxPageSize+1)
 		for i := range ids {
 			ids[i] = fmt.Sprintf("00000000-0000-4000-8000-%012d", i+1)
 		}
-		createUsersSharingTimestamp(t, s, ids)
+		createUsersSharingTimestamp(t, s, capTenant, ids)
 
-		users, _, err := s.ListUsers(ctx, MaxPageSize*100, 0, UserFilter{})
+		users, _, err := s.ListUsers(ctx, capTenant, MaxPageSize*100, 0, UserFilter{})
 		if err != nil {
 			t.Fatalf("ListUsers: %v", err)
 		}
@@ -398,9 +433,10 @@ func TestListUsers(t *testing.T) {
 func TestUpdateUser(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
+	tenantID := newTestTenant(t, s)
 
 	t.Run("replaces every settable attribute", func(t *testing.T) {
-		created := createUser(t, s, &User{
+		created := createUser(t, s, tenantID, &User{
 			UserName:   uniqueUserName(),
 			GivenName:  ptr("Barbara"),
 			FamilyName: ptr("Jensen"),
@@ -409,13 +445,13 @@ func TestUpdateUser(t *testing.T) {
 		})
 
 		newName := uniqueUserName()
-		changed, err := s.UpdateUser(ctx, created.ID, &User{
+		changed, err := s.UpdateUser(ctx, tenantID, created.ID, &User{
 			UserName:   newName,
 			GivenName:  ptr("Barb"),
 			FamilyName: nil, // a full replace clears omitted attributes
 			Email:      ptr("barb@example.com"),
 			Active:     false,
-		}, testAudit)
+		}, testAudit(tenantID))
 		if err != nil {
 			t.Fatalf("UpdateUser: %v", err)
 		}
@@ -453,19 +489,29 @@ func TestUpdateUser(t *testing.T) {
 	})
 
 	t.Run("unknown id is ErrNotFound", func(t *testing.T) {
-		_, err := s.UpdateUser(ctx, nonexistentID, &User{UserName: uniqueUserName(), Active: true}, testAudit)
+		_, err := s.UpdateUser(ctx, tenantID, nonexistentID, &User{UserName: uniqueUserName(), Active: true}, testAudit(tenantID))
 		if !errors.Is(err, ErrNotFound) {
 			t.Fatalf("error = %v, want ErrNotFound", err)
 		}
 	})
 
 	t.Run("taking another user's name is a conflict", func(t *testing.T) {
-		taken := createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
-		mover := createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
+		taken := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
+		mover := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
 
-		_, err := s.UpdateUser(ctx, mover.ID, &User{UserName: taken.UserName, Active: true}, testAudit)
+		_, err := s.UpdateUser(ctx, tenantID, mover.ID, &User{UserName: taken.UserName, Active: true}, testAudit(tenantID))
 		if !errors.Is(err, ErrDuplicateUserName) {
 			t.Fatalf("error = %v, want ErrDuplicateUserName", err)
+		}
+	})
+
+	t.Run("another tenant's real id is ErrNotFound", func(t *testing.T) {
+		otherTenant := newTestTenant(t, s)
+		created := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
+
+		_, err := s.UpdateUser(ctx, otherTenant, created.ID, &User{UserName: uniqueUserName(), Active: true}, testAudit(otherTenant))
+		if !errors.Is(err, ErrNotFound) {
+			t.Fatalf("error = %v, want ErrNotFound", err)
 		}
 	})
 }
@@ -473,11 +519,12 @@ func TestUpdateUser(t *testing.T) {
 func TestDeactivateUser(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
+	tenantID := newTestTenant(t, s)
 
 	t.Run("clears active but keeps the row", func(t *testing.T) {
-		created := createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
+		created := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
 
-		changed, err := s.DeactivateUser(ctx, created.ID, testAudit)
+		changed, err := s.DeactivateUser(ctx, tenantID, created.ID, testAudit(tenantID))
 		if err != nil {
 			t.Fatalf("DeactivateUser: %v", err)
 		}
@@ -488,7 +535,7 @@ func TestDeactivateUser(t *testing.T) {
 			t.Error("Before.Active = false, want the pre-delete value true")
 		}
 
-		got, err := s.GetUser(ctx, created.ID)
+		got, err := s.GetUser(ctx, tenantID, created.ID)
 		if err != nil {
 			t.Fatalf("GetUser after deactivate: %v", err)
 		}
@@ -501,18 +548,27 @@ func TestDeactivateUser(t *testing.T) {
 	})
 
 	t.Run("is idempotent", func(t *testing.T) {
-		created := createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
+		created := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
 
-		if _, err := s.DeactivateUser(ctx, created.ID, testAudit); err != nil {
+		if _, err := s.DeactivateUser(ctx, tenantID, created.ID, testAudit(tenantID)); err != nil {
 			t.Fatalf("first DeactivateUser: %v", err)
 		}
-		if _, err := s.DeactivateUser(ctx, created.ID, testAudit); err != nil {
+		if _, err := s.DeactivateUser(ctx, tenantID, created.ID, testAudit(tenantID)); err != nil {
 			t.Fatalf("second DeactivateUser: %v", err)
 		}
 	})
 
 	t.Run("unknown id is ErrNotFound", func(t *testing.T) {
-		if _, err := s.DeactivateUser(ctx, nonexistentID, testAudit); !errors.Is(err, ErrNotFound) {
+		if _, err := s.DeactivateUser(ctx, tenantID, nonexistentID, testAudit(tenantID)); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("error = %v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("another tenant's real id is ErrNotFound", func(t *testing.T) {
+		otherTenant := newTestTenant(t, s)
+		created := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
+
+		if _, err := s.DeactivateUser(ctx, otherTenant, created.ID, testAudit(otherTenant)); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("error = %v, want ErrNotFound", err)
 		}
 	})

@@ -49,12 +49,13 @@ migrate-version:
 # Loads .env so the integration tests can reach the compose Postgres. They hit
 # the real database, never a mock — start it with `make up` first.
 #
-# -p 1 runs one package at a time. Both test packages write to the same users
-# table, and go test parallelises across packages by default, so without it the
-# store's row-count assertions race against the handler tests creating users.
-# Per-tenant scoping would make the isolation structural and let this go.
+# Every test gets its own tenant (internal/store) or shares one dedicated to
+# the file (internal/scim), and every query is scoped by tenant_id — so the
+# store's row-count assertions can't race against the handler tests creating
+# users even though both packages' suites now run concurrently against the
+# same Postgres.
 test:
-	scripts/with-env.sh go test -p 1 ./...
+	scripts/with-env.sh go test ./...
 
 run:
 	scripts/with-env.sh go run ./cmd/server

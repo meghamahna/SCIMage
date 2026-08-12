@@ -11,11 +11,11 @@ import (
 	"github.com/meghamahna/SCIMage/internal/store"
 )
 
-// latestEntry returns the newest audit row.
+// latestEntry returns the newest audit row for the test tenant.
 func latestEntry(t *testing.T) store.AuditEntry {
 	t.Helper()
 
-	entries, err := testStore.ListAuditEntries(t.Context(), 1)
+	entries, err := testStore.ListAuditEntries(t.Context(), testTenantID, 1)
 	if err != nil {
 		t.Fatalf("ListAuditEntries: %v", err)
 	}
@@ -29,7 +29,8 @@ func countEntries(t *testing.T) int {
 	t.Helper()
 
 	var n int
-	if err := cleanupPool.QueryRow(t.Context(), `SELECT count(*) FROM audit_log`).Scan(&n); err != nil {
+	if err := cleanupPool.QueryRow(t.Context(),
+		`SELECT count(*) FROM audit_log WHERE tenant_id = $1`, testTenantID).Scan(&n); err != nil {
 		t.Fatalf("count audit entries: %v", err)
 	}
 	return n
@@ -64,11 +65,14 @@ func TestAuditCreate(t *testing.T) {
 	if got.After == nil || got.After.UserName != created.UserName {
 		t.Errorf("after = %+v, want the created user", got.After)
 	}
-	if got.Actor.ActorToken != "tok_"+testActorSuffix(t) {
-		t.Errorf("actor.token = %q, want the handler's fingerprint", got.Actor.ActorToken)
+	if got.Actor.ActorToken != testKeyID(t) {
+		t.Errorf("actor.token = %q, want the token's key id %q", got.Actor.ActorToken, testKeyID(t))
 	}
 	if got.Actor.ActorToken == testToken {
 		t.Error("the audit entry stores the bearer token itself")
+	}
+	if got.Actor.TenantID != testTenantID {
+		t.Errorf("actor.tenantId = %q, want %q", got.Actor.TenantID, testTenantID)
 	}
 }
 
@@ -187,11 +191,14 @@ func TestAuditIgnoresReads(t *testing.T) {
 	}
 }
 
-// testActorSuffix recomputes the fingerprint the handler derives, so the
-// assertion doesn't hard-code a hash of the test token.
-func testActorSuffix(t *testing.T) string {
+// testKeyID recovers the key id half of testToken, so the assertion doesn't
+// hard-code it — it's generated fresh by TestMain on every run.
+func testKeyID(t *testing.T) string {
 	t.Helper()
 
-	actor := NewHandler(nil, testToken).actor
-	return actor[len("tok_"):]
+	keyID, _, ok := store.ParseToken(testToken)
+	if !ok {
+		t.Fatalf("testToken %q does not parse", testToken)
+	}
+	return keyID
 }

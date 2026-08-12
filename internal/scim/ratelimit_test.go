@@ -1,6 +1,7 @@
 package scim
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -8,7 +9,10 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// send runs one request through the throttle and reports the status.
+// send runs one request through the throttle, as the caller identified by
+// key, and reports the status. throttle reads the caller's identity from
+// context — the same context requireToken populates on a real request — so
+// the test sets it directly rather than going through auth.
 func send(t *testing.T, l *limiter, key string) int {
 	t.Helper()
 
@@ -16,8 +20,11 @@ func send(t *testing.T, l *limiter, key string) int {
 		w.WriteHeader(http.StatusOK)
 	})
 
+	r := httptest.NewRequest(http.MethodGet, "/Users", nil)
+	ctx := context.WithValue(r.Context(), identityContextKey{}, identity{TenantID: "tenant_ratelimit", KeyID: key})
+
 	rr := httptest.NewRecorder()
-	l.throttle(key, next).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/Users", nil))
+	l.throttle(next).ServeHTTP(rr, r.WithContext(ctx))
 	return rr.Code
 }
 
@@ -57,8 +64,11 @@ func TestLimiter(t *testing.T) {
 		next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			t.Error("request reached the handler")
 		})
+		r := httptest.NewRequest(http.MethodGet, "/Users", nil)
+		ctx := context.WithValue(r.Context(), identityContextKey{}, identity{TenantID: "tenant_ratelimit", KeyID: "tok_a"})
+
 		rr := httptest.NewRecorder()
-		l.throttle("tok_a", next).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/Users", nil))
+		l.throttle(next).ServeHTTP(rr, r.WithContext(ctx))
 
 		if rr.Code != http.StatusTooManyRequests {
 			t.Fatalf("status = %d, want 429", rr.Code)

@@ -129,9 +129,13 @@ func TestSchemas(t *testing.T) {
 // Discovery describes the server, so it sits behind the same bearer check as
 // everything else.
 func TestDiscoveryRequiresAuth(t *testing.T) {
-	routes := NewHandler(nil, authTestToken).Routes()
+	routes := NewHandler(nil, fakeTokenStore{tok: validFakeToken()}).Routes()
 
-	for _, path := range []string{"/ServiceProviderConfig", "/ResourceTypes", "/Schemas"} {
+	for _, path := range []string{
+		"/scim/v2/" + fakeTenantID + "/ServiceProviderConfig",
+		"/scim/v2/" + fakeTenantID + "/ResourceTypes",
+		"/scim/v2/" + fakeTenantID + "/Schemas",
+	} {
 		t.Run(path, func(t *testing.T) {
 			rr := sendUnauthenticated(t, routes, http.MethodGet, path)
 

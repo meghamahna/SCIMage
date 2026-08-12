@@ -6,11 +6,12 @@ import (
 	"testing"
 )
 
-func countAudit(t *testing.T, s *Store) int {
+func countAudit(t *testing.T, s *Store, tenantID string) int {
 	t.Helper()
 
 	var n int
-	if err := s.pool.QueryRow(context.Background(), `SELECT count(*) FROM audit_log`).Scan(&n); err != nil {
+	if err := s.pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM audit_log WHERE tenant_id = $1`, tenantID).Scan(&n); err != nil {
 		t.Fatalf("count audit entries: %v", err)
 	}
 	return n
@@ -23,6 +24,7 @@ func countAudit(t *testing.T, s *Store) int {
 func TestMutationRollsBackWhenAuditFails(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
+	tenantID := newTestTenant(t, s)
 
 	if _, err := s.pool.Exec(ctx, `ALTER TABLE audit_log RENAME TO audit_log_hidden`); err != nil {
 		t.Fatalf("hide audit_log: %v", err)
@@ -36,9 +38,7 @@ func TestMutationRollsBackWhenAuditFails(t *testing.T) {
 	t.Run("create rolls back", func(t *testing.T) {
 		name := uniqueUserName()
 
-		created, err := s.CreateUser(ctx, &User{UserName: name, Active: true}, testAudit)
-		if err == nil {
-			s.hardDelete(ctx, t, created.ID)
+		if _, err := s.CreateUser(ctx, tenantID, &User{UserName: name, Active: true}, testAudit(tenantID)); err == nil {
 			t.Fatal("CreateUser succeeded with no audit table — the mutation was not rolled back")
 		}
 
@@ -56,17 +56,18 @@ func TestMutationRollsBackWhenAuditFails(t *testing.T) {
 func TestAuditEntryWrittenWithMutation(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
+	tenantID := newTestTenant(t, s)
 
 	t.Run("create writes exactly one entry", func(t *testing.T) {
-		before := countAudit(t, s)
+		before := countAudit(t, s, tenantID)
 
-		created := createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
+		created := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
 
-		if after := countAudit(t, s); after != before+1 {
+		if after := countAudit(t, s, tenantID); after != before+1 {
 			t.Fatalf("audit rows went %d -> %d, want one more", before, after)
 		}
 
-		entries, err := s.ListAuditEntries(ctx, 1)
+		entries, err := s.ListAuditEntries(ctx, tenantID, 1)
 		if err != nil {
 			t.Fatalf("ListAuditEntries: %v", err)
 		}
@@ -78,8 +79,11 @@ func TestAuditEntryWrittenWithMutation(t *testing.T) {
 		if got.TargetID != created.ID {
 			t.Errorf("targetId = %q, want %q", got.TargetID, created.ID)
 		}
-		if got.Actor.ActorToken != testAudit.ActorToken {
-			t.Errorf("actor = %q, want %q", got.Actor.ActorToken, testAudit.ActorToken)
+		if got.Actor.ActorToken != testAudit(tenantID).ActorToken {
+			t.Errorf("actor = %q, want %q", got.Actor.ActorToken, testAudit(tenantID).ActorToken)
+		}
+		if got.Actor.TenantID != tenantID {
+			t.Errorf("tenant = %q, want %q", got.Actor.TenantID, tenantID)
 		}
 		if got.Before != nil {
 			t.Errorf("before = %+v, want nil on a create", got.Before)
@@ -91,21 +95,21 @@ func TestAuditEntryWrittenWithMutation(t *testing.T) {
 
 	// before/after survive the jsonb round trip, including the nullable columns.
 	t.Run("replace round-trips both images", func(t *testing.T) {
-		created := createUser(t, s, &User{
+		created := createUser(t, s, tenantID, &User{
 			UserName:   uniqueUserName(),
 			GivenName:  ptr("Barbara"),
 			FamilyName: ptr("Jensen"),
 			Active:     true,
 		})
 
-		if _, err := s.UpdateUser(ctx, created.ID, &User{
+		if _, err := s.UpdateUser(ctx, tenantID, created.ID, &User{
 			UserName: uniqueUserName(),
 			Active:   false,
-		}, testAudit); err != nil {
+		}, testAudit(tenantID)); err != nil {
 			t.Fatalf("UpdateUser: %v", err)
 		}
 
-		entries, err := s.ListAuditEntries(ctx, 1)
+		entries, err := s.ListAuditEntries(ctx, tenantID, 1)
 		if err != nil {
 			t.Fatalf("ListAuditEntries: %v", err)
 		}
@@ -126,19 +130,19 @@ func TestAuditEntryWrittenWithMutation(t *testing.T) {
 	})
 
 	t.Run("a refusal is recorded with no images", func(t *testing.T) {
-		existing := createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
+		existing := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
 
-		before := countAudit(t, s)
+		before := countAudit(t, s, tenantID)
 
-		if _, err := s.CreateUser(ctx, &User{UserName: existing.UserName, Active: true}, testAudit); !errors.Is(err, ErrDuplicateUserName) {
+		if _, err := s.CreateUser(ctx, tenantID, &User{UserName: existing.UserName, Active: true}, testAudit(tenantID)); !errors.Is(err, ErrDuplicateUserName) {
 			t.Fatalf("error = %v, want ErrDuplicateUserName", err)
 		}
 
-		if after := countAudit(t, s); after != before+1 {
+		if after := countAudit(t, s, tenantID); after != before+1 {
 			t.Fatalf("audit rows went %d -> %d, want one more for the refusal", before, after)
 		}
 
-		entries, err := s.ListAuditEntries(ctx, 1)
+		entries, err := s.ListAuditEntries(ctx, tenantID, 1)
 		if err != nil {
 			t.Fatalf("ListAuditEntries: %v", err)
 		}
@@ -154,4 +158,23 @@ func TestAuditEntryWrittenWithMutation(t *testing.T) {
 			t.Errorf("before/after = %+v/%+v, want neither on a refusal", got.Before, got.After)
 		}
 	})
+}
+
+// A tenant's audit history is invisible to another tenant's review, the same
+// isolation the users table itself holds.
+func TestListAuditEntriesScopedByTenant(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	tenantA := newTestTenant(t, s)
+	tenantB := newTestTenant(t, s)
+
+	createUser(t, s, tenantA, &User{UserName: uniqueUserName(), Active: true})
+
+	entries, err := s.ListAuditEntries(ctx, tenantB, MaxPageSize)
+	if err != nil {
+		t.Fatalf("ListAuditEntries: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("tenant B sees %d of tenant A's audit entries, want 0", len(entries))
+	}
 }

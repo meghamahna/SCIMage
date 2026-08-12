@@ -11,6 +11,7 @@ package scim
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"io"
 	"log/slog"
@@ -22,6 +23,37 @@ import (
 
 	"github.com/meghamahna/SCIMage/internal/store"
 )
+
+// fakeTenantID/fakeToken authenticate every request the fake-store tests
+// send, without touching Postgres for auth any more than for the user store.
+const (
+	fakeTenantID = "tenant_fake"
+	fakeKeyID    = "fakekeyid00000000"
+	// fakePlaintext is the secret half of fakeToken, not a real credential —
+	// named to avoid the shape a hardcoded-secret scanner looks for.
+	fakePlaintext = "fakesecret0000000000000000000000000000000000000000000000000000"
+)
+
+var fakeToken = "scimage_" + fakeKeyID + "_" + fakePlaintext
+
+func validFakeToken() *store.Token {
+	sum := sha256.Sum256([]byte(fakePlaintext))
+	return &store.Token{KeyID: fakeKeyID, TenantID: fakeTenantID, SecretHash: sum[:], Label: "fake"}
+}
+
+// fakeTokenStore hands back whatever it's configured with, ignoring the key
+// id it's asked to look up — tests set tok or err directly rather than
+// simulating a lookup miss.
+type fakeTokenStore struct {
+	tok *store.Token
+	err error
+}
+
+func (f fakeTokenStore) GetTokenByKeyID(_ context.Context, _ string) (*store.Token, error) {
+	return f.tok, f.err
+}
+
+func (fakeTokenStore) TouchToken(_ context.Context, _ string) error { return nil }
 
 // fakeStore returns what it is told to and records how it was called.
 type fakeStore struct {
@@ -45,28 +77,28 @@ func (f *fakeStore) fail(method string) error {
 	return f.err
 }
 
-func (f *fakeStore) CreateUser(_ context.Context, u *store.User, rec store.AuditRecord) (*store.User, error) {
+func (f *fakeStore) CreateUser(_ context.Context, _ string, u *store.User, rec store.AuditRecord) (*store.User, error) {
 	f.gotUser, f.gotRec = u, rec
 	return f.user, f.fail("CreateUser")
 }
 
-func (f *fakeStore) GetUser(_ context.Context, _ string) (*store.User, error) {
+func (f *fakeStore) GetUser(_ context.Context, _, _ string) (*store.User, error) {
 	return f.user, f.fail("GetUser")
 }
 
-func (f *fakeStore) ListUsers(_ context.Context, _, _ int, _ store.UserFilter) ([]store.User, int, error) {
+func (f *fakeStore) ListUsers(_ context.Context, _ string, _, _ int, _ store.UserFilter) ([]store.User, int, error) {
 	return nil, 0, f.fail("ListUsers")
 }
 
 // Both images are the canned user rather than a separately configured pair:
 // no test here asserts on the before/after difference, and returning a non-nil
 // Change keeps the fake inside the interface's contract.
-func (f *fakeStore) UpdateUser(_ context.Context, _ string, u *store.User, rec store.AuditRecord) (*store.Change, error) {
+func (f *fakeStore) UpdateUser(_ context.Context, _, _ string, u *store.User, rec store.AuditRecord) (*store.Change, error) {
 	f.gotUser, f.gotRec = u, rec
 	return &store.Change{Before: f.user, After: f.user}, f.fail("UpdateUser")
 }
 
-func (f *fakeStore) DeactivateUser(_ context.Context, _ string, rec store.AuditRecord) (*store.Change, error) {
+func (f *fakeStore) DeactivateUser(_ context.Context, _, _ string, rec store.AuditRecord) (*store.Change, error) {
 	f.gotRec = rec
 	return &store.Change{Before: f.user, After: f.user}, f.fail("DeactivateUser")
 }
@@ -75,12 +107,14 @@ func (f *fakeStore) DeactivateUser(_ context.Context, _ string, rec store.AuditR
 // environment, so these stay deterministic however SCIM_RATE_LIMIT and
 // SCIM_BASE_URL are set. Both have their own tests.
 func fakeHandler(s UserStore) http.Handler {
-	h := NewHandler(s, testToken)
+	h := NewHandler(s, fakeTokenStore{tok: validFakeToken()})
 	h.limiter = nil
 	h.externalURL = ""
 	return h.Routes()
 }
 
+// request targets are relative to /Users, e.g. "/Users" or "/Users/"+id — the
+// tenant prefix is added here so the test table stays focused on what varies.
 func request(t *testing.T, h http.Handler, method, target, body string) *httptest.ResponseRecorder {
 	t.Helper()
 
@@ -89,9 +123,9 @@ func request(t *testing.T, h http.Handler, method, target, body string) *httptes
 		r = strings.NewReader(body)
 	}
 
-	req := httptest.NewRequest(method, target, r)
+	req := httptest.NewRequest(method, "/scim/v2/"+fakeTenantID+target, r)
 	req.Header.Set("Content-Type", contentType)
-	req.Header.Set("Authorization", "Bearer "+testToken)
+	req.Header.Set("Authorization", "Bearer "+fakeToken)
 
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
@@ -209,8 +243,11 @@ func TestHandlerServesAUserStoreThatIsNotPostgres(t *testing.T) {
 	if fake.gotUser.GivenName == nil || *fake.gotUser.GivenName != "Barbara" {
 		t.Errorf("stored givenName = %v, want %q", fake.gotUser.GivenName, "Barbara")
 	}
-	if fake.gotRec.ActorToken == "" || fake.gotRec.ActorIP == "" {
+	if fake.gotRec.ActorToken == "" || fake.gotRec.ActorIP == "" || fake.gotRec.TenantID == "" {
 		t.Errorf("audit record reached the store incomplete: %+v", fake.gotRec)
+	}
+	if fake.gotRec.TenantID != fakeTenantID {
+		t.Errorf("audit record tenant = %q, want %q", fake.gotRec.TenantID, fakeTenantID)
 	}
 
 	// What the store handed back: the response, mapped.
@@ -219,7 +256,7 @@ func TestHandlerServesAUserStoreThatIsNotPostgres(t *testing.T) {
 		t.Errorf("id = %q, want %q", got.ID, fake.user.ID)
 	}
 
-	wantLocation := "http://example.com/Users/" + fake.user.ID
+	wantLocation := "http://example.com/scim/v2/" + fakeTenantID + "/Users/" + fake.user.ID
 	if got.Meta == nil || got.Meta.Location != wantLocation {
 		t.Errorf("meta.location = %+v, want %q", got.Meta, wantLocation)
 	}
