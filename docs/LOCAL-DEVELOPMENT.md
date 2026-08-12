@@ -6,7 +6,7 @@
 - [Docker](https://www.docker.com/products/docker-desktop/) with
   Compose (Docker Desktop on macOS/Windows, Docker Engine + Compose
   plugin on Linux)
-- [`jq`](https://jqlang.github.io/jq/) (`brew install jq`) — used by
+- [`jq`](https://jqlang.github.io/jq/) (`brew install jq`), used by
   the migration and secret-scanning scripts
 
 Verify:
@@ -20,7 +20,7 @@ docker info >/dev/null 2>&1 && echo "daemon: RUNNING" || echo "daemon: NOT RUNNI
 ```
 
 > **Windows:** the `Makefile` targets and `.githooks/pre-commit` are
-> bash scripts — use WSL2, not native PowerShell/cmd.
+> bash scripts; use WSL2, not native PowerShell/cmd.
 
 ## Clone and configure
 
@@ -28,12 +28,12 @@ docker info >/dev/null 2>&1 && echo "daemon: RUNNING" || echo "daemon: NOT RUNNI
 git clone https://github.com/meghamahna/SCIMage.git
 cd SCIMage
 
-# activate the real git pre-commit hook (secrets scan, gofmt, go vet, go test)
-# — this sets local git config, so it has to be run again on every fresh clone
+# activate the real git pre-commit hook (secrets scan, gofmt, go vet, go test).
+# This sets local git config, so it has to be run again on every fresh clone
 make hooks-install
 
 # copy the env template and fill in real values
-# (never commit the result — .env is gitignored)
+# (never commit the result: .env is gitignored)
 cp .env.example .env
 ```
 
@@ -55,16 +55,16 @@ database.
 
 All targets take an optional `SERVICE=<name>` (currently only
 `postgres` exists) to scope the action to one service instead of the
-whole project — `make` variables are passed as `VAR=value`, not
+whole project. `make` variables are passed as `VAR=value`, not
 `--flag=value`.
 
 ```bash
-make stop                    # stop, keep data — everything, or SERVICE=postgres for just one
-make restart                 # restart in place, keep data — same SERVICE= scoping
+make stop                    # stop, keep data: everything, or SERVICE=postgres for just one
+make restart                 # restart in place, keep data: same SERVICE= scoping
 make down                    # stop + remove containers/network (always whole-project)
 make reset                   # full reset: wipes the data volume, re-initializes from .env
 make ps                      # what's running
-make logs                    # follow logs — SERVICE=postgres to scope to one
+make logs                    # follow logs, SERVICE=postgres to scope to one
 ```
 
 ## Migrations
@@ -98,12 +98,12 @@ the migration is safe to reverse in a deployment.
 ## View it
 
 The server listens on `:8080` (override with `SCIM_ADDR`). There's no token
-to put in `.env` — create a tenant and issue it a token first:
+to put in `.env`. Create a tenant and issue it a token first:
 
 ```bash
 set -a; source .env; set +a
 
-TENANT_ID=$(go run ./cmd/scimage-admin tenant create -name "Local dev" | awk '/^Created tenant/{print $3}')
+TENANT_ID=$(go run ./cmd/scimage-admin tenant create -name "Local dev" | awk '/^TENANT ID/{print $NF}')
 TOKEN=$(go run ./cmd/scimage-admin token issue -tenant "$TENANT_ID" -label "local curl" | tail -1)
 
 curl -X POST "http://localhost:8080/scim/v2/$TENANT_ID/Users" \
@@ -126,8 +126,8 @@ from the request's `Host` header, which suits local development.
 
 ## Logs
 
-Structured JSON goes to stdout and to `logs/scimage-<date>.log`. To see what an
-identity provider actually sends — the fastest way to diagnose an integration:
+Structured JSON goes to stdout and to `logs/scimage-<date>.log`. Seeing what an
+identity provider actually sends is the fastest way to diagnose an integration:
 
 ```bash
 SCIM_LOG_REQUESTS=1 make run
@@ -163,7 +163,7 @@ after themselves. They skip when no database is configured, so a plain
 ## Troubleshooting
 
 **`password authentication failed for user "scimage"`** after editing
-`POSTGRES_PASSWORD` in `.env` — Postgres applies that variable when it
+`POSTGRES_PASSWORD` in `.env`. Postgres applies that variable when it
 initializes a *fresh* data volume, so an existing container keeps the
 password it was created with. Two ways forward:
 

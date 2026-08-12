@@ -1,10 +1,10 @@
-# SCIM 2.0 Provisioning Server — Project Guide
+# SCIM 2.0 Provisioning Server: Project Guide
 
 ## What this is
 A SCIM 2.0 server in Go implementing the `/Users` resource per RFC
 7644, backed by Postgres in Docker. This is a portfolio project built
-to demonstrate real backend engineering skill for a Go/identity role —
-correctness, testing, and security practices all matter more than
+to demonstrate real backend engineering skill for a Go/identity role.
+Correctness, testing, and security practices all matter more than
 feature breadth.
 
 Full build plan lives in `docs/IMPLEMENTATION_PLAN.md`. Work through it in
@@ -12,15 +12,15 @@ phase order. When a phase is complete, check its boxes off in that
 file before moving to the next phase.
 
 ## Stack and conventions
-- Go, standard library `net/http` for the HTTP layer — no web
+- Go, standard library `net/http` for the HTTP layer, no web
   framework
-- Postgres via `pgx`, raw SQL — no ORM. Write queries directly in
+- Postgres via `pgx`, raw SQL, no ORM. Write queries directly in
   `internal/store`
 - `golang-migrate` for schema migrations, files live in `/migrations`
 - Errors: wrap with `fmt.Errorf("...: %w", err)`, never swallow an
   error silently
 - Tests: table-driven where it fits, `httptest` for HTTP handlers,
-  real Postgres (via docker-compose) for store integration tests —
+  real Postgres (via docker-compose) for store integration tests,
   no mocking the database. Run them with `make test`, which loads `.env`
   and passes `-p 1`; both test packages share the `users` table
 - Dependencies stay minimal: `pgx` for Postgres and
@@ -32,7 +32,7 @@ file before moving to the next phase.
 ```text
 /cmd/server           entrypoint for the SCIM server
 /cmd/scimage-admin    tenant and token administration (Phase 10)
-/cmd/sage             AI-assisted audit reviewer (Phase 12)
+/cmd/scimtrace        AI-assisted audit reviewer (Phase 12)
 /internal/scim        HTTP handlers, SCIM models, auth, rate limiting
 /internal/store       Postgres-backed store and audit log, raw SQL
 /migrations           SQL migration files
@@ -45,14 +45,14 @@ docker-compose.yml
 - Bearer token comparison must use `crypto/subtle.ConstantTimeCompare`,
   never `==`
 - Every mutating call (create/replace/deactivate) writes an `audit_log`
-  row — actor, action, target user id, timestamp, before/after state —
+  row (actor, action, target user id, timestamp, before/after state)
   **inside the transaction that makes the change**, so the entry and the
   change commit together. The store owns that write, which keeps a
   handler from being able to skip it. Refusals are recorded too
 - All incoming SCIM payloads are validated against the expected schema
   before touching the database
 - Secrets (DB credentials, bearer token) come from environment
-  variables only — never hardcoded, never committed
+  variables only, never hardcoded, never committed
 - These rules are enforced mechanically, not just documented: hooks in
   `.claude/hooks/` block reading `.env`/key files, block writing
   hardcoded credentials, and block `git commit` when the staged diff
@@ -68,23 +68,23 @@ phase. If it needs more than that, say so and ask. Raise harness-only
 review nits as a note rather than acting on them.
 
 ## Comments and docs
-Keep them short. Explain *why* where it isn't obvious — a schema
+Keep them short. Explain *why* where it isn't obvious: a schema
 choice, a spec requirement, a non-obvious failure mode. Don't narrate
 what the code already says, and don't write a paragraph where a line
 does.
 
 ## AI usage in this project
-The only AI component is `cmd/sage` — **SAGE: SCIM Audit & Governance
-Engine**. It reads the `audit_log` table and produces a plain-English
-summary of patterns worth a human's attention (bulk deactivations,
-off-hours changes, unusual call volume from a caller).
-The name is deliberate: a sage advises, it doesn't decide.
+The only AI component is `cmd/scimtrace`: **SCIMTrace AI**. It reads
+the `audit_log` table and produces a plain-English summary of patterns
+worth a human's attention (bulk deactivations, off-hours changes,
+unusual call volume from a caller).
+The name is deliberate: it traces and reports on activity, it doesn't decide anything.
 
 This is advisory only. **The AI must never be given the ability to
 make or influence an authorization or provisioning decision.** If a
 future task suggests wiring the LLM output into anything that creates,
 updates, or deactivates a user, or into the auth middleware, stop and
-flag it rather than implementing it — that would break the core
+flag it rather than implementing it. That would break the core
 security design of this project.
 
 ## Commit style
@@ -93,13 +93,13 @@ e.g. `phase-3: add user store create/get/update/deactivate`.
 
 Before proposing any `git commit`, run the `code-reviewer` subagent
 (`.claude/agents/code-reviewer.md`) against the staged diff. If it
-returns `DO NOT COMMIT`, fix the flagged items first — don't commit
+returns `DO NOT COMMIT`, fix the flagged items first. Don't commit
 around them and don't skip the review because the diff "looks small."
 This is a review gate, not a formatting pass: `.claude/hooks/` and
 `.githooks/pre-commit` already catch secrets/formatting/`go vet`/tests
 mechanically; the subagent is for correctness and security-principle
 judgment those scripts can't make. `git commit` also always prompts
-for your approval regardless — the subagent's job is to make sure
+for your approval regardless; the subagent's job is to make sure
 that approval request is a good one.
 
 ## When starting a session
