@@ -231,23 +231,23 @@ indexable, since a constant-time comparison needs a single candidate, and the
 secret authenticates. The `scimage_` prefix lets GitHub secret scanning
 recognise a leaked token.
 
-- [ ] Migration: `tenants` and `scim_tokens`; `users` gains `tenant_id`;
+- [x] Migration: `tenants` and `scim_tokens`; `users` gains `tenant_id`;
       uniqueness becomes `(tenant_id, lower(user_name))`, so the same
       `userName` at two customers is two people
-- [ ] Issue 32 bytes from `crypto/rand`, store `sha256(secret)`. SHA-256
+- [x] Issue 32 bytes from `crypto/rand`, store `sha256(secret)`. SHA-256
       suits a high-entropy machine-generated secret and keeps bulk
       provisioning fast; a password KDF suits low-entropy human input
-- [ ] Show the full token once at creation
-- [ ] Verification order: parse key ID → look up row → check revoked and
+- [x] Show the full token once at creation
+- [x] Verification order: parse key ID → look up row → check revoked and
       expired → constant-time compare the hash → confirm the token's tenant
       matches the tenant in the URL
-- [ ] Token metadata: label, `created_at`, `created_by`, `last_used_at`,
+- [x] Token metadata: label, `created_at`, `created_by`, `last_used_at`,
       `expires_at`, `revoked_at`
-- [ ] Rotation with overlap: several live tokens per tenant, revoked
+- [x] Rotation with overlap: several live tokens per tenant, revoked
       individually, so a rotation keeps the server running
-- [ ] `cmd/scimage-admin`: `tenant create`, `token issue`, `token list`,
+- [x] `cmd/scimage-admin`: `tenant create`, `token issue`, `token list`,
       `token revoke`. A CLI keeps the privileged surface off the network
-- [ ] Every store query scoped by `tenant_id`, with cross-tenant isolation
+- [x] Every store query scoped by `tenant_id`, with cross-tenant isolation
       covered by tests. Per-tenant scoping also makes test isolation
       structural, retiring `-p 1`
 

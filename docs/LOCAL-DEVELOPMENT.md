@@ -97,15 +97,17 @@ the migration is safe to reverse in a deployment.
 
 ## View it
 
-The server listens on `:8080` (override with `SCIM_ADDR`). Every request
-carries the bearer token from your `.env`, which the server validates at
-startup.
+The server listens on `:8080` (override with `SCIM_ADDR`). There's no token
+to put in `.env` — create a tenant and issue it a token first:
 
 ```bash
 set -a; source .env; set +a
 
-curl -X POST http://localhost:8080/Users \
-  -H "Authorization: Bearer $SCIM_TOKEN" \
+TENANT_ID=$(go run ./cmd/scimage-admin tenant create -name "Local dev" | awk '/^Created tenant/{print $3}')
+TOKEN=$(go run ./cmd/scimage-admin token issue -tenant "$TENANT_ID" -label "local curl" | tail -1)
+
+curl -X POST "http://localhost:8080/scim/v2/$TENANT_ID/Users" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/scim+json" \
   -d '{
     "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
@@ -114,8 +116,8 @@ curl -X POST http://localhost:8080/Users \
     "emails": [{"value": "jdoe@example.com", "primary": true}]
   }'
 
-curl -H "Authorization: Bearer $SCIM_TOKEN" \
-  "http://localhost:8080/Users?startIndex=1&count=10"
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8080/scim/v2/$TENANT_ID/Users?startIndex=1&count=10"
 ```
 
 Set `SCIM_BASE_URL` when running behind a proxy, so `Location` and

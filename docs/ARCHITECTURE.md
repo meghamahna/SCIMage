@@ -7,16 +7,18 @@ does; this covers the mechanics behind it.
 
 ```text
 Identity provider
-   ↓  SCIM request, Bearer token
-Auth middleware      constant-time token check, applied by Routes() itself
+   ↓  SCIM request to /scim/v2/{tenantID}/..., Bearer token
+Auth middleware      looks up the token by key id, checks revoked/expired,
+                     constant-time compares the secret, confirms the token's
+                     own tenant matches {tenantID} — applied by Routes() itself
    ↓
-Rate limiter         token bucket, keyed per caller
+Rate limiter         token bucket, keyed per issued token
    ↓
 Router               net/http method patterns
    ↓
-Handler              validates the payload, maps it to a row
+Handler              validates the payload, maps it to a row, scoped to {tenantID}
    ↓
-Store                raw SQL, one transaction per mutation
+Store                raw SQL, one transaction per mutation, every query scoped by tenant_id
 ```
 
 The path is deliberately plain. Standard library `net/http` and raw SQL keep the
@@ -25,16 +27,53 @@ behaviour visible in the code, and Postgres is the single source of truth.
 Authentication is applied by `Routes()` rather than per handler, so it covers the
 whole surface structurally — including paths that resolve to nothing, which are
 rejected before routing so responses stay uniform for an unauthenticated caller.
+It reads `{tenantID}` straight out of the URL path rather than through the
+router's own path-value matching: `requireToken` wraps the mux and runs before
+the mux has matched anything, which is the only point `net/http`'s own
+`r.PathValue` gets populated.
 
 ## Storage model
 
-Three tables, described in `/migrations`:
+Five tables, described in `/migrations`:
 
 | Table | Holds |
 | --- | --- |
-| `users` | The provisioned directory. Deactivation is a soft delete, so history keeps a subject |
-| `audit_log` | One row per mutating call: actor, action, target, timestamp, before/after |
-| `webhook_deliveries` | The outbound queue: payload, status, attempts, lease |
+| `tenants` | One row per customer organization. `id` is an app-generated, prefixed opaque string (`tenant_...`), never a renamable slug — it's pasted into the customer's IdP once and has to stay stable |
+| `scim_tokens` | Issued credentials: `sha256` of the secret half, never the secret; label, timestamps, `revoked_at`/`expires_at` |
+| `users` | The provisioned directory, scoped by `tenant_id`. Deactivation is a soft delete, so history keeps a subject |
+| `audit_log` | One row per mutating call: tenant, actor, action, target, timestamp, before/after |
+| `webhook_deliveries` | The outbound queue: tenant, payload, status, attempts, lease |
+
+## Multi-tenancy
+
+One SCIMage process and one Postgres database serve every tenant — the shared
+pool model, not one deployment per customer. A tenant is a row plus a foreign
+key on everything else; isolation is enforced by scoping every query on
+`tenant_id`, not by separate infrastructure.
+
+**Addressing.** `https://<host>/scim/v2/{tenantID}/Users` — one host, one
+certificate. That URL, plus an issued token, is what a customer pastes into
+Okta's *Base URL* or Entra's *Tenant URL*.
+
+**Tokens.** `scimage_<keyID>_<secret>`. `keyID` is the indexable lookup key —
+not secret, the same role a username plays — and `secret` is 32 bytes from
+`crypto/rand`. Only `sha256(secret)` is stored. Verification order: parse the
+key id, look up the row, check `revoked_at`/`expires_at`, constant-time
+compare the secret's hash, then confirm the row's `tenant_id` matches the
+`{tenantID}` in the path. Every failure — unknown key, revoked, expired, wrong
+secret, right secret but wrong tenant — answers the same generic 401, so a
+caller can't learn which check failed or probe which tenants exist.
+
+**Isolation holds even against a known id.** `GetUser`/`UpdateUser`/
+`DeactivateUser` are scoped by `tenant_id` *and* `id` in the same `WHERE`
+clause, so a token from tenant A naming tenant B's real user id gets the same
+`ErrNotFound` as a made-up one — the isolation doesn't depend on a caller
+never guessing a valid UUID.
+
+**Issuing is a CLI, not an endpoint.** `cmd/scimage-admin` creates tenants and
+issues/lists/revokes tokens by talking to Postgres directly. Keeping that
+surface off the network means there's no HTTP endpoint that can create a
+credential, which is a smaller attack surface than an admin API would be.
 
 **A mutation writes its user row and its audit entry in one transaction**, plus
 its outbound event when change delivery is configured. They commit together, so a
@@ -58,13 +97,17 @@ The handler depends on `scim.UserStore` rather than on Postgres directly. The
 bundled store is the default implementation, and an application with its own user
 table can supply another.
 
-An implementation carries two obligations the compiler leaves open:
+An implementation carries three obligations the compiler leaves open:
 
 1. **Write the audit entry in the change's own transaction.** This is why
    `AuditRecord` is a parameter on every mutating method rather than something
    the handler records afterwards.
 2. **Return a non-nil result alongside a nil error.** The handler dereferences
    what it gets back directly.
+3. **Scope every method to the `tenantID` argument.** The handler passes the
+   tenant resolved from the caller's own token, not from anything the request
+   body names — an implementation that ignored it would reopen the cross-tenant
+   isolation the bundled store enforces structurally.
 
 The interface currently lives in `internal/scim`, so supplying an implementation
 means forking rather than importing. Moving the domain types to an importable
@@ -97,7 +140,7 @@ WHERE id IN (
     LIMIT $1
     FOR UPDATE SKIP LOCKED
 )
-RETURNING id, event_type, target_id, payload, attempts
+RETURNING id, tenant_id, event_type, target_id, payload, attempts
 ```
 
 `SKIP LOCKED` makes concurrent dispatchers take disjoint sets. The lease is
