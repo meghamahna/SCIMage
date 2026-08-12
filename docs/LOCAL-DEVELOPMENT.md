@@ -27,68 +27,64 @@ docker info >/dev/null 2>&1 && echo "daemon: RUNNING" || echo "daemon: NOT RUNNI
 ```bash
 git clone https://github.com/meghamahna/SCIMage.git
 cd SCIMage
-
-# activate the real git pre-commit hook (secrets scan, gofmt, go vet, go test).
-# This sets local git config, so it has to be run again on every fresh clone
 make hooks-install
-
-# copy the env template and fill in real values
-# (never commit the result: .env is gitignored)
 cp .env.example .env
 ```
 
-## Run it
+`.env` is gitignored; fill in real values before running anything else.
+`make hooks-install` sets a local git config, so it has to be run again on
+every fresh clone.
 
-```bash
-# start Postgres and bring the schema up to date
-make up
+## Make commands
 
-# run the server
-make run
-```
+Run `make` with no arguments to see this same list generated from the
+Makefile itself. `SERVICE=` and other variables are passed as `make up
+SERVICE=postgres`, not `--service=postgres`.
 
-`make up` applies migrations for you once Postgres is accepting
-connections, so a fresh clone is one command away from a usable
-database.
+| Command | What it does | Comments |
+| --- | --- | --- |
+| `make help` | Shows the command list | Default target; bare `make` runs this |
+| `make up` | Starts Postgres and applies migrations | `SERVICE=postgres` to scope to one service |
+| `make down` | Stops and removes all containers/network | Always whole-project; Compose doesn't support scoping `down` |
+| `make stop` | Stops service(s) without removing them | `SERVICE=postgres` to scope to one |
+| `make restart` | Restarts service(s) in place, keeping data | `SERVICE=postgres` to scope to one |
+| `make reset` | Wipes the data volume and re-initializes from `.env` | Destructive, always whole-project; use when you want a clean slate |
+| `make ps` | Shows what's running | |
+| `make logs` | Follows container logs | `SERVICE=postgres` to scope to one |
+| `make migrate` | Applies every pending migration | `make up` already runs this for you; use this to re-run after adding a migration file |
+| `make migrate-down` | Rolls back the most recent migration | |
+| `make migrate-version` | Shows which migration version the database is on | |
+| `make test` | Runs the full test suite against a real Postgres | Run `make up` first |
+| `make run` | Runs the SCIM server | Listens on `:8080` by default (`SCIM_ADDR` to override) |
+| `make fmt` | Formats every Go file | `gofmt` + `goimports` |
+| `make tenant NAME="Acme Corp"` | Creates a tenant | Prints the tenant id and its SCIM base URL |
+| `make token TENANT=<id> LABEL="Okta prod"` | Issues a token for a tenant | Optional `EXPIRES=90d`; token is shown once |
+| `make hooks-install` | Activates the real git pre-commit hook | One-time per clone; doesn't travel with the repo |
 
-## Stop / restart Postgres
+A few admin actions have no `make` shortcut yet and need the CLI directly:
 
-All targets take an optional `SERVICE=<name>` (currently only
-`postgres` exists) to scope the action to one service instead of the
-whole project. `make` variables are passed as `VAR=value`, not
-`--flag=value`.
-
-```bash
-make stop                    # stop, keep data: everything, or SERVICE=postgres for just one
-make restart                 # restart in place, keep data: same SERVICE= scoping
-make down                    # stop + remove containers/network (always whole-project)
-make reset                   # full reset: wipes the data volume, re-initializes from .env
-make ps                      # what's running
-make logs                    # follow logs, SERVICE=postgres to scope to one
-```
+| Command | What it does | Comments |
+| --- | --- | --- |
+| `go run ./cmd/scimage-admin tenant list` | Lists every tenant | |
+| `go run ./cmd/scimage-admin token list -tenant <id>` | Lists a tenant's tokens | Never shows the secret, only metadata |
+| `go run ./cmd/scimage-admin token revoke <keyID>` | Revokes a token immediately | Irreversible; idempotent on an already-revoked key |
+| `go run ./cmd/scimage-admin audit list [-tenant <id>]` | Reads the admin-audit trail | Every tenant created, token issued or revoked; omit `-tenant` for every tenant |
 
 ## Migrations
 
 Schema migrations live in [`migrations/`](../migrations/) and are managed
-with [golang-migrate](https://github.com/golang-migrate/migrate).
-
-```bash
-make migrate                 # apply everything pending (also run by make up)
-make migrate-down            # roll back the most recent migration
-make migrate-version         # which version the database is on
-```
-
-[`scripts/migrate.sh`](../scripts/migrate.sh)
-uses a host binary if you have one and otherwise runs the official
-`migrate/migrate` image on the compose network. Either way the
-connection string is assembled at runtime from `.env` and passed straight
-to the CLI.
+with [golang-migrate](https://github.com/golang-migrate/migrate). Use
+`make migrate` / `make migrate-down` / `make migrate-version` from the table
+above; [`scripts/migrate.sh`](../scripts/migrate.sh) waits for Postgres to be
+ready first, then uses a host `migrate` binary if you have one and otherwise
+runs the official `migrate/migrate` image on the compose network, so no local
+install is required either way.
 
 To add a migration, create the next numbered pair by hand:
 
 ```text
-migrations/000002_<description>.up.sql
-migrations/000002_<description>.down.sql
+migrations/000007_<description>.up.sql
+migrations/000007_<description>.down.sql
 ```
 
 Write the `down` half alongside it, and test the round trip
@@ -142,7 +138,9 @@ directory is `0700`, files are `0600`, and `logs/` is gitignored.
 ## Audit trail
 
 Every create, replace and deactivate writes a row to `audit_log` in the same
-transaction as the change:
+transaction as the change; every tenant/token admin action writes a row to
+`admin_audit_log` the same way (see the table above for reading it back via
+`scimage-admin audit list`). To query `audit_log` directly:
 
 ```bash
 docker compose exec postgres psql -U scimage -d scimage -c \
@@ -175,5 +173,5 @@ password it was created with. Two ways forward:
     -c "ALTER USER $POSTGRES_USER WITH PASSWORD '$POSTGRES_PASSWORD';"
   ```
 
-- or wipe and re-initialize (see "full reset" above) if there's no
-  data you need to keep.
+- or wipe and re-initialize with `make reset` if there's no data you need to
+  keep.
