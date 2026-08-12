@@ -1,19 +1,18 @@
 # Configuration
 
 Every setting comes from an environment variable. Copy `.env.example` to `.env`
-and fill it in — `.env` is gitignored, and `make` targets load it for you.
+and fill it in; `.env` is gitignored, and `make` targets load it for you.
 
 Generate secrets with `openssl rand -hex 32`. The server requires at least 16
-characters for both `SCIM_TOKEN` and `SCIM_WEBHOOK_SECRET`.
+characters for `SCIM_WEBHOOK_SECRET`.
 
 ## Core
 
 | Variable | Purpose |
 | --- | --- |
-| `SCIM_TOKEN` | Bearer token every request presents. Required, and validated at startup. |
 | `DATABASE_URL` | Postgres connection string. Assembled from `POSTGRES_*` when absent. |
 | `SCIM_ADDR` | Listen address. Defaults to `:8080`. |
-| `SCIM_BASE_URL` | External base URL, used for `Location` and `meta.location` behind a proxy. |
+| `SCIM_BASE_URL` | External base URL, used for `Location`, `meta.location` and the URL `scimage-admin tenant create` prints, behind a proxy. |
 
 `SCIM_BASE_URL` matters behind a TLS-terminating proxy: the request arrives as
 plain HTTP there, so links derived from the `Host` header would advertise `http`.
@@ -38,7 +37,7 @@ bursts, then goes quiet for hours. Set `SCIM_RATE_LIMIT=0` to opt out.
 | `SCIM_WEBHOOK_MAX_ATTEMPTS` | Attempts before a delivery is dead-lettered. Defaults to 6. |
 
 Leaving `SCIM_WEBHOOK_URL` unset keeps change delivery off, and the store skips
-queueing events — the queue stays empty while nothing is draining it.
+queueing events, so the queue stays empty while nothing is draining it.
 
 A URL configured with no secret is a startup error, so every event that goes out
 is signed. `SCIM_WEBHOOK_ALLOW_HTTP=1` is meant for a local receiver during
@@ -73,13 +72,46 @@ Used when `DATABASE_URL` is absent, and by `docker-compose.yml`.
 | `POSTGRES_DB` | Database name. |
 | `POSTGRES_PORT` | Host port for the container. Defaults to 5432. |
 
-## Rotating the bearer token
+## Tenants and tokens
 
-1. Generate a new token: `openssl rand -hex 32`
-2. Set it as `SCIM_TOKEN` and restart the server.
-3. Update the token in your identity provider.
+There is no bearer-token environment variable: authentication is issued,
+tenant by tenant, through `cmd/scimage-admin`, which connects to Postgres
+directly rather than over the network. The privileged surface for creating a
+tenant or minting a credential is never a network endpoint.
 
-Treat `SCIM_TOKEN` as a privileged credential — it authorizes directory changes —
-and rotate it whenever exposure is suspected. Overlap-window rotation, which
-keeps the server running through a rotation, arrives with issued tokens in
-Phase 10.
+```bash
+scimage-admin tenant create -name "Acme Corp" [-created-by "who"]
+scimage-admin tenant list
+scimage-admin token issue -tenant <tenantID> -label "Okta prod" [-expires 90d] [-created-by "who"]
+scimage-admin token list -tenant <tenantID>
+scimage-admin token revoke <keyID>
+scimage-admin audit list [-tenant <tenantID>]
+```
+
+A token is shown once, at `issue` time, and only its `sha256` hash is ever
+stored. `label` is what a `token list` row is recognised by later, so name it
+after what's calling ("Okta prod", "Entra staging"), not who ran the command:
+`created_by` (see below) already answers who and when.
+
+**Tenant names are unique, case-insensitively.** `tenant create` rejects a
+name that only differs from an existing one by casing, the same reasoning
+`userName` uniqueness already uses. If it comes back as taken, check
+`tenant list` for the existing customer before assuming it's a new one.
+
+**Every privileged action is attributed.** `-created-by` defaults to
+`$USER` (`$USERNAME` on Windows) when omitted, so `tenant create` and
+`token issue` record a real operator by default rather than a generic
+"scimage-admin" string. Pass it explicitly for automation, e.g.
+`-created-by "provisioning-automation"`, so the trail says what ran the
+command, not just that something did. `scimage-admin audit list [-tenant
+<tenantID>]` reads that trail back: every tenant created, every token issued
+or revoked, who did it, and when.
+
+**Rotation with overlap.** A tenant can hold several live tokens at once, so
+rotation doesn't require downtime: issue a new token, update it in the
+identity provider, confirm traffic has moved (`token list` shows
+`last_used_at`), then `token revoke` the old one. Revoking is immediate and
+irreversible: a new token has to be issued if one is needed again.
+
+Treat every issued token as a privileged credential (it authorizes changes
+to that tenant's directory), and revoke it as soon as exposure is suspected.

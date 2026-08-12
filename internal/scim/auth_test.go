@@ -1,23 +1,32 @@
 package scim
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/meghamahna/SCIMage/internal/store"
 )
 
-// authTestToken is deliberately a different value from testToken, so a handler
-// built with one can't be authenticated by the other.
-const authTestToken = "auth-test-token-9876543210"
-
-// authed sends a request through the middleware and reports whether it got past.
-func authed(t *testing.T, authorization string) (*httptest.ResponseRecorder, bool) {
-	t.Helper()
-	return authedWith(t, authTestToken, authorization)
+func revokedFakeToken() *store.Token {
+	tok := validFakeToken()
+	at := time.Now().Add(-time.Minute)
+	tok.RevokedAt = &at
+	return tok
 }
 
-func authedWith(t *testing.T, configured, authorization string) (*httptest.ResponseRecorder, bool) {
+func expiredFakeToken() *store.Token {
+	tok := validFakeToken()
+	past := time.Now().Add(-time.Minute)
+	tok.ExpiresAt = &past
+	return tok
+}
+
+// authed sends a request through requireToken and reports whether it got past.
+func authed(t *testing.T, tokens TokenStore, target, authorization string) (*httptest.ResponseRecorder, bool) {
 	t.Helper()
 
 	reached := false
@@ -26,19 +35,22 @@ func authedWith(t *testing.T, configured, authorization string) (*httptest.Respo
 		w.WriteHeader(http.StatusOK)
 	})
 
-	r := httptest.NewRequest(http.MethodGet, "/Users", nil)
+	r := httptest.NewRequest(http.MethodGet, target, nil)
 	if authorization != "" {
 		r.Header.Set("Authorization", authorization)
 	}
 
 	rr := httptest.NewRecorder()
-	requireBearer(configured)(next).ServeHTTP(rr, r)
+	requireToken(tokens)(next).ServeHTTP(rr, r)
 	return rr, reached
 }
 
-func TestRequireBearer(t *testing.T) {
-	t.Run("accepts the configured token", func(t *testing.T) {
-		rr, reached := authed(t, "Bearer "+authTestToken)
+func TestRequireToken(t *testing.T) {
+	target := "/scim/v2/" + fakeTenantID + "/Users"
+	valid := fakeTokenStore{tok: validFakeToken()}
+
+	t.Run("accepts a valid token for its own tenant", func(t *testing.T) {
+		rr, reached := authed(t, valid, target, "Bearer "+fakeToken)
 
 		if !reached {
 			t.Fatalf("request was rejected: %d %s", rr.Code, rr.Body)
@@ -47,24 +59,32 @@ func TestRequireBearer(t *testing.T) {
 
 	// RFC 7235 §2.1 makes the scheme case-insensitive.
 	t.Run("scheme is case-insensitive", func(t *testing.T) {
-		if _, reached := authed(t, "bEaReR "+authTestToken); !reached {
+		if _, reached := authed(t, valid, target, "bEaReR "+fakeToken); !reached {
 			t.Error("lowercase scheme was rejected")
 		}
 	})
 
-	for _, tc := range []struct{ name, authorization string }{
-		{"no header", ""},
-		{"empty header", " "},
-		{"wrong token", "Bearer " + strings.ToUpper(authTestToken)},
-		{"empty token", "Bearer "},
-		{"prefix of the token", "Bearer " + authTestToken[:len(authTestToken)-1]},
-		{"token plus a suffix", "Bearer " + authTestToken + "x"},
-		{"no scheme", authTestToken},
-		{"wrong scheme", "Basic " + authTestToken},
-		{"scheme without a space", "Bearer" + authTestToken},
+	for _, tc := range []struct {
+		name          string
+		tokens        fakeTokenStore
+		target        string
+		authorization string
+	}{
+		{"no header", valid, target, ""},
+		{"empty header", valid, target, " "},
+		{"no scheme", valid, target, fakeToken},
+		{"wrong scheme", valid, target, "Basic " + fakeToken},
+		{"scheme without a space", valid, target, "Bearer" + fakeToken},
+		{"malformed token", fakeTokenStore{}, target, "Bearer not-a-scim-token"},
+		{"lookup error", fakeTokenStore{err: errors.New("db unavailable")}, target, "Bearer " + fakeToken},
+		{"lookup miss", fakeTokenStore{err: store.ErrNotFound}, target, "Bearer " + fakeToken},
+		{"wrong secret", valid, target, "Bearer scimage_" + fakeKeyID + "_wrongsecretwrongsecretwrongsecret"},
+		{"right token, wrong tenant in path", valid, "/scim/v2/tenant_other/Users", "Bearer " + fakeToken},
+		{"revoked", fakeTokenStore{tok: revokedFakeToken()}, target, "Bearer " + fakeToken},
+		{"expired", fakeTokenStore{tok: expiredFakeToken()}, target, "Bearer " + fakeToken},
 	} {
 		t.Run(tc.name+" is rejected", func(t *testing.T) {
-			rr, reached := authed(t, tc.authorization)
+			rr, reached := authed(t, tc.tokens, tc.target, tc.authorization)
 
 			if reached {
 				t.Fatal("request reached the handler")
@@ -75,33 +95,8 @@ func TestRequireBearer(t *testing.T) {
 		})
 	}
 
-	// A misconfigured token must reject everything. Hashing both sides means an
-	// empty configured token would otherwise match a request with no header at
-	// all — SHA-256("") on both sides — and serve the whole API anonymously.
-	for _, tc := range []struct{ name, configured string }{
-		{"empty", ""},
-		{"one short of the minimum", strings.Repeat("a", minTokenLen-1)},
-	} {
-		t.Run("a "+tc.name+" configured token rejects everything", func(t *testing.T) {
-			for _, authorization := range []string{
-				"",
-				"Bearer ",
-				"Bearer " + tc.configured,
-				"Bearer " + authTestToken,
-			} {
-				rr, reached := authedWith(t, tc.configured, authorization)
-				if reached {
-					t.Errorf("Authorization %q reached the handler", authorization)
-				}
-				if rr.Code != http.StatusUnauthorized {
-					t.Errorf("Authorization %q gave %d, want 401", authorization, rr.Code)
-				}
-			}
-		})
-	}
-
 	t.Run("401 is a SCIM error with a challenge", func(t *testing.T) {
-		rr, _ := authed(t, "")
+		rr, _ := authed(t, valid, target, "")
 
 		if got := rr.Header().Get("WWW-Authenticate"); got != "Bearer" {
 			t.Errorf("WWW-Authenticate = %q, want Bearer", got)
@@ -117,8 +112,8 @@ func TestRequireBearer(t *testing.T) {
 		if len(scimErr.Schemas) != 1 || scimErr.Schemas[0] != errorSchema {
 			t.Errorf("schemas = %v, want the Error schema", scimErr.Schemas)
 		}
-		if strings.Contains(rr.Body.String(), authTestToken) {
-			t.Error("the response body echoes the configured token")
+		if strings.Contains(rr.Body.String(), fakePlaintext) {
+			t.Error("the response body echoes the token secret")
 		}
 	})
 }
@@ -129,17 +124,19 @@ func TestRequireBearer(t *testing.T) {
 func TestRoutesRequireAuth(t *testing.T) {
 	// A nil store is fine: the 401 path never reaches a handler, so this stays
 	// meaningful without a database.
-	routes := NewHandler(nil, authTestToken).Routes()
+	routes := NewHandler(nil, fakeTokenStore{tok: validFakeToken()}).Routes()
+	prefix := "/scim/v2/" + fakeTenantID
 
 	for _, tc := range []struct{ method, target string }{
-		{http.MethodGet, "/ServiceProviderConfig"},
-		{http.MethodPost, "/Users"},
-		{http.MethodGet, "/Users"},
-		{http.MethodGet, "/Users/" + nonexistentID},
-		{http.MethodPut, "/Users/" + nonexistentID},
-		{http.MethodDelete, "/Users/" + nonexistentID},
-		{http.MethodPatch, "/Users/" + nonexistentID},
-		{http.MethodGet, "/Groups"},
+		{http.MethodGet, prefix + "/ServiceProviderConfig"},
+		{http.MethodPost, prefix + "/Users"},
+		{http.MethodGet, prefix + "/Users"},
+		{http.MethodGet, prefix + "/Users/" + nonexistentID},
+		{http.MethodPut, prefix + "/Users/" + nonexistentID},
+		{http.MethodDelete, prefix + "/Users/" + nonexistentID},
+		{http.MethodPatch, prefix + "/Users/" + nonexistentID},
+		{http.MethodGet, prefix + "/Groups"},
+		{http.MethodGet, "/unknown/path/entirely"},
 	} {
 		t.Run(tc.method+" "+tc.target, func(t *testing.T) {
 			rr := sendUnauthenticated(t, routes, tc.method, tc.target)
@@ -160,33 +157,24 @@ func sendUnauthenticated(t *testing.T, h http.Handler, method, target string) *h
 	return rr
 }
 
-func TestTokenFromEnv(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		value   string
-		wantErr bool
-	}{
-		{"empty", "", true},
-		{"whitespace only", "   ", true},
-		{"too short", strings.Repeat("a", minTokenLen-1), true},
-		{"minimum length", strings.Repeat("a", minTokenLen), false},
+func TestTenantIDFromPath(t *testing.T) {
+	for _, tc := range []struct{ path, want string }{
+		{"/scim/v2/tenant_abc/Users", "tenant_abc"},
+		{"/scim/v2/tenant_abc/Users/123", "tenant_abc"},
+		{"/scim/v2/tenant_abc/ServiceProviderConfig", "tenant_abc"},
+		{"/scim/v2/tenant_abc", "tenant_abc"},
+		{"/scim/v2/", ""},
+		{"/nonsense", ""},
+		{"/", ""},
+		// A %2f inside the tenant segment is not a path separator to the mux
+		// (net/http unescapes one segment at a time), so it has to come out
+		// unescaped here too — matching what r.PathValue("tenantID") would
+		// return for the same request, not truncating early.
+		{"/scim/v2/tenant_abc%2Fx/Users", "tenant_abc/x"},
+		{"/scim/v2/tenant_abc%2Fx", "tenant_abc/x"},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("SCIM_TOKEN", tc.value)
-
-			got, err := TokenFromEnv()
-			if tc.wantErr {
-				if err == nil {
-					t.Fatalf("TokenFromEnv() = %q, want an error", got)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("TokenFromEnv(): %v", err)
-			}
-			if got != tc.value {
-				t.Errorf("TokenFromEnv() = %q, want %q", got, tc.value)
-			}
-		})
+		if got := tenantIDFromPath(tc.path); got != tc.want {
+			t.Errorf("tenantIDFromPath(%q) = %q, want %q", tc.path, got, tc.want)
+		}
 	}
 }

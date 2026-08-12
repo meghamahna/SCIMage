@@ -66,15 +66,18 @@ func (l *limiter) allow(key string) bool {
 }
 
 // throttle sits behind auth, so an unauthenticated flood never consumes a real
-// caller's budget. The trade-off is that it also doesn't limit unauthenticated
-// requests — those are bounded by the cost of one SHA-256 compare.
-func (l *limiter) throttle(key string, next http.Handler) http.Handler {
+// caller's budget, and so the key can be the caller's own resolved token
+// rather than one fixed value — every tenant's every token gets its own
+// bucket. The trade-off is that it also doesn't limit unauthenticated
+// requests — those are bounded by the cost of one token lookup.
+func (l *limiter) throttle(next http.Handler) http.Handler {
 	if l == nil {
 		return next
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !l.allow(key) {
+		id := identityFromContext(r.Context())
+		if !l.allow(id.TenantID + "/" + id.KeyID) {
 			w.Header().Set("Retry-After", "1")
 			writeError(w, http.StatusTooManyRequests, "tooMany", "rate limit exceeded")
 			return

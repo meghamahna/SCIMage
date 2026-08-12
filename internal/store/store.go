@@ -16,6 +16,10 @@ import (
 var (
 	ErrNotFound          = errors.New("user not found")
 	ErrDuplicateUserName = errors.New("userName already exists")
+	// ErrDuplicateTenantName is the admin CLI's equivalent: two customers
+	// sharing a display name, even by casing alone, is a support incident
+	// waiting to happen.
+	ErrDuplicateTenantName = errors.New("tenant name already exists")
 )
 
 type Store struct {

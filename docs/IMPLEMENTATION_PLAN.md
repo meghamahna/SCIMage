@@ -7,20 +7,20 @@ production-grade security practices and an AI-assisted audit layer.
 
 ## Why Postgres
 Running real Postgres in Docker demonstrates schema design, migrations,
-and query correctness — the concrete backend skills this project is
+and query correctness: the concrete backend skills this project is
 built to show.
 
 ## Stack
 - Go (`net/http`, stdlib for the HTTP layer)
 - Postgres 16, run via Docker Compose
-- `pgx` for the driver, raw SQL — real queries make the behaviour visible
+- `pgx` for the driver, raw SQL: real queries make the behaviour visible
 - `golang-migrate` for schema migrations
 
 ## Project structure
 ```text
 /cmd/server           entrypoint for the SCIM server
 /cmd/scimage-admin    tenant and token administration (Phase 10)
-/cmd/sage             audit reviewer (Phase 12)
+/cmd/scimtrace        audit reviewer (Phase 12)
 /internal/scim        HTTP handlers, SCIM models, auth, rate limiting
 /internal/store       Postgres-backed store, audit log and outbox, raw SQL
 /internal/webhook     signing and the outbound delivery dispatcher
@@ -34,12 +34,12 @@ README.md
 
 ## Milestones
 
-### Phase 1 — Infrastructure
+### Phase 1: Infrastructure
 - [x] Write `docker-compose.yml` with a `postgres:16` service
 - [x] Set connection config via env vars (`DATABASE_URL`)
 - [x] Confirm `docker compose up` gives a running, reachable Postgres
 
-### Phase 2 — Schema
+### Phase 2: Schema
 - [x] Write migration for a `users` table:
   ```sql
   CREATE TABLE users (
@@ -58,32 +58,32 @@ README.md
   `lower(user_name)`. That keeps `bjensen` and `BJensen` one identity and
   gives the Phase 4 409 something to enforce. The same index serves
   lookups, so it replaces the separately sketched `CREATE INDEX`.
-- [x] Apply migration on container startup via a make target — `make up`
+- [x] Apply migration on container startup via a make target: `make up`
       chains into `make migrate`, using the official container when the
       host has no `migrate` binary
 
-### Phase 3 — Store layer
+### Phase 3: Store layer
 - [x] Implement `internal/store` with plain SQL:
   - `CreateUser`
   - `GetUser(id)`
-  - `ListUsers(limit, offset)` — also returns the total row count, which
+  - `ListUsers(limit, offset)`: also returns the total row count, which
     SCIM's `ListResponse` needs for `totalResults`
   - `UpdateUser(id, ...)`
-  - `DeactivateUser(id)` — sets `active = false`, preserving history
+  - `DeactivateUser(id)`: sets `active = false`, preserving history
 - [x] Use a connection pool (`pgxpool`)
 
 For Phase 4: `ErrNotFound` and `ErrDuplicateUserName` map to 404 and 409, and
 a malformed id returns `ErrNotFound` so junk path parameters answer 404.
-`ListUsers` clamps to `store.MaxPageSize` (200) — report the returned slice
+`ListUsers` clamps to `store.MaxPageSize` (200): report the returned slice
 length as `itemsPerPage`.
 
-### Phase 4 — HTTP layer (SCIM endpoints)
-- [x] `POST /Users` — 201 + Location header on success, 409 on
+### Phase 4: HTTP layer (SCIM endpoints)
+- [x] `POST /Users`: 201 + Location header on success, 409 on
       duplicate `userName`
-- [x] `GET /Users/{id}` — fetch a single user
-- [x] `GET /Users` — list with pagination via `startIndex` / `count`
-- [x] `PUT /Users/{id}` — full replace
-- [x] `DELETE /Users/{id}` — soft delete, sets `active = false`
+- [x] `GET /Users/{id}`: fetch a single user
+- [x] `GET /Users`: list with pagination via `startIndex` / `count`
+- [x] `PUT /Users/{id}`: full replace
+- [x] `DELETE /Users/{id}`: soft delete, sets `active = false`
 - [x] Map SCIM user JSON to and from `users` table rows in one place
       (`internal/scim/mapper.go`) to keep the HTTP layer clean
 
@@ -91,7 +91,7 @@ Routing is `net/http`'s method-pattern mux. Responses are
 `application/scim+json`; errors use the SCIM Error schema with `status` as a
 string. `cmd/server` wires the store to the handler.
 
-### Phase 5 — Auth
+### Phase 5: Auth
 - [x] Bearer token middleware, token from env var
 
 `Routes()` applies the middleware itself, so authentication covers the whole
@@ -103,22 +103,22 @@ Comparison is `subtle.ConstantTimeCompare` over SHA-256 digests. Hashing gives
 both sides a fixed width, so the comparison is constant-time with respect to
 the token's length as well as its content.
 
-### Phase 6 — Tests
+### Phase 6: Tests
 These landed alongside the code they cover, so each phase shipped verified.
 - [x] Spin up Postgres for tests via `docker-compose` (`make test`)
 - [x] Integration tests for create/get/update/deactivate against the
       real store
 - [x] HTTP handler tests via `httptest` (landed with Phase 4)
 - [x] Duplicate-`userName` conflict test, including the case-variant
-      collision — a good talking point on constraint handling
+      collision, a good talking point on constraint handling
 - [x] Deterministic under repeated runs. Both packages write to the same
       `users` table and `go test` parallelises across packages, so the
       store's row-count assertions raced against the handler tests
-      creating users — reproducible at `-count=20`. `make test` and the
+      creating users, reproducible at `-count=20`. `make test` and the
       pre-commit hook pass `-p 1`, which serialises packages within a run.
       Per-tenant scoping will make that isolation structural and retire it
 
-### Phase 7 — Security hardening
+### Phase 7: Security hardening
 - [x] Validate every incoming SCIM payload against the expected schema
       before it reaches the DB, with proper SCIM error responses (landed
       with Phase 4; extended here to reject a body `id` that contradicts
@@ -128,7 +128,7 @@ These landed alongside the code they cover, so each phase shipped verified.
 - [x] Structured audit log for every mutating call: actor, action, target
       user id, timestamp, before/after state. Written to an `audit_log`
       table **in the mutation's own transaction**, so the entry and the
-      change commit together — a failed insert rolls the change back with
+      change commit together: a failed insert rolls the change back with
       it. The before-image comes from a CTE reading the row in the same
       statement as the `UPDATE`, since `OLD` in `RETURNING` arrived in
       Postgres 18 and this runs on 16. Refusals are recorded too, making a
@@ -141,14 +141,14 @@ These landed alongside the code they cover, so each phase shipped verified.
       place immediately: `golang.org/x/text` v0.29.0 had a reachable
       infinite-loop bug via `pgxpool.New`, now on v0.40.0
 
-SAGE reads the `audit_log` table directly. One authoritative copy of the audit
-trail is what gives the transactional guarantee its meaning; a JSON-lines
-export for log shipping can layer on top.
+SCIMTrace AI reads the `audit_log` table directly. One authoritative copy of
+the audit trail is what gives the transactional guarantee its meaning; a
+JSON-lines export for log shipping can layer on top.
 
-### Phase 8 — Identity provider interoperability
+### Phase 8: Identity provider interoperability
 What an identity provider exercises during setup. Built against a live client
-as well as the spec, which changed the result twice — see the interop notes.
-- [x] `externalId` on `users` — the attribute IdPs use as their own key for
+as well as the spec, which changed the result twice; see the interop notes.
+- [x] `externalId` on `users`: the attribute IdPs use as their own key for
       reconciliation. Migration, model, mapper
 - [x] Discovery endpoints: `/ServiceProviderConfig`, `/ResourceTypes`,
       `/Schemas`. Static documents declaring exactly what this server
@@ -178,7 +178,7 @@ allows a provider to retain the resource; keeping it readable preserves the
 audit trail's subject and matches how identity providers deprovision in
 practice. Both routes converge on the same state on purpose.
 
-### Phase 9 — Change delivery
+### Phase 9: Change delivery
 How provisioned users reach the application's own data, which is what makes
 this deployable by someone other than its author.
 - [x] Signed outbound webhooks on every mutation, with retries and a
@@ -196,8 +196,8 @@ this deployable by someone other than its author.
       implementation, so a Go application can back SCIMage with its own
       schema
 
-**Decisions.** The lease spans the whole batch, matching the sequential send —
-a per-send lease would let rows queued behind the current attempt come due
+**Decisions.** The lease spans the whole batch, matching the sequential send.
+A per-send lease would let rows queued behind the current attempt come due
 mid-batch, delivering them twice and spending each row's retry budget at
 double rate. A `4xx` other than `408`/`429` parks immediately, since the
 receiver has already given its verdict. Requests reach the configured endpoint
@@ -206,24 +206,24 @@ user attributes stays on its intended host. `last_error` holds a receiver's
 response body, bounded in runes and sanitised of NUL and invalid UTF-8, which
 keeps a malformed error body writable and the delivery moving. Events name the
 user's transition, so `DELETE` and `PATCH active:false` both emit
-`user.deactivated` — the event a receiver most needs to act on. Graceful
+`user.deactivated`: the event a receiver most needs to act on. Graceful
 shutdown landed here, ahead of Phase 13, to give the dispatcher a defined stop.
 
 **Open for later.** Retention for `delivered` rows belongs with the Phase 13
 operational work. `DeadLetters` reads the parked queue; replay arrives with
-`cmd/scimage-admin` in Phase 10, which also brings per-endpoint subscriptions —
-today there is one endpoint from the environment, and the delivery row gains a
+`cmd/scimage-admin` in Phase 10, which also brings per-endpoint subscriptions.
+Today there is one endpoint from the environment, and the delivery row gains a
 subscription reference when tenants arrive. The `UserStore` interface lives in
 `internal/scim`, so supplying an implementation means forking; moving the
 domain types to an importable package turns it into a real extension point when
 someone needs it.
 
-### Phase 10 — Multi-tenancy and issued API tokens
+### Phase 10: Multi-tenancy and issued API tokens
 The shape real SCIM service providers ship. It also gives the audit `actor`
-and SAGE's per-caller volume signal something to distinguish.
+and SCIMTrace AI's per-caller volume signal something to distinguish.
 
-**Addressing.** Tenant in the path — one host, one certificate, plain DNS for
-self-hosters: `https://<host>/scim/v2/{tenantID}/Users`. That URL is what a
+**Addressing.** Tenant in the path (one host, one certificate, plain DNS for
+self-hosters): `https://<host>/scim/v2/{tenantID}/Users`. That URL is what a
 customer enters as Okta's *Base URL* or Entra's *Tenant URL*.
 
 **Token format.** `scimage_<keyID>_<secret>`. The key ID makes the row
@@ -231,38 +231,54 @@ indexable, since a constant-time comparison needs a single candidate, and the
 secret authenticates. The `scimage_` prefix lets GitHub secret scanning
 recognise a leaked token.
 
-- [ ] Migration: `tenants` and `scim_tokens`; `users` gains `tenant_id`;
+- [x] Migration: `tenants` and `scim_tokens`; `users` gains `tenant_id`;
       uniqueness becomes `(tenant_id, lower(user_name))`, so the same
       `userName` at two customers is two people
-- [ ] Issue 32 bytes from `crypto/rand`, store `sha256(secret)`. SHA-256
+- [x] Issue 32 bytes from `crypto/rand`, store `sha256(secret)`. SHA-256
       suits a high-entropy machine-generated secret and keeps bulk
       provisioning fast; a password KDF suits low-entropy human input
-- [ ] Show the full token once at creation
-- [ ] Verification order: parse key ID → look up row → check revoked and
+- [x] Show the full token once at creation
+- [x] Verification order: parse key ID → look up row → check revoked and
       expired → constant-time compare the hash → confirm the token's tenant
       matches the tenant in the URL
-- [ ] Token metadata: label, `created_at`, `created_by`, `last_used_at`,
+- [x] Token metadata: label, `created_at`, `created_by`, `last_used_at`,
       `expires_at`, `revoked_at`
-- [ ] Rotation with overlap: several live tokens per tenant, revoked
+- [x] Rotation with overlap: several live tokens per tenant, revoked
       individually, so a rotation keeps the server running
-- [ ] `cmd/scimage-admin`: `tenant create`, `token issue`, `token list`,
+- [x] `cmd/scimage-admin`: `tenant create`, `token issue`, `token list`,
       `token revoke`. A CLI keeps the privileged surface off the network
-- [ ] Every store query scoped by `tenant_id`, with cross-tenant isolation
+- [x] Every store query scoped by `tenant_id`, with cross-tenant isolation
       covered by tests. Per-tenant scoping also makes test isolation
       structural, retiring `-p 1`
 
-### Phase 11 — Groups
+**Addendum: enterprise governance gaps found after shipping.** Reviewing
+Phase 10 against what an enterprise operator would actually need surfaced
+three gaps the checklist above didn't ask for:
+- [x] `tenants.name` had no uniqueness constraint; two customers could
+      silently share a display name. Fixed with a case-insensitive unique
+      index, the same reasoning `lower(user_name)` already uses
+- [x] `token issue`'s `created_by` was always the hardcoded string
+      `"scimage-admin"`, and `tenant create` had no `created_by` at all.
+      Both now default to `$USER`/`$USERNAME`, overridable with
+      `-created-by`, so provenance is a real operator, not a constant
+- [x] Creating a tenant, issuing a token and revoking one weren't
+      themselves audited, only the SCIM API mutations were. A new
+      `admin_audit_log` table, written in the same transaction as each
+      action (identical discipline to `audit_log`), closes that; surfaced
+      via `scimage-admin audit list [-tenant <id>]`
+
+### Phase 11: Groups
 - [ ] `/Groups` resource: create, fetch, list, replace, delete
 - [ ] Membership, including `PATCH` on members
 - [ ] Group tests against the real store
 
-### Phase 12 — SAGE: SCIM Audit & Governance Engine
+### Phase 12: SCIMTrace AI
 This tool reads the audit log and produces a plain-English summary for a human
 reviewer. It surfaces signal, while every authorization and provisioning
-decision stays in deterministic code — AI purely advisory, which is the design
-choice worth explaining in an interview. The name reflects that: a sage
-advises, the code decides.
-- [ ] CLI (`cmd/sage`) that reads the `audit_log` table
+decision stays in deterministic code, AI purely advisory, which is the design
+choice worth explaining in an interview. The name reflects that: it traces
+and reports on activity, the code decides.
+- [ ] CLI (`cmd/scimtrace`) that reads the `audit_log` table
 - [ ] Calls an LLM (Claude API) with recent entries to flag patterns
       worth a look: bulk deactivations in a short window, off-hours
       changes, a token spiking in call volume
@@ -270,7 +286,7 @@ advises, the code decides.
       minute
 - [ ] README section explaining the advisory-only design
 
-### Phase 13 — Release engineering
+### Phase 13: Release engineering
 - [x] README: setup, endpoint table, security practices, architecture diagram
 - [x] `make` targets: `make up`, `make migrate`, `make test`, `make run`
 - [x] Structured logging: JSON with RFC 3339 timestamps, to stdout and a
@@ -294,10 +310,10 @@ Phases 3-5 (store + endpoints + auth): two evenings.
 Phase 6 (tests): landed alongside the phases above.
 Phase 7 (security hardening): one evening.
 Phase 8 (IdP interoperability): a few evenings, paced by a live tenant.
-Phase 9 (change delivery): several evenings — webhook delivery earns its
+Phase 9 (change delivery): several evenings; webhook delivery earns its
 own design pass.
 Phase 10 (multi-tenancy + tokens): a week, touching schema, store, router
 and CLI.
 Phase 11 (Groups): a week.
-Phase 12 (SAGE): one evening.
+Phase 12 (SCIMTrace AI): one evening.
 Phase 13 (release engineering): spread across the phases above.

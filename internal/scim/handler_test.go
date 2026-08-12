@@ -22,13 +22,7 @@ import (
 	"github.com/meghamahna/SCIMage/internal/store"
 )
 
-const (
-	nonexistentID = "00000000-0000-4000-8000-000000000000"
-
-	// Long enough to satisfy MinTokenLen. Not a credential — the real one comes
-	// from SCIM_TOKEN at runtime.
-	testToken = "handler-test-token-0123456789"
-)
+const nonexistentID = "00000000-0000-4000-8000-000000000000"
 
 var (
 	handler http.Handler
@@ -38,6 +32,13 @@ var (
 	// A second handle purely so tests can hard-delete; the store only soft-deletes.
 	cleanupPool *pgxpool.Pool
 	skipReason  string
+
+	// testTenantID/testToken authenticate every request the suite sends. One
+	// tenant for the whole file — the point of the isolation tests elsewhere is
+	// that two tenants can't see each other's data, not that every test needs
+	// its own.
+	testTenantID string
+	testToken    string
 )
 
 func TestMain(m *testing.M) {
@@ -62,15 +63,43 @@ func TestMain(m *testing.M) {
 	// own rate limit. The limiter is covered directly in ratelimit_test.go.
 	os.Setenv("SCIM_RATE_LIMIT", "0")
 
-	handler = NewHandler(testStore, testToken).Routes()
+	// A fixed literal name would collide with itself on a second run whose
+	// process never reached the cleanup below (killed, crashed, or any
+	// early os.Exit above) — tenant names are unique now, so the leftover
+	// row would block every run after that one, permanently. Unique per
+	// run is the same reasoning newTestTenant uses in internal/store.
+	tenantName := fmt.Sprintf("handler-test-tenant-%d", time.Now().UnixNano())
+	tenant, err := testStore.CreateTenant(ctx, tenantName, "test-suite")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "create test tenant: %v\n", err)
+		os.Exit(1)
+	}
+	testTenantID = tenant.ID
+
+	plaintext, _, err := testStore.IssueToken(ctx, testTenantID, "handler test", "test-suite", nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "issue test token: %v\n", err)
+		os.Exit(1)
+	}
+	testToken = plaintext
+
+	handler = NewHandler(testStore, testStore).Routes()
 
 	code := m.Run()
 
-	// Audit entries outlive the users they describe, by design, so the suite
-	// removes the ones it wrote rather than leaving them in a shared database.
-	if _, err := cleanupPool.Exec(ctx,
-		`DELETE FROM audit_log WHERE actor_token = $1`, NewHandler(nil, testToken).actor); err != nil {
-		fmt.Fprintf(os.Stderr, "cleanup audit_log: %v\n", err)
+	// The suite's rows outlive the users they describe, by design (audit_log,
+	// webhook_deliveries), so cleanup removes everything under the test tenant
+	// rather than leaving it in a shared database.
+	for _, q := range []string{
+		`DELETE FROM webhook_deliveries WHERE tenant_id = $1`,
+		`DELETE FROM audit_log WHERE tenant_id = $1`,
+		`DELETE FROM scim_tokens WHERE tenant_id = $1`,
+		`DELETE FROM users WHERE tenant_id = $1`,
+		`DELETE FROM tenants WHERE id = $1`,
+	} {
+		if _, err := cleanupPool.Exec(ctx, q, testTenantID); err != nil {
+			fmt.Fprintf(os.Stderr, "cleanup tenant %s: %v\n", testTenantID, err)
+		}
 	}
 
 	testStore.Close()
@@ -109,7 +138,7 @@ func do(t *testing.T, method, target string, body any) *httptest.ResponseRecorde
 		r = bytes.NewReader(encoded)
 	}
 
-	req := httptest.NewRequest(method, target, r)
+	req := httptest.NewRequest(method, "/scim/v2/"+testTenantID+target, r)
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("Authorization", "Bearer "+testToken)
 
@@ -144,7 +173,7 @@ func firstUserIDs(t *testing.T, n int) []string {
 	t.Helper()
 
 	rows, err := cleanupPool.Query(context.Background(),
-		`SELECT id FROM users ORDER BY created_at, id LIMIT $1`, n)
+		`SELECT id FROM users WHERE tenant_id = $1 ORDER BY created_at, id LIMIT $2`, testTenantID, n)
 	if err != nil {
 		t.Fatalf("read expected user order: %v", err)
 	}

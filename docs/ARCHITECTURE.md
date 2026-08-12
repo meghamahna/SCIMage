@@ -7,34 +7,85 @@ does; this covers the mechanics behind it.
 
 ```text
 Identity provider
-   ↓  SCIM request, Bearer token
-Auth middleware      constant-time token check, applied by Routes() itself
+   ↓  SCIM request to /scim/v2/{tenantID}/..., Bearer token
+Auth middleware      looks up the token by key id, checks revoked/expired,
+                     constant-time compares the secret, confirms the token's
+                     own tenant matches {tenantID}, applied by Routes() itself
    ↓
-Rate limiter         token bucket, keyed per caller
+Rate limiter         token bucket, keyed per issued token
    ↓
 Router               net/http method patterns
    ↓
-Handler              validates the payload, maps it to a row
+Handler              validates the payload, maps it to a row, scoped to {tenantID}
    ↓
-Store                raw SQL, one transaction per mutation
+Store                raw SQL, one transaction per mutation, every query scoped by tenant_id
 ```
 
 The path is deliberately plain. Standard library `net/http` and raw SQL keep the
 behaviour visible in the code, and Postgres is the single source of truth.
 
 Authentication is applied by `Routes()` rather than per handler, so it covers the
-whole surface structurally — including paths that resolve to nothing, which are
+whole surface structurally, including paths that resolve to nothing, which are
 rejected before routing so responses stay uniform for an unauthenticated caller.
+It reads `{tenantID}` straight out of the URL path rather than through the
+router's own path-value matching: `requireToken` wraps the mux and runs before
+the mux has matched anything, which is the only point `net/http`'s own
+`r.PathValue` gets populated.
 
 ## Storage model
 
-Three tables, described in `/migrations`:
+Six tables, described in `/migrations`:
 
 | Table | Holds |
 | --- | --- |
-| `users` | The provisioned directory. Deactivation is a soft delete, so history keeps a subject |
-| `audit_log` | One row per mutating call: actor, action, target, timestamp, before/after |
-| `webhook_deliveries` | The outbound queue: payload, status, attempts, lease |
+| `tenants` | One row per customer organization. `id` is an app-generated, prefixed opaque string (`tenant_...`), never a renamable slug: it's pasted into the customer's IdP once and has to stay stable. `name` is unique, case-insensitively, so two customers can't silently share a display name |
+| `scim_tokens` | Issued credentials: `sha256` of the secret half, never the secret; label, timestamps, `revoked_at`/`expires_at` |
+| `users` | The provisioned directory, scoped by `tenant_id`. Deactivation is a soft delete, so history keeps a subject |
+| `audit_log` | One row per mutating SCIM call: tenant, actor, action, target, timestamp, before/after |
+| `admin_audit_log` | One row per privileged CLI action: who created a tenant, issued or revoked a token, and when |
+| `webhook_deliveries` | The outbound queue: tenant, payload, status, attempts, lease |
+
+## Multi-tenancy
+
+One SCIMage process and one Postgres database serve every tenant: the shared
+pool model, not one deployment per customer. A tenant is a row plus a foreign
+key on everything else; isolation is enforced by scoping every query on
+`tenant_id`, not by separate infrastructure.
+
+**Addressing.** `https://<host>/scim/v2/{tenantID}/Users`: one host, one
+certificate. That URL, plus an issued token, is what a customer pastes into
+Okta's *Base URL* or Entra's *Tenant URL*.
+
+**Tokens.** `scimage_<keyID>_<secret>`. `keyID` is the indexable lookup key
+(not secret, the same role a username plays), and `secret` is 32 bytes from
+`crypto/rand`. Only `sha256(secret)` is stored. Verification order: parse the
+key id, look up the row, check `revoked_at`/`expires_at`, constant-time
+compare the secret's hash, then confirm the row's `tenant_id` matches the
+`{tenantID}` in the path. Every failure (unknown key, revoked, expired, wrong
+secret, right secret but wrong tenant) answers the same generic 401, so a
+caller can't learn which check failed or probe which tenants exist.
+
+**Isolation holds even against a known id.** `GetUser`/`UpdateUser`/
+`DeactivateUser` are scoped by `tenant_id` *and* `id` in the same `WHERE`
+clause, so a token from tenant A naming tenant B's real user id gets the same
+`ErrNotFound` as a made-up one: the isolation doesn't depend on a caller
+never guessing a valid UUID.
+
+**Issuing is a CLI, not an endpoint.** `cmd/scimage-admin` creates tenants and
+issues/lists/revokes tokens by talking to Postgres directly. Keeping that
+surface off the network means there's no HTTP endpoint that can create a
+credential, which is a smaller attack surface than an admin API would be.
+
+**Privileged actions are audited too, not just SCIM API mutations.**
+Creating a tenant, issuing a token and revoking a token each write an
+`admin_audit_log` entry (actor, action, target, timestamp) in the same
+transaction as the change, the identical discipline `audit_log` already
+applies to user mutations. `actor` defaults to `$USER`/`$USERNAME` and can be
+overridden with `-created-by`, so the trail names a real operator rather than
+always reading `scimage-admin`. A revoke that turns out to be a no-op (the
+token was already dead) writes nothing, so a retried command doesn't pad the
+trail with duplicate entries. `scimage-admin audit list [-tenant <id>]`
+surfaces it.
 
 **A mutation writes its user row and its audit entry in one transaction**, plus
 its outbound event when change delivery is configured. They commit together, so a
@@ -49,7 +100,7 @@ statement as the `UPDATE`, since `OLD` in `RETURNING` arrived in Postgres 18 and
 this runs on 16. Both halves see one snapshot, so there is no read-then-write gap
 where a concurrent update could slip between them.
 
-Refusals are recorded too — a duplicate `userName`, a missing user — which makes
+Refusals are recorded too (a duplicate `userName`, a missing user), which makes
 a burst of denials visible to a reviewer.
 
 ## The UserStore interface
@@ -58,13 +109,17 @@ The handler depends on `scim.UserStore` rather than on Postgres directly. The
 bundled store is the default implementation, and an application with its own user
 table can supply another.
 
-An implementation carries two obligations the compiler leaves open:
+An implementation carries three obligations the compiler leaves open:
 
 1. **Write the audit entry in the change's own transaction.** This is why
    `AuditRecord` is a parameter on every mutating method rather than something
    the handler records afterwards.
 2. **Return a non-nil result alongside a nil error.** The handler dereferences
    what it gets back directly.
+3. **Scope every method to the `tenantID` argument.** The handler passes the
+   tenant resolved from the caller's own token, not from anything the request
+   body names. An implementation that ignored it would reopen the cross-tenant
+   isolation the bundled store enforces structurally.
 
 The interface currently lives in `internal/scim`, so supplying an implementation
 means forking rather than importing. Moving the domain types to an importable
@@ -97,7 +152,7 @@ WHERE id IN (
     LIMIT $1
     FOR UPDATE SKIP LOCKED
 )
-RETURNING id, event_type, target_id, payload, attempts
+RETURNING id, tenant_id, event_type, target_id, payload, attempts
 ```
 
 `SKIP LOCKED` makes concurrent dispatchers take disjoint sets. The lease is
@@ -110,7 +165,7 @@ Two properties worth keeping in mind when changing this:
 - **The attempt is counted at claim time.** A delivery that kills its dispatcher
   mid-flight still spends an attempt, so it reaches the dead-letter queue rather
   than looping forever.
-- **The lease spans the whole batch** — `Poll + Batch × Timeout`. A batch is
+- **The lease spans the whole batch**: `Poll + Batch × Timeout`. A batch is
   delivered sequentially, so a lease sized for one send would let the rows queued
   behind the current attempt come due mid-batch. They would be delivered twice,
   and each row would spend its retry budget at double rate.
@@ -127,8 +182,8 @@ jitter so a batch that failed together returns spread out.
 | --- | --- |
 | `2xx` | Delivered |
 | `5xx`, `408`, `429`, transport error | Retry until attempts run out |
-| Other `4xx` | Dead-letter immediately — the receiver has given its verdict |
-| `3xx` | Dead-letter — redirects stay unfollowed, so a signed payload of user attributes remains on its intended host |
+| Other `4xx` | Dead-letter immediately: the receiver has given its verdict |
+| `3xx` | Dead-letter: redirects stay unfollowed, so a signed payload of user attributes remains on its intended host |
 
 A parked row keeps its payload and last error. Replay is moving it back to
 `pending` with a fresh budget:
@@ -139,7 +194,7 @@ SET status = 'pending', attempts = 0, next_attempt_at = now(), last_error = NULL
 WHERE id = $1;
 ```
 
-`attempts = 0` matters — leaving the old count would let the row retry once and
+`attempts = 0` matters: leaving the old count would let the row retry once and
 park again immediately. A `webhook replay` subcommand arrives with
 `cmd/scimage-admin`.
 
@@ -148,7 +203,7 @@ and `dead_letter` are terminal: a dispatcher whose lease expired mid-send can
 report late without overwriting an outcome another dispatcher already recorded.
 
 `last_error` holds whatever the receiver sent back, so it is bounded in runes and
-stripped of NUL and invalid UTF-8 before it reaches the column — a malformed
+stripped of NUL and invalid UTF-8 before it reaches the column, so a malformed
 error body stays writable, and the delivery keeps moving.
 
 ### Signing
@@ -183,11 +238,11 @@ Only the body is arbitrary, and nothing follows it.
 
 Each field is covered because a receiver is told to act on it:
 
-- **Timestamp** — so a receiver can reject stale requests, knowing a capture
+- **Timestamp**: lets a receiver reject stale requests, knowing a capture
   cannot be re-stamped without the secret.
-- **Delivery id** — the deduplication key. An unauthenticated key would let a
+- **Delivery id**: the deduplication key. An unauthenticated key would let a
   capture replay inside the freshness window under a fresh id.
-- **Event type** — receivers may route on the header without parsing the body.
+- **Event type**: receivers may route on the header without parsing the body.
 
 `webhook.Verify` is the receiving half, exported for Go consumers. It compares
 with `hmac.Equal`, which is constant-time.
@@ -214,7 +269,7 @@ same situation reports `user.replaced`, since it changed something other than
 
 Both images travel with the event, so a receiver reconciling its own copy sees
 the transition itself. Delivery is at-least-once and retries are independent, so
-events for one user can arrive in any order — `occurredAt` carries the database
+events for one user can arrive in any order. `occurredAt` carries the database
 clock, and the intended pattern is to apply idempotently and prefer the newest
 `occurredAt` per user.
 
@@ -236,5 +291,5 @@ a change and its record share a commit.
 
 `SIGINT`/`SIGTERM` drains the HTTP listener first, then stops the dispatcher, so
 a request still in flight can queue its event. Anything left queued, or abandoned
-mid-send, keeps its row and goes out when the server returns — its lease simply
+mid-send, keeps its row and goes out when the server returns: its lease simply
 expires. That is what the outbox is for: shutdown never waits on a receiver.

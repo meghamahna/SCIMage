@@ -24,12 +24,13 @@ func newEventStore(t *testing.T) *Store {
 	return s
 }
 
-// deliveriesFor reads the queue for one user. Tests share a database, so they
-// assert on their own target rather than on the table's contents.
+// deliveriesFor reads the queue for one user. Each test's rows live under its
+// own tenant and its own target, so asserting on one target id is enough —
+// nothing else could have queued against it.
 func deliveriesFor(t *testing.T, s *Store, targetID string) []Delivery {
 	t.Helper()
 
-	const q = `SELECT id, event_type, target_id, payload, attempts
+	const q = `SELECT id, tenant_id, event_type, target_id, payload, attempts
 	           FROM webhook_deliveries WHERE target_id = $1 ORDER BY id`
 
 	rows, err := s.pool.Query(context.Background(), q, targetID)
@@ -57,17 +58,6 @@ func deliveryStatus(t *testing.T, s *Store, id int64) (status string, attempts i
 	return status, attempts, nextAt, lastError
 }
 
-// The queue is never drained by the store itself, so a test cleans up the rows
-// it queued the same way it cleans up its users.
-func cleanupDeliveries(t *testing.T, s *Store, targetID string) {
-	t.Cleanup(func() {
-		if _, err := s.pool.Exec(context.Background(),
-			`DELETE FROM webhook_deliveries WHERE target_id = $1`, targetID); err != nil {
-			t.Errorf("cleanup: delete deliveries for %q: %v", targetID, err)
-		}
-	})
-}
-
 func decodeEvent(t *testing.T, d Delivery) ChangeEvent {
 	t.Helper()
 
@@ -81,17 +71,17 @@ func decodeEvent(t *testing.T, d Delivery) ChangeEvent {
 func TestMutationsQueueTheirChangeEvent(t *testing.T) {
 	s := newEventStore(t)
 	ctx := context.Background()
+	tenantID := newTestTenant(t, s)
 
-	created := createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
-	cleanupDeliveries(t, s, created.ID)
+	created := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
 
 	replaced := *created
 	replaced.UserName = uniqueUserName()
-	if _, err := s.UpdateUser(ctx, created.ID, &replaced, testAudit); err != nil {
+	if _, err := s.UpdateUser(ctx, tenantID, created.ID, &replaced, testAudit(tenantID)); err != nil {
 		t.Fatalf("UpdateUser: %v", err)
 	}
 
-	if _, err := s.DeactivateUser(ctx, created.ID, testAudit); err != nil {
+	if _, err := s.DeactivateUser(ctx, tenantID, created.ID, testAudit(tenantID)); err != nil {
 		t.Fatalf("DeactivateUser: %v", err)
 	}
 
@@ -104,6 +94,9 @@ func TestMutationsQueueTheirChangeEvent(t *testing.T) {
 	for i, want := range wantTypes {
 		if got[i].EventType != want {
 			t.Errorf("event %d = %q, want %q", i, got[i].EventType, want)
+		}
+		if got[i].TenantID != tenantID {
+			t.Errorf("event %d tenant = %q, want %q", i, got[i].TenantID, tenantID)
 		}
 		if got[i].Attempts != 0 {
 			t.Errorf("event %d queued with %d attempts, want 0", i, got[i].Attempts)
@@ -149,13 +142,13 @@ func TestDeprovisioningConvergesOnOneEventType(t *testing.T) {
 
 	t.Run("a replace that clears active", func(t *testing.T) {
 		s := newEventStore(t)
+		tenantID := newTestTenant(t, s)
 
-		created := createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
-		cleanupDeliveries(t, s, created.ID)
+		created := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
 
 		deactivating := *created
 		deactivating.Active = false
-		if _, err := s.UpdateUser(ctx, created.ID, &deactivating, testAudit); err != nil {
+		if _, err := s.UpdateUser(ctx, tenantID, created.ID, &deactivating, testAudit(tenantID)); err != nil {
 			t.Fatalf("UpdateUser: %v", err)
 		}
 
@@ -170,11 +163,11 @@ func TestDeprovisioningConvergesOnOneEventType(t *testing.T) {
 
 	t.Run("a delete", func(t *testing.T) {
 		s := newEventStore(t)
+		tenantID := newTestTenant(t, s)
 
-		created := createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
-		cleanupDeliveries(t, s, created.ID)
+		created := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
 
-		if _, err := s.DeactivateUser(ctx, created.ID, testAudit); err != nil {
+		if _, err := s.DeactivateUser(ctx, tenantID, created.ID, testAudit(tenantID)); err != nil {
 			t.Fatalf("DeactivateUser: %v", err)
 		}
 
@@ -191,13 +184,13 @@ func TestDeprovisioningConvergesOnOneEventType(t *testing.T) {
 	// classification can't just be "any update to an active user".
 	t.Run("a replace that leaves active alone", func(t *testing.T) {
 		s := newEventStore(t)
+		tenantID := newTestTenant(t, s)
 
-		created := createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
-		cleanupDeliveries(t, s, created.ID)
+		created := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
 
 		renamed := *created
 		renamed.UserName = uniqueUserName()
-		if _, err := s.UpdateUser(ctx, created.ID, &renamed, testAudit); err != nil {
+		if _, err := s.UpdateUser(ctx, tenantID, created.ID, &renamed, testAudit(tenantID)); err != nil {
 			t.Fatalf("UpdateUser: %v", err)
 		}
 
@@ -213,13 +206,13 @@ func TestDeprovisioningConvergesOnOneEventType(t *testing.T) {
 	// Reactivation is a replace, distinguishable from the after image.
 	t.Run("a replace that restores active", func(t *testing.T) {
 		s := newEventStore(t)
+		tenantID := newTestTenant(t, s)
 
-		created := createUser(t, s, &User{UserName: uniqueUserName(), Active: false})
-		cleanupDeliveries(t, s, created.ID)
+		created := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: false})
 
 		restored := *created
 		restored.Active = true
-		if _, err := s.UpdateUser(ctx, created.ID, &restored, testAudit); err != nil {
+		if _, err := s.UpdateUser(ctx, tenantID, created.ID, &restored, testAudit(tenantID)); err != nil {
 			t.Fatalf("UpdateUser: %v", err)
 		}
 
@@ -239,9 +232,9 @@ func TestDeprovisioningConvergesOnOneEventType(t *testing.T) {
 // The queue is off unless a dispatcher is going to drain it.
 func TestNoChangeEventsWithoutTheOption(t *testing.T) {
 	s := newTestStore(t)
+	tenantID := newTestTenant(t, s)
 
-	created := createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
-	cleanupDeliveries(t, s, created.ID)
+	created := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
 
 	if got := deliveriesFor(t, s, created.ID); len(got) != 0 {
 		t.Errorf("queued %d events with the outbox off, want 0", len(got))
@@ -254,17 +247,15 @@ func TestNoChangeEventsWithoutTheOption(t *testing.T) {
 func TestARefusedMutationQueuesNothing(t *testing.T) {
 	s := newEventStore(t)
 	ctx := context.Background()
+	tenantID := newTestTenant(t, s)
 
-	taken := createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
-	cleanupDeliveries(t, s, taken.ID)
-
-	other := createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
-	cleanupDeliveries(t, s, other.ID)
+	taken := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
+	other := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
 
 	// Renaming other onto taken's userName fails on the unique index.
 	clash := *other
 	clash.UserName = taken.UserName
-	if _, err := s.UpdateUser(ctx, other.ID, &clash, testAudit); !errors.Is(err, ErrDuplicateUserName) {
+	if _, err := s.UpdateUser(ctx, tenantID, other.ID, &clash, testAudit(tenantID)); !errors.Is(err, ErrDuplicateUserName) {
 		t.Fatalf("UpdateUser onto a taken userName = %v, want ErrDuplicateUserName", err)
 	}
 
@@ -278,9 +269,9 @@ func TestARefusedMutationQueuesNothing(t *testing.T) {
 func TestClaimLeasesADeliveryFromOtherDispatchers(t *testing.T) {
 	s := newEventStore(t)
 	ctx := context.Background()
+	tenantID := newTestTenant(t, s)
 
-	created := createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
-	cleanupDeliveries(t, s, created.ID)
+	created := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
 
 	queued := deliveriesFor(t, s, created.ID)
 	if len(queued) != 1 {
@@ -332,9 +323,9 @@ func claims(t *testing.T, s *Store, ctx context.Context, id int64, lease time.Du
 func TestDeliveryOutcomesArePersisted(t *testing.T) {
 	s := newEventStore(t)
 	ctx := context.Background()
+	tenantID := newTestTenant(t, s)
 
-	created := createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
-	cleanupDeliveries(t, s, created.ID)
+	created := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
 
 	id := deliveriesFor(t, s, created.ID)[0].ID
 
@@ -379,6 +370,7 @@ func TestDeliveryOutcomesArePersisted(t *testing.T) {
 func TestATerminalDeliveryCannotBeRescheduled(t *testing.T) {
 	s := newEventStore(t)
 	ctx := context.Background()
+	tenantID := newTestTenant(t, s)
 
 	for _, tc := range []struct {
 		name     string
@@ -388,8 +380,7 @@ func TestATerminalDeliveryCannotBeRescheduled(t *testing.T) {
 		{"dead-lettered", func(id int64) error { return s.DeadLetterDelivery(ctx, id, "receiver returned 400") }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			created := createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
-			cleanupDeliveries(t, s, created.ID)
+			created := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
 
 			id := deliveriesFor(t, s, created.ID)[0].ID
 			if err := tc.terminal(id); err != nil {
@@ -424,9 +415,9 @@ func TestATerminalDeliveryCannotBeRescheduled(t *testing.T) {
 func TestDeadLetteredDeliveriesStayReadable(t *testing.T) {
 	s := newEventStore(t)
 	ctx := context.Background()
+	tenantID := newTestTenant(t, s)
 
-	created := createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
-	cleanupDeliveries(t, s, created.ID)
+	created := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
 
 	queued := deliveriesFor(t, s, created.ID)[0]
 
@@ -489,9 +480,9 @@ func TestUpdatingAnUnknownDeliveryIsAnError(t *testing.T) {
 func TestAHostileErrorBodyStillRecords(t *testing.T) {
 	s := newEventStore(t)
 	ctx := context.Background()
+	tenantID := newTestTenant(t, s)
 
-	created := createUser(t, s, &User{UserName: uniqueUserName(), Active: true})
-	cleanupDeliveries(t, s, created.ID)
+	created := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
 
 	id := deliveriesFor(t, s, created.ID)[0].ID
 

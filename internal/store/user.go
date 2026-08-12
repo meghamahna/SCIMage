@@ -32,7 +32,8 @@ type User struct {
 const userColumns = `id, user_name, external_id, given_name, family_name, email, active, created_at, updated_at`
 
 // UserFilter narrows a listing to the equality matches SCIM clients use to
-// reconcile. The zero value lists everything.
+// reconcile. The zero value (besides tenantID) lists everything for that
+// tenant.
 //
 // userName matches case-insensitively via the same lower(user_name) index that
 // enforces uniqueness, so a lookup agrees with what a create would allow.
@@ -41,13 +42,12 @@ type UserFilter struct {
 	ExternalID string
 }
 
-// clause builds the WHERE fragment and its arguments. Values are always bound,
-// never interpolated.
-func (f UserFilter) clause() (string, []any) {
-	var (
-		conds []string
-		args  []any
-	)
+// clause builds the WHERE fragment and its arguments, always anchored on
+// tenant_id: every other condition narrows within one tenant, never across.
+// Values are always bound, never interpolated.
+func (f UserFilter) clause(tenantID string) (string, []any) {
+	args := []any{tenantID}
+	conds := []string{"tenant_id = $1"}
 
 	if f.UserName != "" {
 		args = append(args, f.UserName)
@@ -58,9 +58,6 @@ func (f UserFilter) clause() (string, []any) {
 		conds = append(conds, "external_id = $"+strconv.Itoa(len(args)))
 	}
 
-	if len(conds) == 0 {
-		return "", nil
-	}
 	return " WHERE " + strings.Join(conds, " AND "), args
 }
 
@@ -93,9 +90,9 @@ func qualify(alias string) string {
 // RFC 7644 §3.4.2.4 allows a provider maximum.
 const MaxPageSize = 200
 
-// Named in migrations/000001_create_users_table.up.sql. Matching on it keeps a
+// Named in migrations/000005_multi_tenancy.up.sql. Matching on it keeps a
 // unique index added later from being misreported as a userName clash.
-const uniqueUserNameIndex = "idx_users_user_name_lower"
+const uniqueUserNameIndex = "idx_users_tenant_username"
 
 // pgx.Rows satisfies pgx.Row, so single- and multi-row queries share this.
 func scanUser(row pgx.Row) (*User, error) {
@@ -133,10 +130,11 @@ func scanChange(row pgx.Row) (*Change, error) {
 
 // CreateUser returns the stored row, so the caller gets the server-assigned id
 // and timestamps. The clash is case-insensitive: RFC 7643 makes userName
-// caseExact=false, so "bjensen" and "BJensen" are the same identity.
-func (s *Store) CreateUser(ctx context.Context, u *User, rec AuditRecord) (*User, error) {
-	const q = `INSERT INTO users (user_name, external_id, given_name, family_name, email, active)
-	           VALUES ($1, $2, $3, $4, $5, $6)
+// caseExact=false, so "bjensen" and "BJensen" are the same identity — within
+// one tenant; two tenants can each provision their own "bjensen".
+func (s *Store) CreateUser(ctx context.Context, tenantID string, u *User, rec AuditRecord) (*User, error) {
+	const q = `INSERT INTO users (tenant_id, user_name, external_id, given_name, family_name, email, active)
+	           VALUES ($1, $2, $3, $4, $5, $6, $7)
 	           RETURNING ` + userColumns
 
 	tx, err := s.pool.Begin(ctx)
@@ -146,7 +144,7 @@ func (s *Store) CreateUser(ctx context.Context, u *User, rec AuditRecord) (*User
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
 
 	created, err := scanUser(tx.QueryRow(ctx, q,
-		u.UserName, u.ExternalID, u.GivenName, u.FamilyName, u.Email, u.Active))
+		tenantID, u.UserName, u.ExternalID, u.GivenName, u.FamilyName, u.Email, u.Active))
 	if err != nil {
 		if isUniqueViolation(err) {
 			s.auditRefusal(ctx, rec, ActionCreate, "", "duplicate userName")
@@ -159,7 +157,7 @@ func (s *Store) CreateUser(ctx context.Context, u *User, rec AuditRecord) (*User
 		return nil, fmt.Errorf("create user %q: %w", u.UserName, err)
 	}
 
-	if err := s.enqueueChange(ctx, tx, EventUserCreated, created.ID, nil, created); err != nil {
+	if err := s.enqueueChange(ctx, tx, tenantID, EventUserCreated, created.ID, nil, created); err != nil {
 		return nil, fmt.Errorf("create user %q: %w", u.UserName, err)
 	}
 
@@ -169,10 +167,13 @@ func (s *Store) CreateUser(ctx context.Context, u *User, rec AuditRecord) (*User
 	return created, nil
 }
 
-func (s *Store) GetUser(ctx context.Context, id string) (*User, error) {
-	const q = `SELECT ` + userColumns + ` FROM users WHERE id = $1`
+// GetUser is scoped by tenant as well as id, so a token from one tenant
+// naming another tenant's real user id gets the same 404 as a made-up one —
+// isolation holds even when the caller already knows a valid UUID.
+func (s *Store) GetUser(ctx context.Context, tenantID, id string) (*User, error) {
+	const q = `SELECT ` + userColumns + ` FROM users WHERE tenant_id = $1 AND id = $2`
 
-	u, err := scanUser(s.pool.QueryRow(ctx, q, id))
+	u, err := scanUser(s.pool.QueryRow(ctx, q, tenantID, id))
 	if err != nil {
 		if isMissingRow(err) {
 			return nil, fmt.Errorf("get user %q: %w", id, ErrNotFound)
@@ -192,13 +193,13 @@ func (s *Store) GetUser(ctx context.Context, id string) (*User, error) {
 // created_at ties are broken by id, since a bulk insert shares one now() and
 // paging would otherwise skip or repeat rows. Inactive users are included:
 // DeactivateUser keeps the row precisely so it stays listed.
-func (s *Store) ListUsers(ctx context.Context, limit, offset int, f UserFilter) ([]User, int, error) {
+func (s *Store) ListUsers(ctx context.Context, tenantID string, limit, offset int, f UserFilter) ([]User, int, error) {
 	if limit < 0 || offset < 0 {
 		return nil, 0, fmt.Errorf("list users: limit and offset must not be negative (got %d, %d)", limit, offset)
 	}
 	limit = min(limit, MaxPageSize)
 
-	where, args := f.clause()
+	where, args := f.clause(tenantID)
 
 	var total int
 	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM users`+where, args...).Scan(&total); err != nil {
@@ -234,19 +235,19 @@ func (s *Store) ListUsers(ctx context.Context, limit, offset int, f UserFilter) 
 // UpdateUser is the full replace behind PUT /Users/{id}. id and created_at are
 // left alone; updated_at is set here rather than by a trigger. It returns both
 // images so the audit log records what actually changed.
-func (s *Store) UpdateUser(ctx context.Context, id string, u *User, rec AuditRecord) (*Change, error) {
+func (s *Store) UpdateUser(ctx context.Context, tenantID, id string, u *User, rec AuditRecord) (*Change, error) {
 	q := `WITH b AS (
-	          SELECT ` + userColumns + ` FROM users WHERE id = $1
+	          SELECT ` + userColumns + ` FROM users WHERE tenant_id = $1 AND id = $2
 	      ), a AS (
 	          UPDATE users
-	          SET user_name = $2,
-	              external_id = $3,
-	              given_name = $4,
-	              family_name = $5,
-	              email = $6,
-	              active = $7,
+	          SET user_name = $3,
+	              external_id = $4,
+	              given_name = $5,
+	              family_name = $6,
+	              email = $7,
+	              active = $8,
 	              updated_at = now()
-	          WHERE id = $1
+	          WHERE tenant_id = $1 AND id = $2
 	          RETURNING ` + userColumns + `
 	      )
 	      SELECT ` + beforeColumns + `, ` + afterColumns + ` FROM b, a`
@@ -258,7 +259,7 @@ func (s *Store) UpdateUser(ctx context.Context, id string, u *User, rec AuditRec
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
 
 	change, err := scanChange(tx.QueryRow(ctx, q,
-		id, u.UserName, u.ExternalID, u.GivenName, u.FamilyName, u.Email, u.Active))
+		tenantID, id, u.UserName, u.ExternalID, u.GivenName, u.FamilyName, u.Email, u.Active))
 	if err != nil {
 		switch {
 		case isMissingRow(err):
@@ -276,7 +277,7 @@ func (s *Store) UpdateUser(ctx context.Context, id string, u *User, rec AuditRec
 		return nil, fmt.Errorf("update user %q: %w", id, err)
 	}
 
-	if err := s.enqueueChange(ctx, tx, changeEventType(change.Before, change.After), id, change.Before, change.After); err != nil {
+	if err := s.enqueueChange(ctx, tx, tenantID, changeEventType(change.Before, change.After), id, change.Before, change.After); err != nil {
 		return nil, fmt.Errorf("update user %q: %w", id, err)
 	}
 
@@ -289,12 +290,12 @@ func (s *Store) UpdateUser(ctx context.Context, id string, u *User, rec AuditRec
 // DeactivateUser is the soft delete behind DELETE /Users/{id}: the row stays so
 // audit history keeps pointing at a real user. Returns both images for the
 // audit log, and is idempotent so a retried delete succeeds.
-func (s *Store) DeactivateUser(ctx context.Context, id string, rec AuditRecord) (*Change, error) {
+func (s *Store) DeactivateUser(ctx context.Context, tenantID, id string, rec AuditRecord) (*Change, error) {
 	q := `WITH b AS (
-	          SELECT ` + userColumns + ` FROM users WHERE id = $1
+	          SELECT ` + userColumns + ` FROM users WHERE tenant_id = $1 AND id = $2
 	      ), a AS (
 	          UPDATE users SET active = false, updated_at = now()
-	          WHERE id = $1
+	          WHERE tenant_id = $1 AND id = $2
 	          RETURNING ` + userColumns + `
 	      )
 	      SELECT ` + beforeColumns + `, ` + afterColumns + ` FROM b, a`
@@ -305,7 +306,7 @@ func (s *Store) DeactivateUser(ctx context.Context, id string, rec AuditRecord) 
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
 
-	change, err := scanChange(tx.QueryRow(ctx, q, id))
+	change, err := scanChange(tx.QueryRow(ctx, q, tenantID, id))
 	if err != nil {
 		if isMissingRow(err) {
 			s.auditRefusal(ctx, rec, ActionDeactivate, id, "no such user")
@@ -318,7 +319,7 @@ func (s *Store) DeactivateUser(ctx context.Context, id string, rec AuditRecord) 
 		return nil, fmt.Errorf("deactivate user %q: %w", id, err)
 	}
 
-	if err := s.enqueueChange(ctx, tx, EventUserDeactivated, id, change.Before, change.After); err != nil {
+	if err := s.enqueueChange(ctx, tx, tenantID, EventUserDeactivated, id, change.Before, change.After); err != nil {
 		return nil, fmt.Errorf("deactivate user %q: %w", id, err)
 	}
 
@@ -339,8 +340,15 @@ func isMissingRow(err error) bool {
 }
 
 func isUniqueViolation(err error) bool {
+	return isUniqueViolationOn(err, uniqueUserNameIndex)
+}
+
+// isUniqueViolationOn matches a specific unique index by name, so a 23505 on
+// one constraint isn't misreported as a clash on another (userName vs.
+// tenant name, say).
+func isUniqueViolationOn(err error, constraint string) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) &&
 		pgErr.Code == "23505" &&
-		pgErr.ConstraintName == uniqueUserNameIndex
+		pgErr.ConstraintName == constraint
 }

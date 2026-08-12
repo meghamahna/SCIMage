@@ -26,13 +26,19 @@ const (
 )
 
 // AuditRecord is the part of an entry the store can't know: who is calling.
-// ActorToken is a fingerprint, never the token itself.
+// ActorToken identifies the caller's issued token (its key id, never the
+// secret) and TenantID is that token's resolved tenant — both come from the
+// auth middleware, not from the mutation's own arguments, so the audit trail
+// always names the caller that authenticated even if it ever disagreed with
+// a query's own tenantID parameter.
 type AuditRecord struct {
 	ActorToken string
 	ActorIP    string
+	TenantID   string
 }
 
-// AuditEntry is a row read back out, for review and for SAGE.
+// AuditEntry is a row read back out, for review and for SAGE. Actor.TenantID
+// is populated from the row's own tenant_id column.
 type AuditEntry struct {
 	ID       int64
 	At       time.Time
@@ -53,8 +59,8 @@ type querier interface {
 
 func insertAudit(ctx context.Context, q querier, rec AuditRecord, action, targetID, result, detail string, before, after *User) error {
 	const stmt = `INSERT INTO audit_log
-	              (actor_token, actor_ip, action, result, detail, target_id, before, after)
-	              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+	              (tenant_id, actor_token, actor_ip, action, result, detail, target_id, before, after)
+	              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
 
 	beforeJSON, err := marshalUser(before)
 	if err != nil {
@@ -68,7 +74,7 @@ func insertAudit(ctx context.Context, q querier, rec AuditRecord, action, target
 	// Empty strings become NULL so "no target" and "no detail" read as absent
 	// rather than as an empty value.
 	_, err = q.Exec(ctx, stmt,
-		rec.ActorToken, nullable(rec.ActorIP), action, result,
+		rec.TenantID, rec.ActorToken, nullable(rec.ActorIP), action, result,
 		nullable(detail), nullable(targetID), beforeJSON, afterJSON)
 	if err != nil {
 		return fmt.Errorf("insert audit entry: %w", err)
@@ -86,16 +92,16 @@ func (s *Store) auditRefusal(ctx context.Context, rec AuditRecord, action, targe
 	}
 }
 
-// ListAuditEntries returns the most recent entries, newest first.
-func (s *Store) ListAuditEntries(ctx context.Context, limit int) ([]AuditEntry, error) {
+// ListAuditEntries returns one tenant's most recent entries, newest first.
+func (s *Store) ListAuditEntries(ctx context.Context, tenantID string, limit int) ([]AuditEntry, error) {
 	if limit <= 0 || limit > MaxPageSize {
 		limit = MaxPageSize
 	}
 
-	const q = `SELECT id, at, actor_token, actor_ip, action, result, detail, target_id, before, after
-	           FROM audit_log ORDER BY at DESC, id DESC LIMIT $1`
+	const q = `SELECT id, at, tenant_id, actor_token, actor_ip, action, result, detail, target_id, before, after
+	           FROM audit_log WHERE tenant_id = $2 ORDER BY at DESC, id DESC LIMIT $1`
 
-	rows, err := s.pool.Query(ctx, q, limit)
+	rows, err := s.pool.Query(ctx, q, limit, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("list audit entries: %w", err)
 	}
@@ -123,7 +129,7 @@ func scanAuditEntry(row pgx.Row) (*AuditEntry, error) {
 		beforeJSON, afterJSON []byte
 	)
 
-	if err := row.Scan(&e.ID, &e.At, &e.Actor.ActorToken, &ip, &e.Action,
+	if err := row.Scan(&e.ID, &e.At, &e.Actor.TenantID, &e.Actor.ActorToken, &ip, &e.Action,
 		&e.Result, &detail, &targetID, &beforeJSON, &afterJSON); err != nil {
 		return nil, err
 	}
