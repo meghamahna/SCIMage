@@ -9,7 +9,7 @@ GREEN  := $(ESC)[32m
 YELLOW := $(ESC)[33m
 CYAN   := $(ESC)[36m
 
-.PHONY: help up down stop restart reset ps logs migrate migrate-down migrate-version test run tenant tenant-list token token-list token-revoke attr-register attr-list attr-unregister audit-list fmt hooks-install
+.PHONY: help up down stop restart reset ps logs migrate migrate-down migrate-version test run tenant tenant-list token token-list token-revoke attr-register attr-list attr-unregister audit-list aria fmt hooks-install
 
 # Bare `make` shows the command list instead of silently running the first
 # target, which used to be `up`.
@@ -141,6 +141,14 @@ attr-list: ## List a tenant's registered extra attributes
 # Usage: make attr-unregister TENANT=tenant_xxx NAME=displayName
 attr-unregister: ## Remove a registered attribute from a tenant
 	@scripts/with-env.sh go run ./cmd/scimage-admin attribute unregister -tenant "$(TENANT)" -name "$(NAME)"
+
+##@ Audit review
+
+# Usage: make aria  |  make aria TENANT=tenant_xxx SINCE=7d TZ=America/Vancouver
+# Needs the ARIA_LLM_* variables set (see docs/CONFIGURATION.md#audit-review-aria)
+# only when the window actually has something to summarise.
+aria: ## Run ARIA, the advisory audit reviewer
+	@scripts/with-env.sh go run ./cmd/aria $(if $(TENANT),-tenant "$(TENANT)") $(if $(SINCE),-since "$(SINCE)") $(if $(TZ),-timezone "$(TZ)")
 
 ##@ Setup
 
