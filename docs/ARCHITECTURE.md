@@ -323,6 +323,30 @@ events for one user can arrive in any order. `occurredAt` carries the database
 clock, and the intended pattern is to apply idempotently and prefer the newest
 `occurredAt` per user.
 
+## Audit review (ARIA)
+
+`cmd/aria` (ARIA — Audit Risk Intelligence Advisor) is the one AI-assisted
+component, and it is deliberately a leaf. It reads `audit_log` through
+`store.ListAuditEntriesSince` — a time window, optionally across every tenant —
+and computes the signals in Go: deactivations clustered in a short window,
+changes landing off-hours, per-caller volume, and denial bursts. The thresholds
+live as constants in `internal/aria`, so what counts as notable is auditable
+code, not a model's judgement.
+
+Only then is an LLM involved, and only to narrate: it is handed the
+already-computed facts and returns prose. The endpoint is provider-neutral —
+any OpenAI-compatible chat-completions API, set with `ARIA_LLM_*` — so ARIA
+isn't bound to one vendor and pulls no SDK into `go.mod`. The key is read from
+the environment and never logged, and a window with no findings prints a
+deterministic line and makes no call at all, so a clean review needs no key.
+
+The boundary is the whole point. ARIA's output is printed for a human; it is
+never written back to the store and never consulted by the auth or provisioning
+path. The model advises on activity — the deterministic code decides. Wiring an
+LLM into a provisioning or authorization decision would break that, and the
+`code-reviewer` gate treats it as a critical finding regardless of how small the
+change looks.
+
 ## Logging
 
 Operational logs are structured JSON with RFC 3339 timestamps, written to stdout

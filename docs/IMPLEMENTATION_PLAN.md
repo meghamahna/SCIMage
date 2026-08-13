@@ -1,22 +1,26 @@
 # Implementation Plan: SCIM 2.0 Provisioning Server (Go + Postgres)
 
 ## Goal
+
 Build a working SCIM 2.0 server in Go that implements the `/Users` and
 `/Groups` resources per RFC 7644, backed by Postgres running in Docker, with
 production-grade security practices and an AI-assisted audit layer.
 
 ## Why Postgres
+
 Running real Postgres in Docker demonstrates schema design, migrations,
 and query correctness: the concrete backend skills this project is
 built to show.
 
 ## Stack
+
 - Go (`net/http`, stdlib for the HTTP layer)
 - Postgres 16, run via Docker Compose
 - `pgx` for the driver, raw SQL: real queries make the behaviour visible
 - `golang-migrate` for schema migrations
 
 ## Project structure
+
 ```text
 /cmd/server           entrypoint for the SCIM server
 /cmd/scimage-admin    tenant and token administration (Phase 10)
@@ -35,12 +39,15 @@ README.md
 ## Milestones
 
 ### Phase 1: Infrastructure
+
 - [x] Write `docker-compose.yml` with a `postgres:16` service
 - [x] Set connection config via env vars (`DATABASE_URL`)
 - [x] Confirm `docker compose up` gives a running, reachable Postgres
 
 ### Phase 2: Schema
+
 - [x] Write migration for a `users` table:
+
   ```sql
   CREATE TABLE users (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -54,6 +61,7 @@ README.md
   );
   CREATE UNIQUE INDEX idx_users_user_name_lower ON users (lower(user_name));
   ```
+
   `userName` is `caseExact=false` (RFC 7643 §4.1), so uniqueness goes on
   `lower(user_name)`. That keeps `bjensen` and `BJensen` one identity and
   gives the Phase 4 409 something to enforce. The same index serves
@@ -63,6 +71,7 @@ README.md
       host has no `migrate` binary
 
 ### Phase 3: Store layer
+
 - [x] Implement `internal/store` with plain SQL:
   - `CreateUser`
   - `GetUser(id)`
@@ -78,6 +87,7 @@ a malformed id returns `ErrNotFound` so junk path parameters answer 404.
 length as `itemsPerPage`.
 
 ### Phase 4: HTTP layer (SCIM endpoints)
+
 - [x] `POST /Users`: 201 + Location header on success, 409 on
       duplicate `userName`
 - [x] `GET /Users/{id}`: fetch a single user
@@ -92,6 +102,7 @@ Routing is `net/http`'s method-pattern mux. Responses are
 string. `cmd/server` wires the store to the handler.
 
 ### Phase 5: Auth
+
 - [x] Bearer token middleware, token from env var
 
 `Routes()` applies the middleware itself, so authentication covers the whole
@@ -104,7 +115,9 @@ both sides a fixed width, so the comparison is constant-time with respect to
 the token's length as well as its content.
 
 ### Phase 6: Tests
+
 These landed alongside the code they cover, so each phase shipped verified.
+
 - [x] Spin up Postgres for tests via `docker-compose` (`make test`)
 - [x] Integration tests for create/get/update/deactivate against the
       real store
@@ -121,6 +134,7 @@ These landed alongside the code they cover, so each phase shipped verified.
       a belt-and-suspenders
 
 ### Phase 7: Security hardening
+
 - [x] Validate every incoming SCIM payload against the expected schema
       before it reaches the DB, with proper SCIM error responses (landed
       with Phase 4; extended here to reject a body `id` that contradicts
@@ -148,8 +162,10 @@ the audit trail is what gives the transactional guarantee its meaning; a
 JSON-lines export for log shipping can layer on top.
 
 ### Phase 8: Identity provider interoperability
+
 What an identity provider exercises during setup. Built against a live client
 as well as the spec, which changed the result twice; see the interop notes.
+
 - [x] `externalId` on `users`: the attribute IdPs use as their own key for
       reconciliation. Migration, model, mapper
 - [x] Discovery endpoints: `/ServiceProviderConfig`, `/ResourceTypes`,
@@ -181,8 +197,10 @@ audit trail's subject and matches how identity providers deprovision in
 practice. Both routes converge on the same state on purpose.
 
 ### Phase 9: Change delivery
+
 How provisioned users reach the application's own data, which is what makes
 this deployable by someone other than its author.
+
 - [x] Signed outbound webhooks on every mutation, with retries and a
       dead-letter path. The event is queued in the mutation's own
       transaction, the same discipline as the audit entry, so a committed
@@ -222,6 +240,7 @@ domain types to an importable package turns it into a real extension point when
 someone needs it.
 
 ### Phase 10: Multi-tenancy and issued API tokens
+
 The shape real SCIM service providers ship. It also gives the audit `actor`
 and ARIA's per-caller volume signal something to distinguish.
 
@@ -258,6 +277,7 @@ recognise a leaked token.
 **Addendum: enterprise governance gaps found after shipping.** Reviewing
 Phase 10 against what an enterprise operator would actually need surfaced
 three gaps the checklist above didn't ask for:
+
 - [x] `tenants.name` had no uniqueness constraint; two customers could
       silently share a display name. Fixed with a case-insensitive unique
       index, the same reasoning `lower(user_name)` already uses
@@ -272,6 +292,7 @@ three gaps the checklist above didn't ask for:
       via `scimage-admin audit list [-tenant <id>]`
 
 ### Phase 11: Groups and Extended Attributes
+
 - [x] `/Groups` resource: create, fetch, list, replace, delete
 - [x] Membership, including `PATCH` on members
 - [x] Group tests against the real store
@@ -301,20 +322,31 @@ enterprises adopt SCIM groups at all, and the dispatcher needed no changes to
 carry them.
 
 ### Phase 12: ARIA
+
 This tool reads the audit log and produces a plain-English summary for a human
 reviewer. It surfaces signal, while every authorization and provisioning
 decision stays in deterministic code, AI purely advisory, which is the design
 choice worth explaining in an interview. The name reflects that: it advises
 on activity, the code decides.
-- [ ] CLI (`cmd/aria`) that reads the `audit_log` table
-- [ ] Calls an LLM (Claude API) with recent entries to flag patterns
-      worth a look: bulk deactivations in a short window, off-hours
-      changes, a token spiking in call volume
-- [ ] Outputs a plain-English summary a reviewer can read in under a
-      minute
-- [ ] README section explaining the advisory-only design
+
+- [x] CLI (`cmd/aria`) that reads the `audit_log` table, over a time
+      window (`-since`) and optionally across every tenant. A new
+      `store.ListAuditEntriesSince` backs it
+- [x] Deterministic Go computes the signals — bulk deactivations in a
+      short window, off-hours changes, per-caller volume and denial
+      bursts — and an LLM is called only to narrate those already-computed
+      facts. The endpoint is provider-neutral: any OpenAI-compatible
+      chat-completions API (Claude via its compat endpoint by default,
+      or OpenAI, OpenRouter, a local model), set with `ARIA_LLM_*`. The
+      model never detects a pattern or influences a decision, which keeps
+      the advisory-only guarantee in auditable code rather than the prompt
+- [x] Outputs a plain-English summary a reviewer can read in under a
+      minute. A quiet window prints a deterministic line and makes no LLM
+      call at all
+- [x] README section explaining the advisory-only design
 
 ### Phase 13: Release engineering
+
 - [x] README: setup, endpoint table, security practices, architecture diagram
 - [x] `make` targets: `make up`, `make migrate`, `make test`, `make run`
 - [x] Structured logging: JSON with RFC 3339 timestamps, to stdout and a
@@ -331,4 +363,3 @@ on activity, the code decides.
 - [ ] Published container image and tagged releases via GoReleaser
 - [ ] Okta and Entra setup guides, and a threat model
 - [ ] Tag v1.0.0
-
