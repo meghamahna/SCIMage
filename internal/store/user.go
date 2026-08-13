@@ -28,9 +28,9 @@ type User struct {
 	CreatedAt  time.Time `json:"createdAt"`
 	UpdatedAt  time.Time `json:"updatedAt"`
 
-	// ExtendedAttributes is the raw JSONB blob of registered extra attributes
-	// (Phase 14) — extra top-level SCIM keys a tenant opted into rather than
-	// the server modelling them as typed columns. json.RawMessage so it rides
+	// ExtendedAttributes is the raw JSONB blob of registered extra attributes —
+	// extra top-level SCIM keys a tenant opted into rather than the server
+	// modelling them as typed columns. json.RawMessage so it rides
 	// the audit before/after images as raw JSON rather than base64, and is
 	// omitted entirely when empty (the default for every user).
 	ExtendedAttributes json.RawMessage `json:"extendedAttributes,omitempty"`

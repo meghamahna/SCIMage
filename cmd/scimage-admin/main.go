@@ -213,7 +213,7 @@ func tokenCmd(ctx context.Context, s *store.Store, action string, args []string)
 	}
 }
 
-// attributeCmd manages a tenant's extensible-attribute registry (Phase 14):
+// attributeCmd manages a tenant's extensible-attribute registry:
 // which extra SCIM attribute names the server should capture into
 // users.extended_attributes rather than drop. The server only acts on the
 // registry when SCIM_EXTENDED_ATTRIBUTES=1 is set on it.

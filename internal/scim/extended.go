@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// Extensible attributes (Phase 14): a tenant can register extra top-level SCIM
+// Extensible attributes: a tenant can register extra top-level SCIM
 // attribute names — known ones this server doesn't model as typed columns, or
 // fully custom fields — and have them captured into a JSONB blob and merged
 // back on reads, rather than dropped. The feature is inert unless the

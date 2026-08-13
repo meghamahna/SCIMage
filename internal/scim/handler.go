@@ -31,7 +31,7 @@ type Handler struct {
 	attrs   AttributeStore
 	limiter *limiter
 
-	// extended turns on the extensible-attribute pass-through (Phase 14). Off
+	// extended turns on the extensible-attribute pass-through. Off
 	// by default: with it off the registry is never consulted and a user
 	// serialises exactly as it did before the feature existed.
 	extended bool

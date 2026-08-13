@@ -162,7 +162,7 @@ func (h *Handler) schemas(w http.ResponseWriter, r *http.Request) {
 	base := h.baseURL(r)
 	user := userResourceSchema(base)
 
-	// Registered extended attributes (Phase 14) are advertised alongside the
+	// Registered extended attributes are advertised alongside the
 	// core ones, so an IdP admin can discover and map to them — the same
 	// "declaration matches behaviour" principle the rest of this document keeps.
 	if h.extended && h.attrs != nil {

@@ -7,7 +7,7 @@ import (
 )
 
 // AttributeStore is the registry lookup the handler needs to know which extra
-// attribute names a tenant has opted into capturing (Phase 14). Only the write,
+// attribute names a tenant has opted into capturing. Only the write,
 // PATCH and discovery paths consult it; plain reads merge whatever is already
 // stored, so a GET never depends on the registry. It may be nil when the
 // feature is disabled — nothing calls it in that case.
