@@ -77,3 +77,40 @@ func nonEmpty(s string) *string {
 	}
 	return &s
 }
+
+// toStoreGroup flattens a SCIM Group resource onto a row. Duplicate member
+// ids are the store's job to reject or dedupe, not the mapper's — it just
+// carries the values through trimmed.
+func toStoreGroup(g Group) store.Group {
+	sg := store.Group{
+		DisplayName: strings.TrimSpace(g.DisplayName),
+		ExternalID:  nonEmpty(strings.TrimSpace(g.ExternalID)),
+	}
+	for _, m := range g.Members {
+		if v := strings.TrimSpace(m.Value); v != "" {
+			sg.Members = append(sg.Members, v)
+		}
+	}
+	return sg
+}
+
+func fromStoreGroup(sg *store.Group, baseURL string) Group {
+	g := Group{
+		Schemas:     []string{groupSchema},
+		ID:          sg.ID,
+		DisplayName: sg.DisplayName,
+		Meta: &Meta{
+			ResourceType: "Group",
+			Created:      sg.CreatedAt,
+			LastModified: sg.UpdatedAt,
+			Location:     baseURL + "/Groups/" + sg.ID,
+		},
+	}
+	if sg.ExternalID != nil {
+		g.ExternalID = *sg.ExternalID
+	}
+	for _, id := range sg.Members {
+		g.Members = append(g.Members, Member{Value: id, Ref: baseURL + "/Users/" + id})
+	}
+	return g
+}

@@ -147,13 +147,13 @@ func (s *Store) CreateUser(ctx context.Context, tenantID string, u *User, rec Au
 		tenantID, u.UserName, u.ExternalID, u.GivenName, u.FamilyName, u.Email, u.Active))
 	if err != nil {
 		if isUniqueViolation(err) {
-			s.auditRefusal(ctx, rec, ActionCreate, "", "duplicate userName")
+			s.auditRefusal(ctx, rec, ResourceUser, ActionCreate, "", "duplicate userName")
 			return nil, fmt.Errorf("create user %q: %w", u.UserName, ErrDuplicateUserName)
 		}
 		return nil, fmt.Errorf("create user %q: %w", u.UserName, err)
 	}
 
-	if err := insertAudit(ctx, tx, rec, ActionCreate, created.ID, ResultSuccess, "", nil, created); err != nil {
+	if err := insertAudit(ctx, tx, rec, ResourceUser, ActionCreate, created.ID, ResultSuccess, "", nil, created); err != nil {
 		return nil, fmt.Errorf("create user %q: %w", u.UserName, err)
 	}
 
@@ -263,17 +263,17 @@ func (s *Store) UpdateUser(ctx context.Context, tenantID, id string, u *User, re
 	if err != nil {
 		switch {
 		case isMissingRow(err):
-			s.auditRefusal(ctx, rec, ActionReplace, id, "no such user")
+			s.auditRefusal(ctx, rec, ResourceUser, ActionReplace, id, "no such user")
 			return nil, fmt.Errorf("update user %q: %w", id, ErrNotFound)
 		case isUniqueViolation(err):
-			s.auditRefusal(ctx, rec, ActionReplace, id, "duplicate userName")
+			s.auditRefusal(ctx, rec, ResourceUser, ActionReplace, id, "duplicate userName")
 			return nil, fmt.Errorf("update user %q: %w", id, ErrDuplicateUserName)
 		default:
 			return nil, fmt.Errorf("update user %q: %w", id, err)
 		}
 	}
 
-	if err := insertAudit(ctx, tx, rec, ActionReplace, id, ResultSuccess, "", change.Before, change.After); err != nil {
+	if err := insertAudit(ctx, tx, rec, ResourceUser, ActionReplace, id, ResultSuccess, "", change.Before, change.After); err != nil {
 		return nil, fmt.Errorf("update user %q: %w", id, err)
 	}
 
@@ -309,13 +309,13 @@ func (s *Store) DeactivateUser(ctx context.Context, tenantID, id string, rec Aud
 	change, err := scanChange(tx.QueryRow(ctx, q, tenantID, id))
 	if err != nil {
 		if isMissingRow(err) {
-			s.auditRefusal(ctx, rec, ActionDeactivate, id, "no such user")
+			s.auditRefusal(ctx, rec, ResourceUser, ActionDeactivate, id, "no such user")
 			return nil, fmt.Errorf("deactivate user %q: %w", id, ErrNotFound)
 		}
 		return nil, fmt.Errorf("deactivate user %q: %w", id, err)
 	}
 
-	if err := insertAudit(ctx, tx, rec, ActionDeactivate, id, ResultSuccess, "", change.Before, change.After); err != nil {
+	if err := insertAudit(ctx, tx, rec, ResourceUser, ActionDeactivate, id, ResultSuccess, "", change.Before, change.After); err != nil {
 		return nil, fmt.Errorf("deactivate user %q: %w", id, err)
 	}
 

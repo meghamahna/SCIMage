@@ -268,9 +268,26 @@ three gaps the checklist above didn't ask for:
       via `scimage-admin audit list [-tenant <id>]`
 
 ### Phase 11: Groups
-- [ ] `/Groups` resource: create, fetch, list, replace, delete
-- [ ] Membership, including `PATCH` on members
-- [ ] Group tests against the real store
+- [x] `/Groups` resource: create, fetch, list, replace, delete
+- [x] Membership, including `PATCH` on members
+- [x] Group tests against the real store
+
+**Decisions.** `DELETE /Groups/{id}` is a hard delete, unlike Users: RFC 7643's
+Group schema has no `active` attribute, so there is nothing to soft-delete
+into. `displayName` uniqueness is enforced per tenant, case-insensitive, the
+same reconciliation reasoning `userName` already uses. Membership lives in a
+`group_members` join table rather than an array column, validated against
+this tenant's `users` in the same statement that inserts it — a foreign or
+made-up member id rolls the whole mutation back rather than being silently
+dropped. `audit_log` gained a `resource_type` column and `AuditEntry`'s
+before/after images became raw JSON rather than a `*store.User`-typed pair:
+one audit trail now covers both resources, which is what Phase 12's
+SCIMTrace AI needs to see a bulk group deletion alongside a bulk user
+deactivation. Group mutations also enqueue webhook events
+(`group.created`/`replaced`/`deleted`) through the existing, resource-agnostic
+outbox and dispatcher from Phase 9 — group-to-role mapping is a common reason
+enterprises adopt SCIM groups at all, and the dispatcher needed no changes to
+carry them.
 
 ### Phase 12: SCIMTrace AI
 This tool reads the audit log and produces a plain-English summary for a human

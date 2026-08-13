@@ -56,6 +56,44 @@ func TestParseFilter(t *testing.T) {
 	})
 }
 
+func TestParseGroupFilter(t *testing.T) {
+	t.Run("supported expressions", func(t *testing.T) {
+		for _, tc := range []struct {
+			expr               string
+			displayName, extID string
+		}{
+			{`displayName eq "engineering"`, "engineering", ""},
+			{`DisplayName eq "engineering"`, "engineering", ""}, // case-insensitive attribute name
+			{`externalId eq "grp-123"`, "", "grp-123"},
+			{"", "", ""}, // absent filter lists everything
+		} {
+			got, err := parseGroupFilter(tc.expr)
+			if err != nil {
+				t.Errorf("parseGroupFilter(%q): %v", tc.expr, err)
+				continue
+			}
+			if got.DisplayName != tc.displayName || got.ExternalID != tc.extID {
+				t.Errorf("parseGroupFilter(%q) = %+v, want displayName=%q externalId=%q",
+					tc.expr, got, tc.displayName, tc.extID)
+			}
+		}
+	})
+
+	t.Run("refused expressions", func(t *testing.T) {
+		for _, expr := range []string{
+			`userName eq "jdoe"`,   // attribute isn't a Group attribute
+			`displayName co "eng"`, // operator beyond eq
+			`displayName eq eng`,   // unquoted value
+			`displayName eq ""`,    // empty value
+			`nonsense`,
+		} {
+			if got, err := parseGroupFilter(expr); err == nil {
+				t.Errorf("parseGroupFilter(%q) = %+v, want an error", expr, got)
+			}
+		}
+	})
+}
+
 func TestListUsersFiltered(t *testing.T) {
 	requireDB(t)
 

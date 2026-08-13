@@ -71,16 +71,23 @@ func TestResourceTypes(t *testing.T) {
 	if len(list.Schemas) != 1 || list.Schemas[0] != listSchema {
 		t.Errorf("schemas = %v, want the ListResponse schema", list.Schemas)
 	}
-	if len(list.Resources) != 1 {
-		t.Fatalf("got %d resource types, want 1", len(list.Resources))
+	if len(list.Resources) != 2 {
+		t.Fatalf("got %d resource types, want 2 (User and Group)", len(list.Resources))
 	}
 
-	got := list.Resources[0]
-	if got.Endpoint != "/Users" {
-		t.Errorf("endpoint = %q, want /Users", got.Endpoint)
+	byID := make(map[string]resourceType, len(list.Resources))
+	for _, r := range list.Resources {
+		byID[r.ID] = r
 	}
-	if got.Schema != userSchema {
-		t.Errorf("schema = %q, want %q", got.Schema, userSchema)
+
+	user, ok := byID["User"]
+	if !ok || user.Endpoint != "/Users" || user.Schema != userSchema {
+		t.Errorf("User resource type = %+v, want endpoint /Users and schema %q", user, userSchema)
+	}
+
+	group, ok := byID["Group"]
+	if !ok || group.Endpoint != "/Groups" || group.Schema != groupSchema {
+		t.Errorf("Group resource type = %+v, want endpoint /Groups and schema %q", group, groupSchema)
 	}
 }
 
@@ -93,28 +100,31 @@ func TestSchemas(t *testing.T) {
 	}
 
 	list := decodeBody[listOf[resourceSchema]](t, rr)
-	if len(list.Resources) != 1 {
-		t.Fatalf("got %d schemas, want 1", len(list.Resources))
-	}
-	if list.Resources[0].ID != userSchema {
-		t.Errorf("id = %q, want %q", list.Resources[0].ID, userSchema)
+	if len(list.Resources) != 2 {
+		t.Fatalf("got %d schemas, want 2 (User and Group)", len(list.Resources))
 	}
 
-	byName := make(map[string]schemaAttribute, len(list.Resources[0].Attributes))
-	for _, a := range list.Resources[0].Attributes {
-		byName[a.Name] = a
+	byID := make(map[string]resourceSchema, len(list.Resources))
+	for _, s := range list.Resources {
+		byID[s.ID] = s
 	}
+
+	user, ok := byID[userSchema]
+	if !ok {
+		t.Fatalf("no schema declared for %q", userSchema)
+	}
+	userAttrs := attrsByName(user)
 
 	// Every declared attribute has to be one the server actually stores.
 	for _, want := range []string{"userName", "name", "emails", "active"} {
-		if _, ok := byName[want]; !ok {
-			t.Errorf("schema is missing %q", want)
+		if _, ok := userAttrs[want]; !ok {
+			t.Errorf("User schema is missing %q", want)
 		}
 	}
 
 	// userName's characteristics are what tell a client that bjensen and
 	// BJensen are one identity, which is how the store behaves.
-	userName := byName["userName"]
+	userName := userAttrs["userName"]
 	if !userName.Required {
 		t.Error("userName.required = false, want true")
 	}
@@ -124,12 +134,51 @@ func TestSchemas(t *testing.T) {
 	if userName.Uniqueness != "server" {
 		t.Errorf("userName.uniqueness = %q, want server", userName.Uniqueness)
 	}
+
+	group, ok := byID[groupSchema]
+	if !ok {
+		t.Fatalf("no schema declared for %q", groupSchema)
+	}
+	groupAttrs := attrsByName(group)
+
+	for _, want := range []string{"displayName", "members"} {
+		if _, ok := groupAttrs[want]; !ok {
+			t.Errorf("Group schema is missing %q", want)
+		}
+	}
+
+	displayName := groupAttrs["displayName"]
+	if !displayName.Required {
+		t.Error("displayName.required = false, want true")
+	}
+	if displayName.Uniqueness != "server" {
+		t.Errorf("displayName.uniqueness = %q, want server", displayName.Uniqueness)
+	}
+
+	// display is never populated (see the Member comment in models.go), so
+	// the declaration shouldn't promise it.
+	members := groupAttrs["members"]
+	memberSubAttrs := attrsByName(resourceSchema{Attributes: members.SubAttributes})
+	if _, ok := memberSubAttrs["display"]; ok {
+		t.Error("members declares a display subAttribute that is never populated")
+	}
+	if _, ok := memberSubAttrs["value"]; !ok {
+		t.Error("members is missing the value subAttribute")
+	}
+}
+
+func attrsByName(s resourceSchema) map[string]schemaAttribute {
+	byName := make(map[string]schemaAttribute, len(s.Attributes))
+	for _, a := range s.Attributes {
+		byName[a.Name] = a
+	}
+	return byName
 }
 
 // Discovery describes the server, so it sits behind the same bearer check as
 // everything else.
 func TestDiscoveryRequiresAuth(t *testing.T) {
-	routes := NewHandler(nil, fakeTokenStore{tok: validFakeToken()}).Routes()
+	routes := NewHandler(nil, nil, fakeTokenStore{tok: validFakeToken()}).Routes()
 
 	for _, path := range []string{
 		"/scim/v2/" + fakeTenantID + "/ServiceProviderConfig",

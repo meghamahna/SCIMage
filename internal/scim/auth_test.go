@@ -124,7 +124,7 @@ func TestRequireToken(t *testing.T) {
 func TestRoutesRequireAuth(t *testing.T) {
 	// A nil store is fine: the 401 path never reaches a handler, so this stays
 	// meaningful without a database.
-	routes := NewHandler(nil, fakeTokenStore{tok: validFakeToken()}).Routes()
+	routes := NewHandler(nil, nil, fakeTokenStore{tok: validFakeToken()}).Routes()
 	prefix := "/scim/v2/" + fakeTenantID
 
 	for _, tc := range []struct{ method, target string }{

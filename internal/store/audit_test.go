@@ -2,9 +2,39 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 )
+
+// decodeAuditUser unmarshals a User audit image, failing the test if it's
+// missing or malformed — callers assert on it, so a nil image here means the
+// wrong thing was asked for.
+func decodeAuditUser(t *testing.T, raw json.RawMessage) User {
+	t.Helper()
+
+	if raw == nil {
+		t.Fatal("image is nil")
+	}
+	var u User
+	if err := json.Unmarshal(raw, &u); err != nil {
+		t.Fatalf("unmarshal audited user: %v", err)
+	}
+	return u
+}
+
+func decodeAuditGroup(t *testing.T, raw json.RawMessage) Group {
+	t.Helper()
+
+	if raw == nil {
+		t.Fatal("image is nil")
+	}
+	var g Group
+	if err := json.Unmarshal(raw, &g); err != nil {
+		t.Fatalf("unmarshal audited group: %v", err)
+	}
+	return g
+}
 
 func countAudit(t *testing.T, s *Store, tenantID string) int {
 	t.Helper()
@@ -85,11 +115,14 @@ func TestAuditEntryWrittenWithMutation(t *testing.T) {
 		if got.Actor.TenantID != tenantID {
 			t.Errorf("tenant = %q, want %q", got.Actor.TenantID, tenantID)
 		}
-		if got.Before != nil {
-			t.Errorf("before = %+v, want nil on a create", got.Before)
+		if got.ResourceType != ResourceUser {
+			t.Errorf("resourceType = %q, want %q", got.ResourceType, ResourceUser)
 		}
-		if got.After == nil || got.After.UserName != created.UserName {
-			t.Errorf("after = %+v, want the created user", got.After)
+		if got.Before != nil {
+			t.Errorf("before = %s, want nil on a create", got.Before)
+		}
+		if after := decodeAuditUser(t, got.After); after.UserName != created.UserName {
+			t.Errorf("after.userName = %q, want %q", after.UserName, created.UserName)
 		}
 	})
 
@@ -116,16 +149,19 @@ func TestAuditEntryWrittenWithMutation(t *testing.T) {
 		got := entries[0]
 
 		if got.Before == nil || got.After == nil {
-			t.Fatalf("before/after = %+v/%+v, want both", got.Before, got.After)
+			t.Fatalf("before/after = %s/%s, want both", got.Before, got.After)
 		}
-		if got.Before.GivenName == nil || *got.Before.GivenName != "Barbara" {
-			t.Errorf("before.givenName = %v, want Barbara", got.Before.GivenName)
+		before := decodeAuditUser(t, got.Before)
+		after := decodeAuditUser(t, got.After)
+
+		if before.GivenName == nil || *before.GivenName != "Barbara" {
+			t.Errorf("before.givenName = %v, want Barbara", before.GivenName)
 		}
-		if got.After.GivenName != nil {
-			t.Errorf("after.givenName = %v, want nil after a full replace", *got.After.GivenName)
+		if after.GivenName != nil {
+			t.Errorf("after.givenName = %v, want nil after a full replace", *after.GivenName)
 		}
-		if !got.Before.Active || got.After.Active {
-			t.Errorf("active went %v -> %v, want true -> false", got.Before.Active, got.After.Active)
+		if !before.Active || after.Active {
+			t.Errorf("active went %v -> %v, want true -> false", before.Active, after.Active)
 		}
 	})
 
@@ -158,6 +194,87 @@ func TestAuditEntryWrittenWithMutation(t *testing.T) {
 			t.Errorf("before/after = %+v/%+v, want neither on a refusal", got.Before, got.After)
 		}
 	})
+}
+
+// Groups share audit_log with users rather than a table of their own, so a
+// mutation's resource_type is what tells a reviewer (or SCIMTrace AI) which
+// struct the before/after images decode as.
+func TestGroupAuditEntryWrittenWithMutation(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	tenantID := newTestTenant(t, s)
+
+	t.Run("create records resourceType group with no before-image", func(t *testing.T) {
+		created, err := s.CreateGroup(ctx, tenantID, &Group{DisplayName: uniqueGroupName()}, testAudit(tenantID))
+		if err != nil {
+			t.Fatalf("CreateGroup: %v", err)
+		}
+
+		got := entriesFor(t, s, tenantID)[0]
+		if got.ResourceType != ResourceGroup || got.Action != ActionCreate {
+			t.Errorf("resourceType/action = %q/%q, want group/create", got.ResourceType, got.Action)
+		}
+		if got.TargetID != created.ID {
+			t.Errorf("targetId = %q, want %q", got.TargetID, created.ID)
+		}
+		if got.Before != nil {
+			t.Errorf("before = %s, want nil on a create", got.Before)
+		}
+		if after := decodeAuditGroup(t, got.After); after.DisplayName != created.DisplayName {
+			t.Errorf("after.displayName = %q, want %q", after.DisplayName, created.DisplayName)
+		}
+	})
+
+	t.Run("delete is action delete, not deactivate, with a before-image", func(t *testing.T) {
+		created, err := s.CreateGroup(ctx, tenantID, &Group{DisplayName: uniqueGroupName()}, testAudit(tenantID))
+		if err != nil {
+			t.Fatalf("CreateGroup: %v", err)
+		}
+
+		if _, err := s.DeleteGroup(ctx, tenantID, created.ID, testAudit(tenantID)); err != nil {
+			t.Fatalf("DeleteGroup: %v", err)
+		}
+
+		got := entriesFor(t, s, tenantID)[0]
+		if got.Action != ActionDelete {
+			t.Errorf("action = %q, want %q", got.Action, ActionDelete)
+		}
+		if got.After != nil {
+			t.Errorf("after = %s, want nil on a delete", got.After)
+		}
+		if before := decodeAuditGroup(t, got.Before); before.ID != created.ID {
+			t.Errorf("before.id = %q, want %q", before.ID, created.ID)
+		}
+	})
+
+	t.Run("a duplicate displayName refusal names the group action", func(t *testing.T) {
+		existing, err := s.CreateGroup(ctx, tenantID, &Group{DisplayName: uniqueGroupName()}, testAudit(tenantID))
+		if err != nil {
+			t.Fatalf("CreateGroup: %v", err)
+		}
+
+		if _, err := s.CreateGroup(ctx, tenantID, &Group{DisplayName: existing.DisplayName}, testAudit(tenantID)); !errors.Is(err, ErrDuplicateGroupName) {
+			t.Fatalf("error = %v, want ErrDuplicateGroupName", err)
+		}
+
+		got := entriesFor(t, s, tenantID)[0]
+		if got.ResourceType != ResourceGroup || got.Result != ResultDenied {
+			t.Errorf("resourceType/result = %q/%q, want group/denied", got.ResourceType, got.Result)
+		}
+	})
+}
+
+func entriesFor(t *testing.T, s *Store, tenantID string) []AuditEntry {
+	t.Helper()
+
+	entries, err := s.ListAuditEntries(context.Background(), tenantID, 1)
+	if err != nil {
+		t.Fatalf("ListAuditEntries: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("no audit entry was written")
+	}
+	return entries
 }
 
 // A tenant's audit history is invisible to another tenant's review, the same

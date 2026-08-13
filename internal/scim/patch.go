@@ -187,3 +187,186 @@ func assignString(target *string, raw json.RawMessage, path string) error {
 	*target = v
 	return nil
 }
+
+// membersPath matches the group's own multi-valued attribute, bare or with
+// the single-member filter an IdP sends to remove one id:
+// members[value eq "<id>"].
+var membersPath = regexp.MustCompile(`^members(\[[^\]]*\])?$`)
+
+// (?i) rather than lowercasing the input: the captured group is a member id,
+// and a case-sensitive external identifier there must survive extraction
+// unchanged — only the members/value/eq keywords are case-insensitive.
+var memberFilterValue = regexp.MustCompile(`(?i)^members\[\s*value\s+eq\s+"?([^"\]]*)"?\s*\]$`)
+
+// applyGroupPatch mirrors applyPatch, but members is genuinely multi-valued —
+// unlike User's single-valued attributes, add and replace differ (append vs.
+// overwrite), so the op threads down as isAdd rather than being folded away.
+func applyGroupPatch(current Group, patch PatchOp) (Group, error) {
+	if len(patch.Operations) == 0 {
+		return current, fmt.Errorf("Operations is required")
+	}
+
+	for _, op := range patch.Operations {
+		var err error
+		switch strings.ToLower(strings.TrimSpace(op.Op)) {
+		case "add":
+			current, err = applyGroupValue(current, op, true)
+		case "replace":
+			current, err = applyGroupValue(current, op, false)
+		case "remove":
+			current, err = clearGroupPath(current, op.Path)
+		default:
+			err = fmt.Errorf("unsupported op %q", op.Op)
+		}
+		if err != nil {
+			return current, err
+		}
+	}
+
+	return current, nil
+}
+
+func applyGroupValue(g Group, op Operation, isAdd bool) (Group, error) {
+	if strings.TrimSpace(op.Path) == "" {
+		var attrs map[string]json.RawMessage
+		if err := json.Unmarshal(op.Value, &attrs); err != nil {
+			return g, fmt.Errorf("a value without a path must be an object of attributes")
+		}
+
+		for path, raw := range attrs {
+			var err error
+			if g, err = setGroupPath(g, path, raw, isAdd); err != nil {
+				return g, err
+			}
+		}
+		return g, nil
+	}
+
+	return setGroupPath(g, op.Path, op.Value, isAdd)
+}
+
+func setGroupPath(g Group, path string, raw json.RawMessage, isAdd bool) (Group, error) {
+	switch key := strings.ToLower(strings.TrimSpace(path)); {
+	case key == "displayname":
+		return g, assignString(&g.DisplayName, raw, path)
+
+	case key == "externalid":
+		return g, assignString(&g.ExternalID, raw, path)
+
+	case membersPath.MatchString(key):
+		return setMembers(g, raw, isAdd)
+
+	default:
+		return g, fmt.Errorf("path %q: %w", path, errUnsupportedPath)
+	}
+}
+
+// setMembers accepts a single member object, a bare id string, or an array of
+// either — clients send all these shapes depending on the path form used.
+// Adding dedupes against the existing set rather than erroring on a repeat,
+// since a re-push of the same membership is a common, harmless IdP retry.
+func setMembers(g Group, raw json.RawMessage, isAdd bool) (Group, error) {
+	values, err := decodeMemberValues(raw)
+	if err != nil {
+		return g, err
+	}
+
+	if !isAdd {
+		g.Members = toMembers(values)
+		return g, nil
+	}
+
+	seen := make(map[string]bool, len(g.Members))
+	for _, m := range g.Members {
+		seen[m.Value] = true
+	}
+	for _, v := range values {
+		if !seen[v] {
+			seen[v] = true
+			g.Members = append(g.Members, Member{Value: v})
+		}
+	}
+	return g, nil
+}
+
+func toMembers(values []string) []Member {
+	if len(values) == 0 {
+		return nil
+	}
+	members := make([]Member, len(values))
+	for i, v := range values {
+		members[i] = Member{Value: v}
+	}
+	return members
+}
+
+// decodeMemberValues accepts a bare id string, one member object, or an
+// array of member objects — the shapes a PATCH value takes depending on
+// whether the client sent a filtered single-member path or a whole array.
+func decodeMemberValues(raw json.RawMessage) ([]string, error) {
+	var one Member
+	if err := json.Unmarshal(raw, &one); err == nil && one.Value != "" {
+		return []string{one.Value}, nil
+	}
+
+	var many []Member
+	if err := json.Unmarshal(raw, &many); err == nil && len(many) > 0 {
+		values := make([]string, 0, len(many))
+		for _, m := range many {
+			if m.Value != "" {
+				values = append(values, m.Value)
+			}
+		}
+		return values, nil
+	}
+
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil && s != "" {
+		return []string{s}, nil
+	}
+
+	return nil, fmt.Errorf("members: expected a member value or an array of them")
+}
+
+// trimmed, not lowered, is what a member id is extracted from below — a
+// case-sensitive external identifier has to survive unchanged even though
+// the path keywords around it are matched case-insensitively.
+func clearGroupPath(g Group, path string) (Group, error) {
+	trimmed := strings.TrimSpace(path)
+	key := strings.ToLower(trimmed)
+	switch {
+	case key == "":
+		return g, fmt.Errorf("remove requires a path")
+	case key == "externalid":
+		g.ExternalID = ""
+	case key == "members":
+		g.Members = nil
+	case membersPath.MatchString(key):
+		value, ok := filteredMemberValue(trimmed)
+		if !ok {
+			return g, fmt.Errorf("path %q: %w", path, errUnsupportedPath)
+		}
+		g.Members = removeMember(g.Members, value)
+	default:
+		return g, fmt.Errorf("path %q: %w", path, errUnsupportedPath)
+	}
+	return g, nil
+}
+
+func filteredMemberValue(path string) (string, bool) {
+	m := memberFilterValue.FindStringSubmatch(path)
+	if m == nil {
+		return "", false
+	}
+	return m[1], true
+}
+
+func removeMember(members []Member, value string) []Member {
+	var out []Member
+	for _, m := range members {
+		if m.Value != value {
+			out = append(out, m)
+		}
+	}
+	return out
+}

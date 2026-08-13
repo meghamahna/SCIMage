@@ -26,6 +26,16 @@ const (
 	EventUserDeactivated = "user.deactivated"
 )
 
+// Group events. A membership PATCH rides on EventGroupReplaced the same way
+// PATCH active:false rides on EventUserReplaced/EventUserDeactivated above —
+// PATCH funnels through UpdateGroup's full replace, so there is no separate
+// membership-change event to classify.
+const (
+	EventGroupCreated  = "group.created"
+	EventGroupReplaced = "group.replaced"
+	EventGroupDeleted  = "group.deleted"
+)
+
 // changeEventType classifies a replace by what it did to the user, reading the
 // before/after pair rather than the method that arrived.
 //
@@ -111,6 +121,51 @@ func (s *Store) enqueueChange(ctx context.Context, q querier, tenantID, eventTyp
 	const stmt = `INSERT INTO webhook_deliveries (tenant_id, event_type, target_id, payload) VALUES ($1, $2, $3, $4)`
 	if _, err := q.Exec(ctx, stmt, tenantID, eventType, targetID, payload); err != nil {
 		return fmt.Errorf("enqueue %s event for user %q: %w", eventType, targetID, err)
+	}
+	return nil
+}
+
+// GroupChangeEvent mirrors ChangeEvent for the Group resource. It is a
+// distinct type rather than a generalized one because the two schemas don't
+// share a shape, the same reason AuditEntry keeps its images as raw JSON
+// rather than one shared Go struct.
+type GroupChangeEvent struct {
+	Type       string    `json:"type"`
+	OccurredAt time.Time `json:"occurredAt"`
+	GroupID    string    `json:"groupId"`
+	Before     *Group    `json:"before,omitempty"`
+	After      *Group    `json:"after"`
+}
+
+// enqueueGroupChange mirrors enqueueChange: queued in the mutation's own
+// transaction, at-least-once, not deduplicated here for the same reason a
+// retried user mutation isn't — the audit log already recorded a real call.
+func (s *Store) enqueueGroupChange(ctx context.Context, q querier, tenantID, eventType, targetID string, before, after *Group) error {
+	if !s.changeEvents {
+		return nil
+	}
+
+	// A delete has no after-image to take a timestamp from, so it falls back
+	// to the process clock — there is no committed row left to read one from.
+	occurred := time.Now()
+	if after != nil {
+		occurred = after.UpdatedAt
+	}
+
+	payload, err := json.Marshal(GroupChangeEvent{
+		Type:       eventType,
+		OccurredAt: occurred,
+		GroupID:    targetID,
+		Before:     before,
+		After:      after,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal %s event for group %q: %w", eventType, targetID, err)
+	}
+
+	const stmt = `INSERT INTO webhook_deliveries (tenant_id, event_type, target_id, payload) VALUES ($1, $2, $3, $4)`
+	if _, err := q.Exec(ctx, stmt, tenantID, eventType, targetID, payload); err != nil {
+		return fmt.Errorf("enqueue %s event for group %q: %w", eventType, targetID, err)
 	}
 	return nil
 }

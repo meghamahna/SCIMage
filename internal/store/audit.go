@@ -12,10 +12,21 @@ import (
 )
 
 // The mutating calls. Reads are not audited — they would bury the changes.
+// ActionDelete is distinct from ActionDeactivate: a group has no `active`
+// attribute to deactivate into, so removing one is a real deletion.
 const (
 	ActionCreate     = "create"
 	ActionReplace    = "replace"
 	ActionDeactivate = "deactivate"
+	ActionDelete     = "delete"
+)
+
+// One audit_log table serves every resource kind, so SCIMTrace AI reads one
+// trail rather than several that can drift apart in shape. resource_type
+// says which struct before/after decode as.
+const (
+	ResourceUser  = "user"
+	ResourceGroup = "group"
 )
 
 // A refused mutation is as interesting as a successful one: a burst of denials
@@ -39,34 +50,42 @@ type AuditRecord struct {
 
 // AuditEntry is a row read back out, for review and for SAGE. Actor.TenantID
 // is populated from the row's own tenant_id column.
+//
+// Before/After stay raw JSON rather than a typed *User: one row might
+// describe a User and the next a Group, and a reviewer (or SCIMTrace AI)
+// decodes into whichever ResourceType says it is.
 type AuditEntry struct {
-	ID       int64
-	At       time.Time
-	Actor    AuditRecord
-	Action   string
-	Result   string
-	Detail   string
-	TargetID string
-	Before   *User
-	After    *User
+	ID           int64
+	At           time.Time
+	Actor        AuditRecord
+	ResourceType string
+	Action       string
+	Result       string
+	Detail       string
+	TargetID     string
+	Before       json.RawMessage
+	After        json.RawMessage
 }
 
-// querier is satisfied by both *pgxpool.Pool and pgx.Tx, so an entry can be
-// written inside a mutation's transaction or on its own.
+// querier is satisfied by both *pgxpool.Pool and pgx.Tx, so an entry — or a
+// group's membership — can be read or written inside a mutation's
+// transaction or on its own.
 type querier interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-func insertAudit(ctx context.Context, q querier, rec AuditRecord, action, targetID, result, detail string, before, after *User) error {
+func insertAudit(ctx context.Context, q querier, rec AuditRecord, resourceType, action, targetID, result, detail string, before, after any) error {
 	const stmt = `INSERT INTO audit_log
-	              (tenant_id, actor_token, actor_ip, action, result, detail, target_id, before, after)
-	              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
+	              (tenant_id, resource_type, actor_token, actor_ip, action, result, detail, target_id, before, after)
+	              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
 
-	beforeJSON, err := marshalUser(before)
+	beforeJSON, err := marshalAudited(before)
 	if err != nil {
 		return err
 	}
-	afterJSON, err := marshalUser(after)
+	afterJSON, err := marshalAudited(after)
 	if err != nil {
 		return err
 	}
@@ -74,7 +93,7 @@ func insertAudit(ctx context.Context, q querier, rec AuditRecord, action, target
 	// Empty strings become NULL so "no target" and "no detail" read as absent
 	// rather than as an empty value.
 	_, err = q.Exec(ctx, stmt,
-		rec.TenantID, rec.ActorToken, nullable(rec.ActorIP), action, result,
+		rec.TenantID, resourceType, rec.ActorToken, nullable(rec.ActorIP), action, result,
 		nullable(detail), nullable(targetID), beforeJSON, afterJSON)
 	if err != nil {
 		return fmt.Errorf("insert audit entry: %w", err)
@@ -85,10 +104,10 @@ func insertAudit(ctx context.Context, q querier, rec AuditRecord, action, target
 // auditRefusal records a mutation that didn't happen. It runs outside any
 // transaction because there is nothing to be atomic with — no row changed.
 // A failure here can't roll anything back, so it is logged and swallowed.
-func (s *Store) auditRefusal(ctx context.Context, rec AuditRecord, action, targetID, detail string) {
-	if err := insertAudit(ctx, s.pool, rec, action, targetID, ResultDenied, detail, nil, nil); err != nil {
+func (s *Store) auditRefusal(ctx context.Context, rec AuditRecord, resourceType, action, targetID, detail string) {
+	if err := insertAudit(ctx, s.pool, rec, resourceType, action, targetID, ResultDenied, detail, nil, nil); err != nil {
 		slog.Error("could not record a refused mutation",
-			"action", action, "target_id", targetID, "error", err)
+			"resource_type", resourceType, "action", action, "target_id", targetID, "error", err)
 	}
 }
 
@@ -98,7 +117,7 @@ func (s *Store) ListAuditEntries(ctx context.Context, tenantID string, limit int
 		limit = MaxPageSize
 	}
 
-	const q = `SELECT id, at, tenant_id, actor_token, actor_ip, action, result, detail, target_id, before, after
+	const q = `SELECT id, at, tenant_id, resource_type, actor_token, actor_ip, action, result, detail, target_id, before, after
 	           FROM audit_log WHERE tenant_id = $2 ORDER BY at DESC, id DESC LIMIT $1`
 
 	rows, err := s.pool.Query(ctx, q, limit, tenantID)
@@ -124,13 +143,12 @@ func (s *Store) ListAuditEntries(ctx context.Context, tenantID string, limit int
 
 func scanAuditEntry(row pgx.Row) (*AuditEntry, error) {
 	var (
-		e                     AuditEntry
-		ip, detail, targetID  *string
-		beforeJSON, afterJSON []byte
+		e                    AuditEntry
+		ip, detail, targetID *string
 	)
 
-	if err := row.Scan(&e.ID, &e.At, &e.Actor.TenantID, &e.Actor.ActorToken, &ip, &e.Action,
-		&e.Result, &detail, &targetID, &beforeJSON, &afterJSON); err != nil {
+	if err := row.Scan(&e.ID, &e.At, &e.Actor.TenantID, &e.ResourceType, &e.Actor.ActorToken, &ip, &e.Action,
+		&e.Result, &detail, &targetID, &e.Before, &e.After); err != nil {
 		return nil, err
 	}
 
@@ -138,39 +156,32 @@ func scanAuditEntry(row pgx.Row) (*AuditEntry, error) {
 	e.Detail = deref(detail)
 	e.TargetID = deref(targetID)
 
-	var err error
-	if e.Before, err = unmarshalUser(beforeJSON); err != nil {
-		return nil, err
-	}
-	if e.After, err = unmarshalUser(afterJSON); err != nil {
-		return nil, err
-	}
-
 	return &e, nil
 }
 
-func marshalUser(u *User) ([]byte, error) {
-	if u == nil {
+// marshalAudited marshals the before/after image insertAudit is given. A
+// plain `v == nil` check is not enough: a typed nil pointer (e.g. a *User
+// left nil) boxed into an `any` is a non-nil interface, so each resource
+// type that can appear here checks its own nil-ness before marshaling.
+func marshalAudited(v any) ([]byte, error) {
+	switch t := v.(type) {
+	case nil:
 		return nil, nil
+	case *User:
+		if t == nil {
+			return nil, nil
+		}
+	case *Group:
+		if t == nil {
+			return nil, nil
+		}
 	}
 
-	b, err := json.Marshal(u)
+	b, err := json.Marshal(v)
 	if err != nil {
-		return nil, fmt.Errorf("marshal audited user: %w", err)
+		return nil, fmt.Errorf("marshal audited %T: %w", v, err)
 	}
 	return b, nil
-}
-
-func unmarshalUser(b []byte) (*User, error) {
-	if len(b) == 0 {
-		return nil, nil
-	}
-
-	var u User
-	if err := json.Unmarshal(b, &u); err != nil {
-		return nil, fmt.Errorf("unmarshal audited user: %w", err)
-	}
-	return &u, nil
 }
 
 func nullable(s string) *string {

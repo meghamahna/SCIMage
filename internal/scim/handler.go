@@ -25,6 +25,7 @@ const (
 
 type Handler struct {
 	store   UserStore
+	groups  GroupStore
 	tokens  TokenStore
 	limiter *limiter
 
@@ -33,9 +34,10 @@ type Handler struct {
 	externalURL string
 }
 
-func NewHandler(s UserStore, tokens TokenStore) *Handler {
+func NewHandler(s UserStore, groups GroupStore, tokens TokenStore) *Handler {
 	return &Handler{
 		store:       s,
+		groups:      groups,
 		tokens:      tokens,
 		limiter:     limiterFromEnv(),
 		externalURL: strings.TrimSuffix(os.Getenv("SCIM_BASE_URL"), "/"),
@@ -58,6 +60,13 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("PATCH /scim/v2/{tenantID}/Users/{id}", h.patch)
 	mux.HandleFunc("DELETE /scim/v2/{tenantID}/Users/{id}", h.deactivate)
 
+	mux.HandleFunc("POST /scim/v2/{tenantID}/Groups", h.createGroup)
+	mux.HandleFunc("GET /scim/v2/{tenantID}/Groups", h.listGroups)
+	mux.HandleFunc("GET /scim/v2/{tenantID}/Groups/{id}", h.getGroup)
+	mux.HandleFunc("PUT /scim/v2/{tenantID}/Groups/{id}", h.replaceGroup)
+	mux.HandleFunc("PATCH /scim/v2/{tenantID}/Groups/{id}", h.patchGroup)
+	mux.HandleFunc("DELETE /scim/v2/{tenantID}/Groups/{id}", h.deleteGroup)
+
 	// Discovery (RFC 7644 §4). A client reads these before provisioning, to
 	// learn what this server supports.
 	mux.HandleFunc("GET /scim/v2/{tenantID}/ServiceProviderConfig", h.serviceProviderConfig)
@@ -68,6 +77,8 @@ func (h *Handler) Routes() http.Handler {
 	// error, which a SCIM client can't parse.
 	mux.HandleFunc("/scim/v2/{tenantID}/Users", methodNotAllowed)
 	mux.HandleFunc("/scim/v2/{tenantID}/Users/{id}", methodNotAllowed)
+	mux.HandleFunc("/scim/v2/{tenantID}/Groups", methodNotAllowed)
+	mux.HandleFunc("/scim/v2/{tenantID}/Groups/{id}", methodNotAllowed)
 	mux.HandleFunc("/", unknownResource)
 
 	// Throttle inside auth, so each authenticated caller has its own budget.
@@ -255,6 +266,146 @@ func (h *Handler) deactivate(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *Handler) createGroup(w http.ResponseWriter, r *http.Request) {
+	in, ok := decodeGroup(w, r)
+	if !ok {
+		return
+	}
+
+	sg := toStoreGroup(in)
+	created, err := h.groups.CreateGroup(r.Context(), r.PathValue("tenantID"), &sg, h.auditRecord(r))
+	if err != nil {
+		writeGroupError(w, "create group", err)
+		return
+	}
+
+	out := fromStoreGroup(created, h.baseURL(r))
+	w.Header().Set("Location", out.Meta.Location)
+	writeJSON(w, http.StatusCreated, out)
+}
+
+func (h *Handler) getGroup(w http.ResponseWriter, r *http.Request) {
+	g, err := h.groups.GetGroup(r.Context(), r.PathValue("tenantID"), r.PathValue("id"))
+	if err != nil {
+		writeGroupError(w, "get group", err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, fromStoreGroup(g, h.baseURL(r)))
+}
+
+func (h *Handler) listGroups(w http.ResponseWriter, r *http.Request) {
+	filter, err := parseGroupFilter(r.URL.Query().Get("filter"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalidFilter", err.Error())
+		return
+	}
+
+	startIndex, count := pageParams(r)
+
+	groups, total, err := h.groups.ListGroups(r.Context(), r.PathValue("tenantID"), count, startIndex-1, filter)
+	if err != nil {
+		serverError(w, "list groups", err)
+		return
+	}
+
+	base := h.baseURL(r)
+	resources := make([]Group, 0, len(groups))
+	for i := range groups {
+		resources = append(resources, fromStoreGroup(&groups[i], base))
+	}
+
+	writeJSON(w, http.StatusOK, listOf[Group]{
+		Schemas:      []string{listSchema},
+		TotalResults: total,
+		ItemsPerPage: len(resources),
+		StartIndex:   startIndex,
+		Resources:    resources,
+	})
+}
+
+func (h *Handler) replaceGroup(w http.ResponseWriter, r *http.Request) {
+	in, ok := decodeGroup(w, r)
+	if !ok {
+		return
+	}
+
+	tenantID, id := r.PathValue("tenantID"), r.PathValue("id")
+
+	if in.ID != "" && in.ID != id {
+		writeError(w, http.StatusBadRequest, "mutability", "id in the body does not match the request path")
+		return
+	}
+
+	sg := toStoreGroup(in)
+	changed, err := h.groups.UpdateGroup(r.Context(), tenantID, id, &sg, h.auditRecord(r))
+	if err != nil {
+		writeGroupError(w, "update group", err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, fromStoreGroup(changed.After, h.baseURL(r)))
+}
+
+// patchGroup mirrors patch: read the current resource, fold the operations
+// onto it, and write the result back through the same full-replace path a
+// PUT uses — membership included, so a member add/remove gets the same
+// audit entry and uniqueness checks a whole-resource replace does.
+func (h *Handler) patchGroup(w http.ResponseWriter, r *http.Request) {
+	tenantID, id := r.PathValue("tenantID"), r.PathValue("id")
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+
+	var ops PatchOp
+	if err := json.NewDecoder(r.Body).Decode(&ops); err != nil {
+		writeError(w, http.StatusBadRequest, "invalidSyntax", "request body is not valid JSON")
+		return
+	}
+
+	existing, err := h.groups.GetGroup(r.Context(), tenantID, id)
+	if err != nil {
+		writeGroupError(w, "get group for patch", err)
+		return
+	}
+
+	patched, err := applyGroupPatch(fromStoreGroup(existing, h.baseURL(r)), ops)
+	if err != nil {
+		scimType := "invalidValue"
+		if errors.Is(err, errUnsupportedPath) {
+			scimType = "invalidPath"
+		}
+		writeError(w, http.StatusBadRequest, scimType, err.Error())
+		return
+	}
+
+	if detail := validateGroup(patched); detail != "" {
+		writeError(w, http.StatusBadRequest, "invalidValue", detail)
+		return
+	}
+
+	sg := toStoreGroup(patched)
+	changed, err := h.groups.UpdateGroup(r.Context(), tenantID, id, &sg, h.auditRecord(r))
+	if err != nil {
+		writeGroupError(w, "patch group", err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, fromStoreGroup(changed.After, h.baseURL(r)))
+}
+
+// deleteGroup is a hard delete: unlike Users, the Group schema has no active
+// attribute to soft-delete into.
+func (h *Handler) deleteGroup(w http.ResponseWriter, r *http.Request) {
+	tenantID, id := r.PathValue("tenantID"), r.PathValue("id")
+
+	if _, err := h.groups.DeleteGroup(r.Context(), tenantID, id, h.auditRecord(r)); err != nil {
+		writeGroupError(w, "delete group", err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // auditRecord is the caller's identity, resolved by requireToken and read
 // back out of the request context. The store writes the entry inside the
 // mutation's transaction, so there is no path that changes a user without
@@ -328,6 +479,67 @@ func validate(u User) string {
 	}
 
 	return ""
+}
+
+// decodeGroup mirrors decodeUser.
+func decodeGroup(w http.ResponseWriter, r *http.Request) (Group, bool) {
+	var g Group
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(&g); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeError(w, http.StatusRequestEntityTooLarge, "", "request body is too large")
+			return g, false
+		}
+		writeError(w, http.StatusBadRequest, "invalidSyntax", "request body is not valid JSON")
+		return g, false
+	}
+
+	if detail := validateGroup(g); detail != "" {
+		writeError(w, http.StatusBadRequest, "invalidValue", detail)
+		return g, false
+	}
+
+	return g, true
+}
+
+func validateGroup(g Group) string {
+	if !slices.Contains(g.Schemas, groupSchema) {
+		return "schemas must contain " + groupSchema
+	}
+
+	displayName := strings.TrimSpace(g.DisplayName)
+	if displayName == "" {
+		return "displayName is required"
+	}
+	if len(displayName) > maxAttrLen {
+		return "displayName exceeds " + strconv.Itoa(maxAttrLen) + " characters"
+	}
+
+	return ""
+}
+
+// writeGroupError maps the Group store's sentinels onto SCIM responses, the
+// same job the switch statements inline in each User handler do — pulled
+// into one function here since every Group handler needs the same three
+// cases (ErrGroupNotFound was ErrNotFound's own error text for Users, but
+// Groups get their own sentinel so a wrapped error reads correctly in logs).
+func writeGroupError(w http.ResponseWriter, op string, err error) {
+	switch {
+	case errors.Is(err, store.ErrGroupNotFound):
+		notFoundGroup(w)
+	case errors.Is(err, store.ErrDuplicateGroupName):
+		writeError(w, http.StatusConflict, "uniqueness", "displayName is already in use")
+	case errors.Is(err, store.ErrInvalidMember):
+		writeError(w, http.StatusBadRequest, "invalidValue", "members references an unknown or foreign user")
+	default:
+		serverError(w, op, err)
+	}
+}
+
+func notFoundGroup(w http.ResponseWriter) {
+	writeError(w, http.StatusNotFound, "", "group not found")
 }
 
 // startIndex is 1-based and count is a page size (RFC 7644 §3.4.2.4); both are
