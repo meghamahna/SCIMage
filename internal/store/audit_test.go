@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -308,6 +309,63 @@ func entriesFor(t *testing.T, s *Store, tenantID string) []AuditEntry {
 		t.Fatal("no audit entry was written")
 	}
 	return entries
+}
+
+// ListAuditEntriesSince windows by time and, with an empty tenantID, spans
+// every tenant — the deployment-wide review ARIA runs. A set tenantID keeps
+// the same isolation ListAuditEntries holds.
+func TestListAuditEntriesSince(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	tenantA := newTestTenant(t, s)
+	tenantB := newTestTenant(t, s)
+
+	createUser(t, s, tenantA, &User{UserName: uniqueUserName(), Active: true})
+	createUser(t, s, tenantB, &User{UserName: uniqueUserName(), Active: true})
+
+	t.Run("scoped to one tenant sees only its own entries", func(t *testing.T) {
+		entries, err := s.ListAuditEntriesSince(ctx, tenantA, time.Unix(0, 0))
+		if err != nil {
+			t.Fatalf("ListAuditEntriesSince: %v", err)
+		}
+		if len(entries) == 0 {
+			t.Fatal("tenant A sees none of its own entries")
+		}
+		for _, e := range entries {
+			if e.Actor.TenantID != tenantA {
+				t.Errorf("tenant A's review returned an entry for %q", e.Actor.TenantID)
+			}
+		}
+	})
+
+	t.Run("empty tenantID spans tenants", func(t *testing.T) {
+		entries, err := s.ListAuditEntriesSince(ctx, "", time.Unix(0, 0))
+		if err != nil {
+			t.Fatalf("ListAuditEntriesSince: %v", err)
+		}
+		var seenA, seenB bool
+		for _, e := range entries {
+			switch e.Actor.TenantID {
+			case tenantA:
+				seenA = true
+			case tenantB:
+				seenB = true
+			}
+		}
+		if !seenA || !seenB {
+			t.Errorf("deployment-wide review saw A=%v B=%v, want both", seenA, seenB)
+		}
+	})
+
+	t.Run("a future cutoff excludes past entries", func(t *testing.T) {
+		entries, err := s.ListAuditEntriesSince(ctx, tenantA, time.Now().Add(time.Hour))
+		if err != nil {
+			t.Fatalf("ListAuditEntriesSince: %v", err)
+		}
+		if len(entries) != 0 {
+			t.Errorf("cutoff an hour ahead returned %d entries, want 0", len(entries))
+		}
+	})
 }
 
 // A tenant's audit history is invisible to another tenant's review, the same

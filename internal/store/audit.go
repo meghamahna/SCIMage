@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -136,6 +137,43 @@ func (s *Store) ListAuditEntries(ctx context.Context, tenantID string, limit int
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("list audit entries: %w", err)
+	}
+
+	return entries, nil
+}
+
+// ListAuditEntriesSince returns entries at or after `since`, newest first.
+// An empty tenantID lists across every tenant, for a deployment-wide review;
+// a set one scopes to that tenant, the same isolation ListAuditEntries holds.
+// This is what ARIA reads: a time window suits "bulk in a short span" and
+// "off-hours" better than a bare row count. The result still clamps to
+// MaxPageSize, so a wide window on a busy deployment can't pull the whole table.
+func (s *Store) ListAuditEntriesSince(ctx context.Context, tenantID string, since time.Time) ([]AuditEntry, error) {
+	q := `SELECT id, at, tenant_id, resource_type, actor_token, actor_ip, action, result, detail, target_id, before, after
+	      FROM audit_log WHERE at >= $1`
+	args := []any{since}
+	if tenantID != "" {
+		q += ` AND tenant_id = $2`
+		args = append(args, tenantID)
+	}
+	q += ` ORDER BY at DESC, id DESC LIMIT ` + strconv.Itoa(MaxPageSize)
+
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list audit entries since: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []AuditEntry
+	for rows.Next() {
+		e, err := scanAuditEntry(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list audit entries since: %w", err)
+		}
+		entries = append(entries, *e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list audit entries since: %w", err)
 	}
 
 	return entries, nil
