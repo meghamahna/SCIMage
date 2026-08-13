@@ -48,7 +48,7 @@ Responses use `application/scim+json`, and errors use the SCIM Error schema with
 
 `userName` uniqueness is enforced case-insensitively, matching the spec's `caseExact=false` characteristic, so `bjensen` and `BJensen` are one identity.
 
-**Validated against [Microsoft's Entra ID SCIM validator](https://scimvalidator.microsoft.com/).** Core CRUD, filtering, and PATCH all pass. Known gap: the `User` schema is deliberately reduced to the attributes this server actually stores: `displayName`, `title`, `preferredLanguage`, `name.formatted`/`name.middleName`, and typed multi-valued emails aren't modeled, so Entra's attribute-completeness checks for those fail. Full [Entra app gallery](https://learn.microsoft.com/en-us/entra/identity/app-provisioning/) certification would mean adding them; that's out of scope for now.
+**Validated against [Microsoft's Entra ID SCIM validator](https://scimvalidator.microsoft.com/).** Core CRUD, filtering, and PATCH all pass. The `User` schema is deliberately reduced to a minimal set of typed columns — `displayName`, `title`, `preferredLanguage`, `name.formatted`/`name.middleName`, the enterprise extension and typed multi-valued emails aren't modeled that way. When a provider needs them, an operator registers the extra attributes per tenant (`scimage-admin attribute register`, gated by `SCIM_EXTENDED_ATTRIBUTES`) and the server captures and returns them through a JSONB pass-through — keeping the core minimal while still round-tripping whatever Okta or Entra maps. See [Configuration](docs/CONFIGURATION.md#extensible-attributes).
 
 ## 🏗️ How it's built
 

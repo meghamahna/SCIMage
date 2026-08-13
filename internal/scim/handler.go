@@ -3,6 +3,7 @@ package scim
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -27,19 +28,27 @@ type Handler struct {
 	store   UserStore
 	groups  GroupStore
 	tokens  TokenStore
+	attrs   AttributeStore
 	limiter *limiter
+
+	// extended turns on the extensible-attribute pass-through (Phase 14). Off
+	// by default: with it off the registry is never consulted and a user
+	// serialises exactly as it did before the feature existed.
+	extended bool
 
 	// externalURL overrides the Host header when set, which matters behind a
 	// TLS-terminating proxy: r.TLS is nil there, so derived links would be http.
 	externalURL string
 }
 
-func NewHandler(s UserStore, groups GroupStore, tokens TokenStore) *Handler {
+func NewHandler(s UserStore, groups GroupStore, tokens TokenStore, attrs AttributeStore) *Handler {
 	return &Handler{
 		store:       s,
 		groups:      groups,
 		tokens:      tokens,
+		attrs:       attrs,
 		limiter:     limiterFromEnv(),
+		extended:    os.Getenv("SCIM_EXTENDED_ATTRIBUTES") == "1",
 		externalURL: strings.TrimSuffix(os.Getenv("SCIM_BASE_URL"), "/"),
 	}
 }
@@ -88,12 +97,19 @@ func (h *Handler) Routes() http.Handler {
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
-	in, ok := decodeUser(w, r)
+	in, body, ok := decodeUser(w, r)
 	if !ok {
 		return
 	}
 
+	registered, err := h.registeredAttributes(r)
+	if err != nil {
+		serverError(w, "create user", err)
+		return
+	}
+
 	su := toStoreUser(in)
+	su.ExtendedAttributes = captureExtended(body, registered)
 	created, err := h.store.CreateUser(r.Context(), r.PathValue("tenantID"), &su, h.auditRecord(r))
 	if err != nil {
 		if errors.Is(err, store.ErrDuplicateUserName) {
@@ -106,7 +122,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 
 	out := fromStoreUser(created, h.baseURL(r))
 	w.Header().Set("Location", out.Meta.Location)
-	writeJSON(w, http.StatusCreated, out)
+	writeJSON(w, http.StatusCreated, shapeUser(out, created.ExtendedAttributes))
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
@@ -120,7 +136,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, fromStoreUser(u, h.baseURL(r)))
+	writeJSON(w, http.StatusOK, shapeUser(fromStoreUser(u, h.baseURL(r)), u.ExtendedAttributes))
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
@@ -142,12 +158,12 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	}
 
 	base := h.baseURL(r)
-	resources := make([]User, 0, len(users))
+	resources := make([]json.RawMessage, 0, len(users))
 	for i := range users {
-		resources = append(resources, fromStoreUser(&users[i], base))
+		resources = append(resources, shapeUser(fromStoreUser(&users[i], base), users[i].ExtendedAttributes))
 	}
 
-	writeJSON(w, http.StatusOK, ListResponse{
+	writeJSON(w, http.StatusOK, listOf[json.RawMessage]{
 		Schemas:      []string{listSchema},
 		TotalResults: total,
 		ItemsPerPage: len(resources),
@@ -157,7 +173,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) replace(w http.ResponseWriter, r *http.Request) {
-	in, ok := decodeUser(w, r)
+	in, body, ok := decodeUser(w, r)
 	if !ok {
 		return
 	}
@@ -171,7 +187,14 @@ func (h *Handler) replace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	registered, err := h.registeredAttributes(r)
+	if err != nil {
+		serverError(w, "update user", err)
+		return
+	}
+
 	su := toStoreUser(in)
+	su.ExtendedAttributes = captureExtended(body, registered)
 	changed, err := h.store.UpdateUser(r.Context(), tenantID, id, &su, h.auditRecord(r))
 	if err != nil {
 		switch {
@@ -185,7 +208,7 @@ func (h *Handler) replace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, fromStoreUser(changed.After, h.baseURL(r)))
+	writeJSON(w, http.StatusOK, shapeUser(fromStoreUser(changed.After, h.baseURL(r)), changed.After.ExtendedAttributes))
 }
 
 // PATCH applies a set of operations to the stored resource. It reads the
@@ -218,14 +241,36 @@ func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	patched, err := applyPatch(fromStoreUser(existing, h.baseURL(r)), ops)
+	registered, err := h.registeredAttributes(r)
 	if err != nil {
-		scimType := "invalidValue"
-		if errors.Is(err, errUnsupportedPath) {
-			scimType = "invalidPath"
-		}
-		writeError(w, http.StatusBadRequest, scimType, err.Error())
+		serverError(w, "patch user", err)
 		return
+	}
+
+	// Operations that target a registered extended attribute are peeled off and
+	// applied to the JSONB blob; everything else runs through the core PATCH
+	// path unchanged, so an unregistered non-core path still yields invalidPath.
+	coreOps, extOps, err := splitExtendedOps(ops, registered)
+	if err != nil {
+		serverError(w, "patch user", err)
+		return
+	}
+
+	current := fromStoreUser(existing, h.baseURL(r))
+	patched := current
+	// Run the core PATCH when there are core ops, or when there are no
+	// extended ops either — the latter lets applyPatch report an empty
+	// Operations list, so an extended-only patch is the only case that skips it.
+	if len(coreOps.Operations) > 0 || len(extOps) == 0 {
+		patched, err = applyPatch(current, coreOps)
+		if err != nil {
+			scimType := "invalidValue"
+			if errors.Is(err, errUnsupportedPath) {
+				scimType = "invalidPath"
+			}
+			writeError(w, http.StatusBadRequest, scimType, err.Error())
+			return
+		}
 	}
 
 	if detail := validate(patched); detail != "" {
@@ -233,7 +278,14 @@ func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	newExtended, err := applyExtendedOps(existing.ExtendedAttributes, extOps)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalidValue", "an extended attribute value is not valid JSON")
+		return
+	}
+
 	su := toStoreUser(patched)
+	su.ExtendedAttributes = newExtended
 	changed, err := h.store.UpdateUser(r.Context(), tenantID, id, &su, h.auditRecord(r))
 	if err != nil {
 		switch {
@@ -247,7 +299,7 @@ func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, fromStoreUser(changed.After, h.baseURL(r)))
+	writeJSON(w, http.StatusOK, shapeUser(fromStoreUser(changed.After, h.baseURL(r)), changed.After.ExtendedAttributes))
 }
 
 // DELETE is a soft delete: the row survives with active=false.
@@ -479,28 +531,41 @@ func clientIP(r *http.Request) string {
 }
 
 // decodeUser writes the error response itself and reports whether the payload
-// is usable. Unknown fields are accepted: real IdPs send externalId, groups and
-// enterprise-extension attributes this server doesn't model.
-func decodeUser(w http.ResponseWriter, r *http.Request) (User, bool) {
-	var u User
-
+// is usable. It returns both the typed user and the raw top-level keys, so the
+// extensible-attribute capture can pull registered names the typed struct
+// doesn't model. Unknown fields are otherwise accepted and dropped: real IdPs
+// send externalId, groups and enterprise-extension attributes this server
+// doesn't model.
+func decodeUser(w http.ResponseWriter, r *http.Request) (User, map[string]json.RawMessage, bool) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
-	if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			writeError(w, http.StatusRequestEntityTooLarge, "", "request body is too large")
-			return u, false
+			return User{}, nil, false
 		}
 		writeError(w, http.StatusBadRequest, "invalidSyntax", "request body is not valid JSON")
-		return u, false
+		return User{}, nil, false
+	}
+
+	var u User
+	if err := json.Unmarshal(raw, &u); err != nil {
+		writeError(w, http.StatusBadRequest, "invalidSyntax", "request body is not valid JSON")
+		return User{}, nil, false
 	}
 
 	if detail := validate(u); detail != "" {
 		writeError(w, http.StatusBadRequest, "invalidValue", detail)
-		return u, false
+		return User{}, nil, false
 	}
 
-	return u, true
+	// The typed decode above already proved the body is a JSON object, so this
+	// second pass into a key map can't fail on shape.
+	var body map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &body)
+
+	return u, body, true
 }
 
 // validate returns an empty string when the payload is acceptable. Extension

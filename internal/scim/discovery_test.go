@@ -178,7 +178,7 @@ func attrsByName(s resourceSchema) map[string]schemaAttribute {
 // Discovery describes the server, so it sits behind the same bearer check as
 // everything else.
 func TestDiscoveryRequiresAuth(t *testing.T) {
-	routes := NewHandler(nil, nil, fakeTokenStore{tok: validFakeToken()}).Routes()
+	routes := NewHandler(nil, nil, fakeTokenStore{tok: validFakeToken()}, nil).Routes()
 
 	for _, path := range []string{
 		"/scim/v2/" + fakeTenantID + "/ServiceProviderConfig",

@@ -160,7 +160,30 @@ func (h *Handler) resourceTypes(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) schemas(w http.ResponseWriter, r *http.Request) {
 	base := h.baseURL(r)
-	writeJSON(w, http.StatusOK, newList([]resourceSchema{userResourceSchema(base), groupResourceSchema(base)}))
+	user := userResourceSchema(base)
+
+	// Registered extended attributes (Phase 14) are advertised alongside the
+	// core ones, so an IdP admin can discover and map to them — the same
+	// "declaration matches behaviour" principle the rest of this document keeps.
+	if h.extended && h.attrs != nil {
+		attrs, err := h.attrs.ListAttributes(r.Context(), r.PathValue("tenantID"))
+		if err != nil {
+			serverError(w, "list registered attributes", err)
+			return
+		}
+		for _, a := range attrs {
+			user.Attributes = append(user.Attributes, schemaAttribute{
+				Name:        a.Name,
+				Type:        a.Type,
+				Description: "Registered extended attribute.",
+				Mutability:  "readWrite",
+				Returned:    "default",
+				Uniqueness:  "none",
+			})
+		}
+	}
+
+	writeJSON(w, http.StatusOK, newList([]resourceSchema{user, groupResourceSchema(base)}))
 }
 
 // userResourceSchema describes only the attributes this server stores, so the

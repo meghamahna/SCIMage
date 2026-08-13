@@ -55,6 +55,7 @@ func newTestTenant(t *testing.T, s *Store) string {
 			`DELETE FROM audit_log WHERE tenant_id = $1`,
 			`DELETE FROM admin_audit_log WHERE tenant_id = $1`,
 			`DELETE FROM scim_tokens WHERE tenant_id = $1`,
+			`DELETE FROM tenant_attributes WHERE tenant_id = $1`,
 			`DELETE FROM group_members WHERE tenant_id = $1`,
 			`DELETE FROM groups WHERE tenant_id = $1`,
 			`DELETE FROM users WHERE tenant_id = $1`,

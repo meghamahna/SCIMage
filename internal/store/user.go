@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -26,10 +27,17 @@ type User struct {
 	Active     bool      `json:"active"`
 	CreatedAt  time.Time `json:"createdAt"`
 	UpdatedAt  time.Time `json:"updatedAt"`
+
+	// ExtendedAttributes is the raw JSONB blob of registered extra attributes
+	// (Phase 14) — extra top-level SCIM keys a tenant opted into rather than
+	// the server modelling them as typed columns. json.RawMessage so it rides
+	// the audit before/after images as raw JSON rather than base64, and is
+	// omitted entirely when empty (the default for every user).
+	ExtendedAttributes json.RawMessage `json:"extendedAttributes,omitempty"`
 }
 
 // Order must match scanUser.
-const userColumns = `id, user_name, external_id, given_name, family_name, email, active, created_at, updated_at`
+const userColumns = `id, user_name, external_id, given_name, family_name, email, active, created_at, updated_at, extended_attributes`
 
 // UserFilter narrows a listing to the equality matches SCIM clients use to
 // reconcile. The zero value (besides tenantID) lists everything for that
@@ -96,7 +104,10 @@ const uniqueUserNameIndex = "idx_users_tenant_username"
 
 // pgx.Rows satisfies pgx.Row, so single- and multi-row queries share this.
 func scanUser(row pgx.Row) (*User, error) {
-	var u User
+	var (
+		u        User
+		extended []byte
+	)
 	err := row.Scan(
 		&u.ID,
 		&u.UserName,
@@ -107,24 +118,31 @@ func scanUser(row pgx.Row) (*User, error) {
 		&u.Active,
 		&u.CreatedAt,
 		&u.UpdatedAt,
+		&extended,
 	)
 	if err != nil {
 		return nil, err
 	}
+	u.ExtendedAttributes = extended
 	return &u, nil
 }
 
 func scanChange(row pgx.Row) (*Change, error) {
-	var before, after User
+	var (
+		before, after                 User
+		beforeExtended, afterExtended []byte
+	)
 	err := row.Scan(
 		&before.ID, &before.UserName, &before.ExternalID, &before.GivenName,
-		&before.FamilyName, &before.Email, &before.Active, &before.CreatedAt, &before.UpdatedAt,
+		&before.FamilyName, &before.Email, &before.Active, &before.CreatedAt, &before.UpdatedAt, &beforeExtended,
 		&after.ID, &after.UserName, &after.ExternalID, &after.GivenName,
-		&after.FamilyName, &after.Email, &after.Active, &after.CreatedAt, &after.UpdatedAt,
+		&after.FamilyName, &after.Email, &after.Active, &after.CreatedAt, &after.UpdatedAt, &afterExtended,
 	)
 	if err != nil {
 		return nil, err
 	}
+	before.ExtendedAttributes = beforeExtended
+	after.ExtendedAttributes = afterExtended
 	return &Change{Before: &before, After: &after}, nil
 }
 
@@ -133,8 +151,8 @@ func scanChange(row pgx.Row) (*Change, error) {
 // caseExact=false, so "bjensen" and "BJensen" are the same identity — within
 // one tenant; two tenants can each provision their own "bjensen".
 func (s *Store) CreateUser(ctx context.Context, tenantID string, u *User, rec AuditRecord) (*User, error) {
-	const q = `INSERT INTO users (tenant_id, user_name, external_id, given_name, family_name, email, active)
-	           VALUES ($1, $2, $3, $4, $5, $6, $7)
+	const q = `INSERT INTO users (tenant_id, user_name, external_id, given_name, family_name, email, active, extended_attributes)
+	           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	           RETURNING ` + userColumns
 
 	tx, err := s.pool.Begin(ctx)
@@ -144,7 +162,7 @@ func (s *Store) CreateUser(ctx context.Context, tenantID string, u *User, rec Au
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
 
 	created, err := scanUser(tx.QueryRow(ctx, q,
-		tenantID, u.UserName, u.ExternalID, u.GivenName, u.FamilyName, u.Email, u.Active))
+		tenantID, u.UserName, u.ExternalID, u.GivenName, u.FamilyName, u.Email, u.Active, jsonbParam(u.ExtendedAttributes)))
 	if err != nil {
 		if isUniqueViolation(err) {
 			s.auditRefusal(ctx, rec, ResourceUser, ActionCreate, "", "duplicate userName")
@@ -246,6 +264,7 @@ func (s *Store) UpdateUser(ctx context.Context, tenantID, id string, u *User, re
 	              family_name = $6,
 	              email = $7,
 	              active = $8,
+	              extended_attributes = $9,
 	              updated_at = now()
 	          WHERE tenant_id = $1 AND id = $2
 	          RETURNING ` + userColumns + `
@@ -259,7 +278,7 @@ func (s *Store) UpdateUser(ctx context.Context, tenantID, id string, u *User, re
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
 
 	change, err := scanChange(tx.QueryRow(ctx, q,
-		tenantID, id, u.UserName, u.ExternalID, u.GivenName, u.FamilyName, u.Email, u.Active))
+		tenantID, id, u.UserName, u.ExternalID, u.GivenName, u.FamilyName, u.Email, u.Active, jsonbParam(u.ExtendedAttributes)))
 	if err != nil {
 		switch {
 		case isMissingRow(err):
@@ -341,6 +360,17 @@ func isMissingRow(err error) bool {
 
 func isUniqueViolation(err error) bool {
 	return isUniqueViolationOn(err, uniqueUserNameIndex)
+}
+
+// jsonbParam binds a JSONB column parameter. An empty blob becomes SQL NULL;
+// otherwise the raw JSON is sent as a string, which Postgres parses into the
+// jsonb column — sending the []byte directly would be bound as bytea and
+// rejected.
+func jsonbParam(raw json.RawMessage) any {
+	if len(raw) == 0 {
+		return nil
+	}
+	return string(raw)
 }
 
 // isUniqueViolationOn matches a specific unique index by name, so a 23505 on

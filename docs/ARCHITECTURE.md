@@ -34,7 +34,7 @@ the mux has matched anything, which is the only point `net/http`'s own
 
 ## Storage model
 
-Eight tables, described in `/migrations`:
+Nine tables, described in `/migrations`:
 
 | Table | Holds |
 | --- | --- |
@@ -44,7 +44,8 @@ Eight tables, described in `/migrations`:
 | `groups` | Groups, scoped by `tenant_id`. Unlike `users`, `DELETE` is a real deletion: the Group schema has no `active` attribute to soft-delete into |
 | `group_members` | The membership join table: `(group_id, user_id)`, with every reference validated against the same tenant before it's inserted |
 | `audit_log` | One row per mutating SCIM call, for either resource: tenant, resource type, actor, action, target, timestamp, before/after |
-| `admin_audit_log` | One row per privileged CLI action: who created a tenant, issued or revoked a token, and when |
+| `admin_audit_log` | One row per privileged CLI action: who created a tenant, issued or revoked a token, registered an attribute, and when |
+| `tenant_attributes` | The per-tenant extensible-attribute registry: which extra attribute names to capture into `users.extended_attributes`, and the type to declare in `/Schemas` |
 | `webhook_deliveries` | The outbound queue: tenant, payload, status, attempts, lease |
 
 ## Multi-tenancy
@@ -137,6 +138,36 @@ An implementation carries three obligations the compiler leaves open:
 The interface currently lives in `internal/scim`, so supplying an implementation
 means forking rather than importing. Moving the domain types to an importable
 package turns it into a published extension point.
+
+## Extensible attributes
+
+The typed `users` columns are a deliberate, minimal set. Rather than grow them
+to chase every attribute an identity provider might map, the server offers a
+controlled extension point: a tenant registers the extra attribute names it
+wants (`tenant_attributes`), and those keys are captured from incoming payloads
+into one JSONB column (`users.extended_attributes`) and merged back on reads.
+Unregistered attributes are still dropped.
+
+The design keeps the core honest and the addition additive:
+
+- **Off by default.** With `SCIM_EXTENDED_ATTRIBUTES` unset or nothing
+  registered, the registry is never consulted and a user serialises exactly as
+  before — one JSONB column that is simply `NULL`.
+- **Capture and PATCH consult the registry; plain reads don't.** A `GET` merges
+  whatever is already stored, so it never depends on a registry lookup. Only
+  writes (to know which body keys to keep) and the `/Schemas` document (to
+  advertise them) query `tenant_attributes`.
+- **Core attributes always win.** A captured value can never shadow a typed
+  attribute — the merge skips any key the core resource already carries, and the
+  registry refuses to register a core name in the first place.
+- **It rides the existing guarantees.** The blob is part of the `store.User`
+  the audit log serialises, so an extended attribute's before/after state is in
+  the trail like everything else; a `PATCH` on a registered name is applied in
+  the same full-replace transaction as the rest of the change.
+
+The registered name is a top-level SCIM key, which covers the enterprise
+extension as a whole object but not an individually-addressable sub-attribute
+path — a documented v1 boundary.
 
 ## Change delivery
 

@@ -28,6 +28,12 @@ var (
 	// silently dropped, the same fail-closed reasoning every other
 	// cross-tenant check in this codebase uses.
 	ErrInvalidMember = errors.New("invalid member reference")
+
+	// ErrDuplicateAttribute and ErrReservedAttribute guard the extensible
+	// attribute registry: a tenant can't register the same name twice, nor
+	// shadow a core attribute the server already models.
+	ErrDuplicateAttribute = errors.New("attribute already registered")
+	ErrReservedAttribute  = errors.New("attribute name is reserved")
 )
 
 type Store struct {

@@ -56,6 +56,42 @@ for what retries and what parks immediately.
 | `LOG_LEVEL` | `debug`, `info`, `warn` or `error`. Defaults to `info`. |
 | `SCIM_LOG_REQUESTS` | Set to `1` to record request bodies. Off by default. |
 
+## Extensible attributes
+
+| Variable | Purpose |
+| --- | --- |
+| `SCIM_EXTENDED_ATTRIBUTES` | Set to `1` to capture and return attributes a tenant has registered. Off by default. |
+
+By design this server models a minimal, honest set of User attributes as typed
+columns. When an identity provider needs to sync more — a known SCIM attribute
+this server doesn't model (`displayName`, `title`, `phoneNumbers`, the
+enterprise extension, …) or a fully custom field — an operator can register it
+per tenant, and the server captures it into a single JSONB column and returns
+it, rather than dropping it. Registered attributes are advertised in that
+tenant's `/Schemas` document, so an IdP admin can discover and map to them.
+
+```bash
+scimage-admin attribute register -tenant <tenantID> -name displayName [-type string]
+scimage-admin attribute register -tenant <tenantID> -name "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User"
+scimage-admin attribute list -tenant <tenantID>
+scimage-admin attribute unregister -tenant <tenantID> -name displayName
+```
+
+Two steps turn it on: set `SCIM_EXTENDED_ATTRIBUTES=1` on the server, and
+register the names you want with the CLI. With the flag unset, or nothing
+registered, a user serialises exactly as it did before — the feature has zero
+effect until both are in place.
+
+A registered name is a **top-level** key of the SCIM resource. That covers
+`displayName`, `phoneNumbers`, `addresses`, custom fields, and the enterprise
+extension as its whole `urn:…:enterprise:2.0:User` object. A path into an
+extension (e.g. patching `urn:…:department` on its own) isn't individually
+addressable — register the URN and replace the whole object, or map the IdP to
+a top-level custom attribute. Core attributes (`userName`, `emails`, `active`,
+…) can't be registered; they're already modelled, and a captured value is never
+allowed to shadow one. Unregistering stops future capture and advertising; it
+doesn't touch values already stored.
+
 `SCIM_LOG_REQUESTS=1` records full request bodies, which is how a client's actual
 behaviour gets diagnosed. Those entries carry user attributes, so the directory
 is created `0700` and files `0600`. In a container, set `LOG_DIR=` empty and let

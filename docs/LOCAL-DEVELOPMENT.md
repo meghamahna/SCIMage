@@ -62,7 +62,10 @@ SERVICE=postgres`, not `--service=postgres`.
 | `make token TENANT=<id> LABEL="Okta prod"` | Issues a token for a tenant | Optional `EXPIRES=90d`; token is shown once |
 | `make token-list TENANT=<id>` | Lists a tenant's tokens | Never shows the secret, only metadata |
 | `make token-revoke KEY=<keyID>` | Revokes a token immediately | Irreversible; idempotent on an already-revoked key |
-| `make audit-list [TENANT=<id>]` | Reads the admin-audit trail | Every tenant created, token issued or revoked; omit `TENANT` for every tenant |
+| `make attr-register TENANT=<id> NAME=displayName` | Registers an extra attribute a tenant should capture | Optional `TYPE=string`; server captures it only with `SCIM_EXTENDED_ATTRIBUTES=1` |
+| `make attr-list TENANT=<id>` | Lists a tenant's registered extra attributes | |
+| `make attr-unregister TENANT=<id> NAME=displayName` | Removes a registered attribute | Stops future capture; doesn't touch stored values |
+| `make audit-list [TENANT=<id>]` | Reads the admin-audit trail | Every tenant created, token issued or revoked, attribute registered; omit `TENANT` for every tenant |
 | `make hooks-install` | Activates the real git pre-commit hook | One-time per clone; doesn't travel with the repo |
 
 ## Supported attributes

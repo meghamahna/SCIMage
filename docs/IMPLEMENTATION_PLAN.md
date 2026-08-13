@@ -321,6 +321,32 @@ on activity, the code decides.
 - [ ] Okta and Entra setup guides, and a threat model
 - [ ] Tag v1.0.0
 
+### Phase 14: Extensible attributes
+Prompted by an Entra SCIM-validator run against `/Groups` and `/Users`: two
+real Group interop bugs, and a long tail of user attributes the deliberately
+minimal schema drops. Rather than grow the typed schema (and lose the "minimal,
+honest schema" positioning), the server gains a controlled extension point.
+- [x] Group interop: an empty group returns `members: []` rather than omitting
+      the key, and `excludedAttributes=members` (which Okta and Entra send on
+      group reads) is honored. Response-shaping only, no model change
+- [x] Per-tenant registry (`tenant_attributes`) of extra attribute names to
+      capture, managed by `scimage-admin attribute register|list|unregister`,
+      each write admin-audited in its own transaction
+- [x] One additive JSONB column (`users.extended_attributes`) captures the
+      registered keys from create/replace/PATCH and merges them back on reads;
+      a captured value can never shadow a core attribute
+- [x] Gated by `SCIM_EXTENDED_ATTRIBUTES`; inert (exact prior behaviour) with
+      the flag off or nothing registered
+- [x] Registered attributes advertised in the tenant's `/Schemas` document
+- [x] Store and handler tests, including the flag-off no-op guarantee
+
+**Decisions.** Users only (nearly all provider attribute mapping is on users).
+A registered name is a top-level SCIM key — covering the enterprise extension
+as a whole object, but not an individually-addressable sub-attribute path, a
+documented v1 boundary. Filtering grammar, sort, ETag, Bulk and `.search` stay
+unsupported: the same validator run confirmed neither Okta nor Entra needs them
+for provisioning, and they're advertised as unsupported.
+
 ## Time estimate
 Phases 1-2 (Docker + schema): one evening.
 Phases 3-5 (store + endpoints + auth): two evenings.
