@@ -107,7 +107,7 @@ func (f *fakeStore) DeactivateUser(_ context.Context, _, _ string, rec store.Aud
 // environment, so these stay deterministic however SCIM_RATE_LIMIT and
 // SCIM_BASE_URL are set. Both have their own tests.
 func fakeHandler(s UserStore) http.Handler {
-	h := NewHandler(s, fakeTokenStore{tok: validFakeToken()})
+	h := NewHandler(s, nil, fakeTokenStore{tok: validFakeToken()}, nil)
 	h.limiter = nil
 	h.externalURL = ""
 	return h.Routes()

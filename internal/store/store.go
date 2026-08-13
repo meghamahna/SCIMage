@@ -20,6 +20,20 @@ var (
 	// sharing a display name, even by casing alone, is a support incident
 	// waiting to happen.
 	ErrDuplicateTenantName = errors.New("tenant name already exists")
+
+	ErrGroupNotFound      = errors.New("group not found")
+	ErrDuplicateGroupName = errors.New("displayName already exists")
+	// ErrInvalidMember is a members reference to a user id that doesn't
+	// exist, or that belongs to another tenant — rejected rather than
+	// silently dropped, the same fail-closed reasoning every other
+	// cross-tenant check in this codebase uses.
+	ErrInvalidMember = errors.New("invalid member reference")
+
+	// ErrDuplicateAttribute and ErrReservedAttribute guard the extensible
+	// attribute registry: a tenant can't register the same name twice, nor
+	// shadow a core attribute the server already models.
+	ErrDuplicateAttribute = errors.New("attribute already registered")
+	ErrReservedAttribute  = errors.New("attribute name is reserved")
 )
 
 type Store struct {

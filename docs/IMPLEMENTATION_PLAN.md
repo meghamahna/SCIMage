@@ -1,8 +1,8 @@
 # Implementation Plan: SCIM 2.0 Provisioning Server (Go + Postgres)
 
 ## Goal
-Build a working SCIM 2.0 server in Go that implements the `/Users`
-resource per RFC 7644, backed by Postgres running in Docker, with
+Build a working SCIM 2.0 server in Go that implements the `/Users` and
+`/Groups` resources per RFC 7644, backed by Postgres running in Docker, with
 production-grade security practices and an AI-assisted audit layer.
 
 ## Why Postgres
@@ -20,7 +20,7 @@ built to show.
 ```text
 /cmd/server           entrypoint for the SCIM server
 /cmd/scimage-admin    tenant and token administration (Phase 10)
-/cmd/scimtrace        audit reviewer (Phase 12)
+/cmd/aria             audit reviewer (Phase 12)
 /internal/scim        HTTP handlers, SCIM models, auth, rate limiting
 /internal/store       Postgres-backed store, audit log and outbox, raw SQL
 /internal/webhook     signing and the outbound delivery dispatcher
@@ -114,9 +114,11 @@ These landed alongside the code they cover, so each phase shipped verified.
 - [x] Deterministic under repeated runs. Both packages write to the same
       `users` table and `go test` parallelises across packages, so the
       store's row-count assertions raced against the handler tests
-      creating users, reproducible at `-count=20`. `make test` and the
-      pre-commit hook pass `-p 1`, which serialises packages within a run.
-      Per-tenant scoping will make that isolation structural and retire it
+      creating users, reproducible at `-count=20`. The original fix passed
+      `-p 1` to serialise packages within a run. Per-tenant scoping (Phase 10)
+      later made that isolation structural, so `make test` dropped `-p 1` and
+      runs packages concurrently; CI and the pre-commit hook still pass it as
+      a belt-and-suspenders
 
 ### Phase 7: Security hardening
 - [x] Validate every incoming SCIM payload against the expected schema
@@ -141,7 +143,7 @@ These landed alongside the code they cover, so each phase shipped verified.
       place immediately: `golang.org/x/text` v0.29.0 had a reachable
       infinite-loop bug via `pgxpool.New`, now on v0.40.0
 
-SCIMTrace AI reads the `audit_log` table directly. One authoritative copy of
+ARIA reads the `audit_log` table directly. One authoritative copy of
 the audit trail is what gives the transactional guarantee its meaning; a
 JSON-lines export for log shipping can layer on top.
 
@@ -210,17 +212,18 @@ user's transition, so `DELETE` and `PATCH active:false` both emit
 shutdown landed here, ahead of Phase 13, to give the dispatcher a defined stop.
 
 **Open for later.** Retention for `delivered` rows belongs with the Phase 13
-operational work. `DeadLetters` reads the parked queue; replay arrives with
-`cmd/scimage-admin` in Phase 10, which also brings per-endpoint subscriptions.
-Today there is one endpoint from the environment, and the delivery row gains a
-subscription reference when tenants arrive. The `UserStore` interface lives in
+operational work. `DeadLetters` reads the parked queue; a `webhook replay`
+subcommand for `cmd/scimage-admin`, and per-endpoint subscriptions, remain
+unbuilt — Phase 10 landed tenants and tokens but not these. Today there is one
+endpoint from the environment, and the delivery row would gain a subscription
+reference if per-endpoint delivery ships. The `UserStore` interface lives in
 `internal/scim`, so supplying an implementation means forking; moving the
 domain types to an importable package turns it into a real extension point when
 someone needs it.
 
 ### Phase 10: Multi-tenancy and issued API tokens
 The shape real SCIM service providers ship. It also gives the audit `actor`
-and SCIMTrace AI's per-caller volume signal something to distinguish.
+and ARIA's per-caller volume signal something to distinguish.
 
 **Addressing.** Tenant in the path (one host, one certificate, plain DNS for
 self-hosters): `https://<host>/scim/v2/{tenantID}/Users`. That URL is what a
@@ -249,7 +252,8 @@ recognise a leaked token.
       `token revoke`. A CLI keeps the privileged surface off the network
 - [x] Every store query scoped by `tenant_id`, with cross-tenant isolation
       covered by tests. Per-tenant scoping also makes test isolation
-      structural, retiring `-p 1`
+      structural, so `make test` dropped `-p 1` and runs packages
+      concurrently (CI and the pre-commit hook keep it as a safety belt)
 
 **Addendum: enterprise governance gaps found after shipping.** Reviewing
 Phase 10 against what an enterprise operator would actually need surfaced
@@ -267,18 +271,42 @@ three gaps the checklist above didn't ask for:
       action (identical discipline to `audit_log`), closes that; surfaced
       via `scimage-admin audit list [-tenant <id>]`
 
-### Phase 11: Groups
-- [ ] `/Groups` resource: create, fetch, list, replace, delete
-- [ ] Membership, including `PATCH` on members
-- [ ] Group tests against the real store
+### Phase 11: Groups and Extended Attributes
+- [x] `/Groups` resource: create, fetch, list, replace, delete
+- [x] Membership, including `PATCH` on members
+- [x] Group tests against the real store
+- [x] Group interop (Entra validator): an empty group returns `members: []`,
+      and `excludedAttributes=members` (which Okta and Entra send) is honored
+- [x] Per-tenant extensible attributes (Users): a `tenant_attributes` registry
+      via `scimage-admin attribute register|list|unregister` (admin-audited),
+      with registered keys captured into an additive `users.extended_attributes`
+      JSONB column and advertised in `/Schemas`; gated by
+      `SCIM_EXTENDED_ATTRIBUTES`, inert when off
 
-### Phase 12: SCIMTrace AI
+**Decisions.** `DELETE /Groups/{id}` is a hard delete, unlike Users: RFC 7643's
+Group schema has no `active` attribute, so there is nothing to soft-delete
+into. `displayName` uniqueness is enforced per tenant, case-insensitive, the
+same reconciliation reasoning `userName` already uses. Membership lives in a
+`group_members` join table rather than an array column, validated against
+this tenant's `users` in the same statement that inserts it — a foreign or
+made-up member id rolls the whole mutation back rather than being silently
+dropped. `audit_log` gained a `resource_type` column and `AuditEntry`'s
+before/after images became raw JSON rather than a `*store.User`-typed pair:
+one audit trail now covers both resources, which is what Phase 12's
+ARIA needs to see a bulk group deletion alongside a bulk user
+deactivation. Group mutations also enqueue webhook events
+(`group.created`/`replaced`/`deleted`) through the existing, resource-agnostic
+outbox and dispatcher from Phase 9 — group-to-role mapping is a common reason
+enterprises adopt SCIM groups at all, and the dispatcher needed no changes to
+carry them.
+
+### Phase 12: ARIA
 This tool reads the audit log and produces a plain-English summary for a human
 reviewer. It surfaces signal, while every authorization and provisioning
 decision stays in deterministic code, AI purely advisory, which is the design
-choice worth explaining in an interview. The name reflects that: it traces
-and reports on activity, the code decides.
-- [ ] CLI (`cmd/scimtrace`) that reads the `audit_log` table
+choice worth explaining in an interview. The name reflects that: it advises
+on activity, the code decides.
+- [ ] CLI (`cmd/aria`) that reads the `audit_log` table
 - [ ] Calls an LLM (Claude API) with recent entries to flag patterns
       worth a look: bulk deactivations in a short window, off-hours
       changes, a token spiking in call volume
@@ -304,16 +332,3 @@ and reports on activity, the code decides.
 - [ ] Okta and Entra setup guides, and a threat model
 - [ ] Tag v1.0.0
 
-## Time estimate
-Phases 1-2 (Docker + schema): one evening.
-Phases 3-5 (store + endpoints + auth): two evenings.
-Phase 6 (tests): landed alongside the phases above.
-Phase 7 (security hardening): one evening.
-Phase 8 (IdP interoperability): a few evenings, paced by a live tenant.
-Phase 9 (change delivery): several evenings; webhook delivery earns its
-own design pass.
-Phase 10 (multi-tenancy + tokens): a week, touching schema, store, router
-and CLI.
-Phase 11 (Groups): a week.
-Phase 12 (SCIMTrace AI): one evening.
-Phase 13 (release engineering): spread across the phases above.

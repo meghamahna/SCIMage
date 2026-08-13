@@ -9,6 +9,7 @@ import (
 
 const (
 	userSchema  = "urn:ietf:params:scim:schemas:core:2.0:User"
+	groupSchema = "urn:ietf:params:scim:schemas:core:2.0:Group"
 	listSchema  = "urn:ietf:params:scim:api:messages:2.0:ListResponse"
 	errorSchema = "urn:ietf:params:scim:api:messages:2.0:Error"
 
@@ -76,6 +77,33 @@ type Meta struct {
 	Created      time.Time `json:"created"`
 	LastModified time.Time `json:"lastModified"`
 	Location     string    `json:"location"`
+}
+
+// Group is the Group resource (RFC 7643 §4.2). Unlike User there is no
+// active attribute: the schema gives a group nothing to soft-delete into,
+// which is why DELETE /Groups is a real deletion rather than a deactivation.
+type Group struct {
+	Schemas []string `json:"schemas"`
+	ID      string   `json:"id,omitempty"`
+
+	// ExternalID mirrors User's: stored and returned unchanged, for an
+	// identity provider's own reconciliation key.
+	ExternalID string `json:"externalId,omitempty"`
+
+	DisplayName string   `json:"displayName"`
+	Members     []Member `json:"members,omitempty"`
+	Meta        *Meta    `json:"meta,omitempty"`
+}
+
+// Display is accepted on input (RFC 7643 allows it) but never populated on
+// output: populating it would mean a join back to Users on every member of
+// every read, and nothing in this server's interop testing has needed it.
+// It's left out of the /Schemas declaration for that reason — see
+// groupResourceSchema.
+type Member struct {
+	Value   string `json:"value"`
+	Ref     string `json:"$ref,omitempty"`
+	Display string `json:"display,omitempty"`
 }
 
 // Resources is capitalised per RFC 7644 §3.4.2.

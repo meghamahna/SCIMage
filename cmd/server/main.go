@@ -84,7 +84,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           scim.NewHandler(s, s).Routes(),
+		Handler:           scim.NewHandler(s, s, s, s).Routes(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

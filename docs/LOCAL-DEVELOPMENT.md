@@ -62,7 +62,10 @@ SERVICE=postgres`, not `--service=postgres`.
 | `make token TENANT=<id> LABEL="Okta prod"` | Issues a token for a tenant | Optional `EXPIRES=90d`; token is shown once |
 | `make token-list TENANT=<id>` | Lists a tenant's tokens | Never shows the secret, only metadata |
 | `make token-revoke KEY=<keyID>` | Revokes a token immediately | Irreversible; idempotent on an already-revoked key |
-| `make audit-list [TENANT=<id>]` | Reads the admin-audit trail | Every tenant created, token issued or revoked; omit `TENANT` for every tenant |
+| `make attr-register TENANT=<id> NAME=displayName` | Registers an extra attribute a tenant should capture | Optional `TYPE=string`; server captures it only with `SCIM_EXTENDED_ATTRIBUTES=1` |
+| `make attr-list TENANT=<id>` | Lists a tenant's registered extra attributes | |
+| `make attr-unregister TENANT=<id> NAME=displayName` | Removes a registered attribute | Stops future capture; doesn't touch stored values |
+| `make audit-list [TENANT=<id>]` | Reads the admin-audit trail | Every tenant created, token issued or revoked, attribute registered; omit `TENANT` for every tenant |
 | `make hooks-install` | Activates the real git pre-commit hook | One-time per clone; doesn't travel with the repo |
 
 ## Supported attributes
@@ -86,6 +89,21 @@ Not modeled: `displayName`, `title`, `preferredLanguage`, `name.formatted`,
 not an oversight; see the [README](../README.md) for the Entra validator
 results this shows up in.
 
+What `POST`/`PUT`/`PATCH /Groups` accepts and returns, same source-of-truth
+reasoning:
+
+| Attribute | Notes |
+| --- | --- |
+| `id` | Server-assigned, read-only |
+| `externalId` | The identity provider's own key, for reconciliation |
+| `displayName` | Required; unique per tenant, case-insensitively |
+| `members[].value`, `members[].$ref` | User ids and a link back to `/Users/{id}`; `members[].display` is accepted but never populated |
+| `meta.resourceType`, `.created`, `.lastModified`, `.location` | Server-managed |
+
+`DELETE /Groups/{id}` is a real deletion, not the soft delete `DELETE
+/Users/{id}` does — the Group schema has no `active` attribute to
+deactivate into.
+
 ## Migrations
 
 Schema migrations live in [`migrations/`](../migrations/) and are managed
@@ -96,11 +114,13 @@ ready first, then uses a host `migrate` binary if you have one and otherwise
 runs the official `migrate/migrate` image on the compose network, so no local
 install is required either way.
 
-To add a migration, create the next numbered pair by hand:
+To add a migration, create the next numbered pair by hand (check
+`migrations/` for the current highest number — this example is illustrative,
+not the literal next one):
 
 ```text
-migrations/000007_<description>.up.sql
-migrations/000007_<description>.down.sql
+migrations/000010_<description>.up.sql
+migrations/000010_<description>.down.sql
 ```
 
 Write the `down` half alongside it, and test the round trip
@@ -153,14 +173,15 @@ directory is `0700`, files are `0600`, and `logs/` is gitignored.
 
 ## Audit trail
 
-Every create, replace and deactivate writes a row to `audit_log` in the same
-transaction as the change; every tenant/token admin action writes a row to
-`admin_audit_log` the same way (see the table above for reading it back via
-`scimage-admin audit list`). To query `audit_log` directly:
+Every create, replace, deactivate and delete — for both `/Users` and
+`/Groups` — writes a row to `audit_log` in the same transaction as the
+change; every tenant/token admin action writes a row to `admin_audit_log`
+the same way (see the table above for reading it back via `scimage-admin
+audit list`). To query `audit_log` directly:
 
 ```bash
 docker compose exec postgres psql -U scimage -d scimage -c \
-  "SELECT at, actor_token, action, result, target_id FROM audit_log ORDER BY at DESC LIMIT 10;"
+  "SELECT at, resource_type, actor_token, action, result, target_id FROM audit_log ORDER BY at DESC LIMIT 10;"
 ```
 
 ## Run tests

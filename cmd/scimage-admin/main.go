@@ -47,6 +47,8 @@ func run(args []string) error {
 		return tenantCmd(ctx, s, args[1], args[2:])
 	case "token":
 		return tokenCmd(ctx, s, args[1], args[2:])
+	case "attribute":
+		return attributeCmd(ctx, s, args[1], args[2:])
 	case "audit":
 		return auditCmd(ctx, s, args[1], args[2:])
 	default:
@@ -61,6 +63,9 @@ func usageError() error {
   scimage-admin token issue -tenant <tenantID> -label "Okta prod" [-expires 90d] [-created-by "who"]
   scimage-admin token list -tenant <tenantID>
   scimage-admin token revoke <keyID>
+  scimage-admin attribute register -tenant <tenantID> -name displayName [-type string] [-created-by "who"]
+  scimage-admin attribute list -tenant <tenantID>
+  scimage-admin attribute unregister -tenant <tenantID> -name displayName
   scimage-admin audit list [-tenant <tenantID>]`)
 }
 
@@ -201,6 +206,87 @@ func tokenCmd(ctx context.Context, s *store.Store, action string, args []string)
 			return err
 		}
 		fmt.Printf("Revoked %s\n", args[0])
+		return nil
+
+	default:
+		return usageError()
+	}
+}
+
+// attributeCmd manages a tenant's extensible-attribute registry:
+// which extra SCIM attribute names the server should capture into
+// users.extended_attributes rather than drop. The server only acts on the
+// registry when SCIM_EXTENDED_ATTRIBUTES=1 is set on it.
+func attributeCmd(ctx context.Context, s *store.Store, action string, args []string) error {
+	switch action {
+	case "register":
+		fs := flag.NewFlagSet("attribute register", flag.ContinueOnError)
+		tenantID := fs.String("tenant", "", "tenant to register the attribute for")
+		name := fs.String("name", "", "the SCIM attribute key to capture, e.g. displayName or an extension URN")
+		typ := fs.String("type", "string", "type to declare in /Schemas (string, boolean, complex, …)")
+		createdBy := fs.String("created-by", "", "who's registering this, for the admin audit trail (defaults to $USER)")
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		if strings.TrimSpace(*tenantID) == "" || strings.TrimSpace(*name) == "" {
+			return errors.New("attribute register: -tenant and -name are required")
+		}
+		if strings.TrimSpace(*createdBy) == "" {
+			*createdBy = defaultActor()
+		}
+		if _, err := s.GetTenant(ctx, *tenantID); err != nil {
+			return fmt.Errorf("attribute register: %w", err)
+		}
+
+		a, err := s.RegisterAttribute(ctx, *tenantID, *name, *typ, *createdBy)
+		if err != nil {
+			return err
+		}
+
+		tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+		fmt.Fprintf(tw, "NAME\t%s\n", a.Name)
+		fmt.Fprintf(tw, "TYPE\t%s\n", a.Type)
+		fmt.Fprintf(tw, "TENANT\t%s\n", *tenantID)
+		fmt.Fprintf(tw, "CREATED BY\t%s\n", a.CreatedBy)
+		return tw.Flush()
+
+	case "list":
+		fs := flag.NewFlagSet("attribute list", flag.ContinueOnError)
+		tenantID := fs.String("tenant", "", "tenant whose attributes to list")
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		if strings.TrimSpace(*tenantID) == "" {
+			return errors.New("attribute list: -tenant is required")
+		}
+
+		attrs, err := s.ListAttributes(ctx, *tenantID)
+		if err != nil {
+			return err
+		}
+
+		tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+		fmt.Fprintln(tw, "NAME\tTYPE\tCREATED BY\tCREATED")
+		for _, a := range attrs {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", a.Name, a.Type, emptyDash(a.CreatedBy), a.CreatedAt.Format(time.RFC3339))
+		}
+		return tw.Flush()
+
+	case "unregister":
+		fs := flag.NewFlagSet("attribute unregister", flag.ContinueOnError)
+		tenantID := fs.String("tenant", "", "tenant to remove the attribute from")
+		name := fs.String("name", "", "the attribute name to remove")
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		if strings.TrimSpace(*tenantID) == "" || strings.TrimSpace(*name) == "" {
+			return errors.New("attribute unregister: -tenant and -name are required")
+		}
+
+		if err := s.UnregisterAttribute(ctx, *tenantID, *name, defaultActor()); err != nil {
+			return err
+		}
+		fmt.Printf("Unregistered %q from %s\n", *name, *tenantID)
 		return nil
 
 	default:

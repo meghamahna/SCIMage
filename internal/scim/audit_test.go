@@ -5,11 +5,41 @@ package scim
 // mutation and its entry commit together.
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
 	"github.com/meghamahna/SCIMage/internal/store"
 )
+
+// decodeAuditUser unmarshals a User audit image, the same reason
+// internal/store's own audit tests need the equivalent helper: Before/After
+// are raw JSON now that one table serves both resource kinds.
+func decodeAuditUser(t *testing.T, raw json.RawMessage) store.User {
+	t.Helper()
+
+	if raw == nil {
+		t.Fatal("image is nil")
+	}
+	var u store.User
+	if err := json.Unmarshal(raw, &u); err != nil {
+		t.Fatalf("unmarshal audited user: %v", err)
+	}
+	return u
+}
+
+func decodeAuditGroup(t *testing.T, raw json.RawMessage) store.Group {
+	t.Helper()
+
+	if raw == nil {
+		t.Fatal("image is nil")
+	}
+	var g store.Group
+	if err := json.Unmarshal(raw, &g); err != nil {
+		t.Fatalf("unmarshal audited group: %v", err)
+	}
+	return g
+}
 
 // latestEntry returns the newest audit row for the test tenant.
 func latestEntry(t *testing.T) store.AuditEntry {
@@ -60,10 +90,10 @@ func TestAuditCreate(t *testing.T) {
 		t.Error("at is zero")
 	}
 	if got.Before != nil {
-		t.Errorf("before = %+v, want nil on a create", got.Before)
+		t.Errorf("before = %s, want nil on a create", got.Before)
 	}
-	if got.After == nil || got.After.UserName != created.UserName {
-		t.Errorf("after = %+v, want the created user", got.After)
+	if after := decodeAuditUser(t, got.After); after.UserName != created.UserName {
+		t.Errorf("after.userName = %q, want %q", after.UserName, created.UserName)
 	}
 	if got.Actor.ActorToken != testKeyID(t) {
 		t.Errorf("actor.token = %q, want the token's key id %q", got.Actor.ActorToken, testKeyID(t))
@@ -95,18 +125,21 @@ func TestAuditReplaceRecordsBothImages(t *testing.T) {
 		t.Fatalf("action/result = %q/%q, want replace/success", got.Action, got.Result)
 	}
 	if got.Before == nil || got.After == nil {
-		t.Fatalf("before/after = %+v/%+v, want both", got.Before, got.After)
+		t.Fatalf("before/after = %s/%s, want both", got.Before, got.After)
 	}
-	if got.Before.UserName != created.UserName {
-		t.Errorf("before.userName = %q, want the pre-change %q", got.Before.UserName, created.UserName)
+	before := decodeAuditUser(t, got.Before)
+	after := decodeAuditUser(t, got.After)
+
+	if before.UserName != created.UserName {
+		t.Errorf("before.userName = %q, want the pre-change %q", before.UserName, created.UserName)
 	}
-	if got.After.UserName != in.UserName {
-		t.Errorf("after.userName = %q, want %q", got.After.UserName, in.UserName)
+	if after.UserName != in.UserName {
+		t.Errorf("after.userName = %q, want %q", after.UserName, in.UserName)
 	}
-	if !got.Before.Active {
+	if !before.Active {
 		t.Error("before.active = false, want the pre-change value true")
 	}
-	if got.After.Active {
+	if after.Active {
 		t.Error("after.active = true, want false")
 	}
 }
@@ -125,11 +158,11 @@ func TestAuditDeactivate(t *testing.T) {
 	if got.Action != store.ActionDeactivate || got.Result != store.ResultSuccess {
 		t.Fatalf("action/result = %q/%q, want deactivate/success", got.Action, got.Result)
 	}
-	if got.Before == nil || !got.Before.Active {
-		t.Errorf("before.active = %+v, want true", got.Before)
+	if got.Before == nil || !decodeAuditUser(t, got.Before).Active {
+		t.Errorf("before.active = %s, want true", got.Before)
 	}
-	if got.After == nil || got.After.Active {
-		t.Errorf("after.active = %+v, want false", got.After)
+	if got.After == nil || decodeAuditUser(t, got.After).Active {
+		t.Errorf("after.active = %s, want false", got.After)
 	}
 }
 
@@ -174,7 +207,41 @@ func TestAuditRecordsRefusals(t *testing.T) {
 	}
 }
 
-// Reads must not be audited: they'd bury the mutations SAGE is looking for.
+// Groups share audit_log with Users, so resource_type is what tells a
+// reviewer which struct an entry's before/after images decode as.
+func TestAuditGroupCreateAndDelete(t *testing.T) {
+	requireDB(t)
+
+	created := createGroup(t, newGroup())
+
+	got := latestEntry(t)
+	if got.ResourceType != store.ResourceGroup || got.Action != store.ActionCreate {
+		t.Fatalf("resourceType/action = %q/%q, want group/create", got.ResourceType, got.Action)
+	}
+	if after := decodeAuditGroup(t, got.After); after.DisplayName != created.DisplayName {
+		t.Errorf("after.displayName = %q, want %q", after.DisplayName, created.DisplayName)
+	}
+
+	rr := do(t, http.MethodDelete, "/Groups/"+created.ID, nil)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("DELETE = %d, want 204: %s", rr.Code, rr.Body)
+	}
+
+	got = latestEntry(t)
+	// Distinct from ActionDeactivate: a group has no active attribute, so
+	// removing one is a real deletion, not a soft one.
+	if got.Action != store.ActionDelete {
+		t.Errorf("action = %q, want %q", got.Action, store.ActionDelete)
+	}
+	if got.After != nil {
+		t.Errorf("after = %s, want nil on a delete", got.After)
+	}
+	if before := decodeAuditGroup(t, got.Before); before.ID != created.ID {
+		t.Errorf("before.id = %q, want %q", before.ID, created.ID)
+	}
+}
+
+// Reads must not be audited: they'd bury the mutations ARIA is looking for.
 func TestAuditIgnoresReads(t *testing.T) {
 	requireDB(t)
 

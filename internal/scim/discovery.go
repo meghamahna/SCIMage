@@ -130,22 +130,60 @@ func (h *Handler) serviceProviderConfig(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) resourceTypes(w http.ResponseWriter, r *http.Request) {
 	base := h.baseURL(r)
 
-	writeJSON(w, http.StatusOK, newList([]resourceType{{
-		Schemas:     []string{resourceTypeSchema},
-		ID:          "User",
-		Name:        "User",
-		Endpoint:    "/Users",
-		Description: "User Account",
-		Schema:      userSchema,
-		Meta: &Meta{
-			ResourceType: "ResourceType",
-			Location:     base + "/ResourceTypes/User",
+	writeJSON(w, http.StatusOK, newList([]resourceType{
+		{
+			Schemas:     []string{resourceTypeSchema},
+			ID:          "User",
+			Name:        "User",
+			Endpoint:    "/Users",
+			Description: "User Account",
+			Schema:      userSchema,
+			Meta: &Meta{
+				ResourceType: "ResourceType",
+				Location:     base + "/ResourceTypes/User",
+			},
 		},
-	}}))
+		{
+			Schemas:     []string{resourceTypeSchema},
+			ID:          "Group",
+			Name:        "Group",
+			Endpoint:    "/Groups",
+			Description: "Group",
+			Schema:      groupSchema,
+			Meta: &Meta{
+				ResourceType: "ResourceType",
+				Location:     base + "/ResourceTypes/Group",
+			},
+		},
+	}))
 }
 
 func (h *Handler) schemas(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, newList([]resourceSchema{userResourceSchema(h.baseURL(r))}))
+	base := h.baseURL(r)
+	user := userResourceSchema(base)
+
+	// Registered extended attributes are advertised alongside the
+	// core ones, so an IdP admin can discover and map to them — the same
+	// "declaration matches behaviour" principle the rest of this document keeps.
+	if h.extended && h.attrs != nil {
+		attrs, err := h.attrs.ListAttributes(r.Context(), r.PathValue("tenantID"))
+		if err != nil {
+			serverError(w, "list registered attributes", err)
+			return
+		}
+		for _, a := range attrs {
+			user.Attributes = append(user.Attributes, schemaAttribute{
+				Name:        a.Name,
+				Type:        a.Type,
+				Description: "Registered extended attribute.",
+				Mutability:  "readWrite",
+				Returned:    "default",
+				Uniqueness:  "none",
+			})
+		}
+	}
+
+	writeJSON(w, http.StatusOK, newList([]resourceSchema{user, groupResourceSchema(base)}))
 }
 
 // userResourceSchema describes only the attributes this server stores, so the
@@ -222,6 +260,64 @@ func userResourceSchema(base string) resourceSchema {
 		Meta: &Meta{
 			ResourceType: "Schema",
 			Location:     base + "/Schemas/" + userSchema,
+		},
+	}
+}
+
+// groupResourceSchema describes only the attributes this server stores and
+// returns. members declares just value and $ref — not display — because
+// display is never populated (see the Member comment in models.go), and the
+// declaration should match the behaviour rather than promise more.
+func groupResourceSchema(base string) resourceSchema {
+	return resourceSchema{
+		Schemas:     []string{schemaSchema},
+		ID:          groupSchema,
+		Name:        "Group",
+		Description: "Group",
+		Attributes: []schemaAttribute{
+			{
+				Name:        "externalId",
+				Type:        "string",
+				Description: "An identifier for the resource as defined by the provisioning client.",
+				CaseExact:   true,
+				Mutability:  "readWrite",
+				Returned:    "default",
+				Uniqueness:  "none",
+			},
+			{
+				Name:        "displayName",
+				Type:        "string",
+				Description: "A human-readable name for the Group.",
+				Required:    true,
+				CaseExact:   false,
+				Mutability:  "readWrite",
+				Returned:    "default",
+				Uniqueness:  "server",
+			},
+			{
+				Name:        "members",
+				Type:        "complex",
+				MultiValued: true,
+				Description: "A list of members of the Group.",
+				Mutability:  "readWrite",
+				Returned:    "default",
+				Uniqueness:  "none",
+				SubAttributes: []schemaAttribute{
+					attr("value", "The id of a member of this Group."),
+					{
+						Name:        "$ref",
+						Type:        "reference",
+						Description: "The URI of the corresponding User resource.",
+						Mutability:  "readWrite",
+						Returned:    "default",
+						Uniqueness:  "none",
+					},
+				},
+			},
+		},
+		Meta: &Meta{
+			ResourceType: "Schema",
+			Location:     base + "/Schemas/" + groupSchema,
 		},
 	}
 }

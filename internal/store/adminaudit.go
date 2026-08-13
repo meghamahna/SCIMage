@@ -10,9 +10,11 @@ import (
 // same reasoning audit_log uses for reads: they would bury the mutations a
 // reviewer is actually looking for.
 const (
-	AdminActionTenantCreate = "tenant.create"
-	AdminActionTokenIssue   = "token.issue"
-	AdminActionTokenRevoke  = "token.revoke"
+	AdminActionTenantCreate        = "tenant.create"
+	AdminActionTokenIssue          = "token.issue"
+	AdminActionTokenRevoke         = "token.revoke"
+	AdminActionAttributeRegister   = "attribute.register"
+	AdminActionAttributeUnregister = "attribute.unregister"
 )
 
 // AdminAuditEntry is a row read back out of admin_audit_log, for review.

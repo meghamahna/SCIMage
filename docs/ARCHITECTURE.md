@@ -34,15 +34,18 @@ the mux has matched anything, which is the only point `net/http`'s own
 
 ## Storage model
 
-Six tables, described in `/migrations`:
+Nine tables, described in `/migrations`:
 
 | Table | Holds |
 | --- | --- |
 | `tenants` | One row per customer organization. `id` is an app-generated, prefixed opaque string (`tenant_...`), never a renamable slug: it's pasted into the customer's IdP once and has to stay stable. `name` is unique, case-insensitively, so two customers can't silently share a display name |
 | `scim_tokens` | Issued credentials: `sha256` of the secret half, never the secret; label, timestamps, `revoked_at`/`expires_at` |
 | `users` | The provisioned directory, scoped by `tenant_id`. Deactivation is a soft delete, so history keeps a subject |
-| `audit_log` | One row per mutating SCIM call: tenant, actor, action, target, timestamp, before/after |
-| `admin_audit_log` | One row per privileged CLI action: who created a tenant, issued or revoked a token, and when |
+| `groups` | Groups, scoped by `tenant_id`. Unlike `users`, `DELETE` is a real deletion: the Group schema has no `active` attribute to soft-delete into |
+| `group_members` | The membership join table: `(group_id, user_id)`, with every reference validated against the same tenant before it's inserted |
+| `audit_log` | One row per mutating SCIM call, for either resource: tenant, resource type, actor, action, target, timestamp, before/after |
+| `admin_audit_log` | One row per privileged CLI action: who created a tenant, issued or revoked a token, registered an attribute, and when |
+| `tenant_attributes` | The per-tenant extensible-attribute registry: which extra attribute names to capture into `users.extended_attributes`, and the type to declare in `/Schemas` |
 | `webhook_deliveries` | The outbound queue: tenant, payload, status, attempts, lease |
 
 ## Multi-tenancy
@@ -66,10 +69,14 @@ secret, right secret but wrong tenant) answers the same generic 401, so a
 caller can't learn which check failed or probe which tenants exist.
 
 **Isolation holds even against a known id.** `GetUser`/`UpdateUser`/
-`DeactivateUser` are scoped by `tenant_id` *and* `id` in the same `WHERE`
-clause, so a token from tenant A naming tenant B's real user id gets the same
-`ErrNotFound` as a made-up one: the isolation doesn't depend on a caller
-never guessing a valid UUID.
+`DeactivateUser` and their Group equivalents are scoped by `tenant_id` *and*
+`id` in the same `WHERE` clause, so a token from tenant A naming tenant B's
+real user or group id gets the same "not found" as a made-up one: the
+isolation doesn't depend on a caller never guessing a valid UUID. A group's
+membership carries the same guarantee one level deeper — every member id is
+validated against this tenant's own `users` in the same statement that adds
+it, so a group can't reference another tenant's user even if a caller
+already knows its id.
 
 **Issuing is a CLI, not an endpoint.** `cmd/scimage-admin` creates tenants and
 issues/lists/revokes tokens by talking to Postgres directly. Keeping that
@@ -87,10 +94,16 @@ token was already dead) writes nothing, so a retried command doesn't pad the
 trail with duplicate entries. `scimage-admin audit list [-tenant <id>]`
 surfaces it.
 
-**A mutation writes its user row and its audit entry in one transaction**, plus
-its outbound event when change delivery is configured. They commit together, so a
-change always carries its record and its notification. The store owns those
-writes, which keeps a handler from being able to skip them.
+**A mutation writes its row (user or group) and its audit entry in one
+transaction**, plus its outbound event when change delivery is configured.
+They commit together, so a change always carries its record and its
+notification. The store owns those writes, which keeps a handler from being
+able to skip them.
+
+`audit_log` carries a `resource_type` column (`user` or `group`) and its
+before/after images are raw JSON rather than a type-specific pair, so one
+table serves both resources without one drifting out of step with the
+other — the design ARIA (Phase 12) reads from.
 
 With `SCIM_WEBHOOK_URL` unset the store skips the outbox, so the queue stays
 empty while nothing is draining it.
@@ -100,14 +113,15 @@ statement as the `UPDATE`, since `OLD` in `RETURNING` arrived in Postgres 18 and
 this runs on 16. Both halves see one snapshot, so there is no read-then-write gap
 where a concurrent update could slip between them.
 
-Refusals are recorded too (a duplicate `userName`, a missing user), which makes
+Refusals are recorded too (a duplicate `userName` or `displayName`, a missing
+user or group, an invalid group member reference), which makes
 a burst of denials visible to a reviewer.
 
-## The UserStore interface
+## The UserStore and GroupStore interfaces
 
-The handler depends on `scim.UserStore` rather than on Postgres directly. The
-bundled store is the default implementation, and an application with its own user
-table can supply another.
+The handler depends on `scim.UserStore` and `scim.GroupStore` rather than on
+Postgres directly. The bundled store is the default implementation of both,
+and an application with its own tables can supply either or both.
 
 An implementation carries three obligations the compiler leaves open:
 
@@ -124,6 +138,36 @@ An implementation carries three obligations the compiler leaves open:
 The interface currently lives in `internal/scim`, so supplying an implementation
 means forking rather than importing. Moving the domain types to an importable
 package turns it into a published extension point.
+
+## Extensible attributes
+
+The typed `users` columns are a deliberate, minimal set. Rather than grow them
+to chase every attribute an identity provider might map, the server offers a
+controlled extension point: a tenant registers the extra attribute names it
+wants (`tenant_attributes`), and those keys are captured from incoming payloads
+into one JSONB column (`users.extended_attributes`) and merged back on reads.
+Unregistered attributes are still dropped.
+
+The design keeps the core honest and the addition additive:
+
+- **Off by default.** With `SCIM_EXTENDED_ATTRIBUTES` unset or nothing
+  registered, the registry is never consulted and a user serialises exactly as
+  before — one JSONB column that is simply `NULL`.
+- **Capture and PATCH consult the registry; plain reads don't.** A `GET` merges
+  whatever is already stored, so it never depends on a registry lookup. Only
+  writes (to know which body keys to keep) and the `/Schemas` document (to
+  advertise them) query `tenant_attributes`.
+- **Core attributes always win.** A captured value can never shadow a typed
+  attribute — the merge skips any key the core resource already carries, and the
+  registry refuses to register a core name in the first place.
+- **It rides the existing guarantees.** The blob is part of the `store.User`
+  the audit log serialises, so an extended attribute's before/after state is in
+  the trail like everything else; a `PATCH` on a registered name is applied in
+  the same full-replace transaction as the rest of the change.
+
+The registered name is a top-level SCIM key, which covers the enterprise
+extension as a whole object but not an individually-addressable sub-attribute
+path — a documented v1 boundary.
 
 ## Change delivery
 
@@ -195,8 +239,8 @@ WHERE id = $1;
 ```
 
 `attempts = 0` matters: leaving the old count would let the row retry once and
-park again immediately. A `webhook replay` subcommand arrives with
-`cmd/scimage-admin`.
+park again immediately. A `webhook replay` subcommand for `cmd/scimage-admin`
+is planned but not yet built.
 
 The three outcome writes are each guarded on `status = 'pending'`, so `delivered`
 and `dead_letter` are terminal: a dispatcher whose lease expired mid-send can
@@ -249,18 +293,24 @@ with `hmac.Equal`, which is constant-time.
 
 ### Event semantics
 
-Events name what happened to the user rather than which endpoint was called:
+Events name what happened to the resource rather than which endpoint was called:
 
 | Event | Emitted when |
 | --- | --- |
 | `user.created` | A user is created |
 | `user.deactivated` | A replace takes a user from active to inactive, or a `DELETE` arrives |
 | `user.replaced` | Any other change, including reactivation |
+| `group.created` | A group is created |
+| `group.replaced` | A group's attributes or its membership are replaced, including through a membership `PATCH` |
+| `group.deleted` | A group is deleted |
 
 Identity providers deprovision with `PATCH active:false` far more often than with
 `DELETE`, and that `PATCH` is applied through the same full-replace path as a
 `PUT`. Classifying a replace by the active transition is what lets a consumer
-subscribe to deactivations and see every real deprovisioning.
+subscribe to deactivations and see every real deprovisioning. Groups have no
+`active` attribute to classify by, so a membership `PATCH` — the shape an IdP
+actually uses to push group membership — reports the same `group.replaced` a
+`PUT` would, rather than a separate membership-change event.
 
 `DELETE` means "deactivate whatever the current state", so it reports
 `user.deactivated` even for a user who was already inactive. A replace in that

@@ -9,7 +9,7 @@ GREEN  := $(ESC)[32m
 YELLOW := $(ESC)[33m
 CYAN   := $(ESC)[36m
 
-.PHONY: help up down stop restart reset ps logs migrate migrate-down migrate-version test run tenant tenant-list token token-list token-revoke audit-list fmt hooks-install
+.PHONY: help up down stop restart reset ps logs migrate migrate-down migrate-version test run tenant tenant-list token token-list token-revoke attr-register attr-list attr-unregister audit-list fmt hooks-install
 
 # Bare `make` shows the command list instead of silently running the first
 # target, which used to be `up`.
@@ -128,6 +128,19 @@ token-revoke: ## Revoke a token immediately
 # Usage: make audit-list  |  make audit-list TENANT=tenant_xxx
 audit-list: ## Read the admin-audit trail
 	@scripts/with-env.sh go run ./cmd/scimage-admin audit list $(if $(TENANT),-tenant "$(TENANT)")
+
+# Usage: make attr-register TENANT=tenant_xxx NAME=displayName [TYPE=string]
+# The server only acts on the registry when SCIM_EXTENDED_ATTRIBUTES=1 is set.
+attr-register: ## Register an extra attribute for a tenant to capture
+	@scripts/with-env.sh go run ./cmd/scimage-admin attribute register -tenant "$(TENANT)" -name "$(NAME)" $(if $(TYPE),-type "$(TYPE)")
+
+# Usage: make attr-list TENANT=tenant_xxx
+attr-list: ## List a tenant's registered extra attributes
+	@scripts/with-env.sh go run ./cmd/scimage-admin attribute list -tenant "$(TENANT)"
+
+# Usage: make attr-unregister TENANT=tenant_xxx NAME=displayName
+attr-unregister: ## Remove a registered attribute from a tenant
+	@scripts/with-env.sh go run ./cmd/scimage-admin attribute unregister -tenant "$(TENANT)" -name "$(NAME)"
 
 ##@ Setup
 

@@ -51,3 +51,35 @@ func parseFilter(expr string) (store.UserFilter, error) {
 	apply(&f, m[2])
 	return f, nil
 }
+
+// groupFilterableAttributes mirrors filterableAttributes for /Groups:
+// displayName is a group's reconciliation key, the same role userName plays
+// for a User.
+var groupFilterableAttributes = map[string]func(*store.GroupFilter, string){
+	"displayname": func(f *store.GroupFilter, v string) { f.DisplayName = v },
+	"externalid":  func(f *store.GroupFilter, v string) { f.ExternalID = v },
+}
+
+func parseGroupFilter(expr string) (store.GroupFilter, error) {
+	var f store.GroupFilter
+	if strings.TrimSpace(expr) == "" {
+		return f, nil
+	}
+
+	m := eqFilter.FindStringSubmatch(expr)
+	if m == nil {
+		return f, fmt.Errorf(`only "attribute eq \"value\"" is supported`)
+	}
+
+	apply, ok := groupFilterableAttributes[strings.ToLower(m[1])]
+	if !ok {
+		return f, fmt.Errorf("filtering on %q is not supported; use displayName or externalId", m[1])
+	}
+
+	if m[2] == "" {
+		return f, fmt.Errorf("a filter value is required")
+	}
+
+	apply(&f, m[2])
+	return f, nil
+}

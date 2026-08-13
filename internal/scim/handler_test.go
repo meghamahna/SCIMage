@@ -83,7 +83,7 @@ func TestMain(m *testing.M) {
 	}
 	testToken = plaintext
 
-	handler = NewHandler(testStore, testStore).Routes()
+	handler = NewHandler(testStore, testStore, testStore, testStore).Routes()
 
 	code := m.Run()
 
@@ -93,7 +93,11 @@ func TestMain(m *testing.M) {
 	for _, q := range []string{
 		`DELETE FROM webhook_deliveries WHERE tenant_id = $1`,
 		`DELETE FROM audit_log WHERE tenant_id = $1`,
+		`DELETE FROM admin_audit_log WHERE tenant_id = $1`,
 		`DELETE FROM scim_tokens WHERE tenant_id = $1`,
+		`DELETE FROM tenant_attributes WHERE tenant_id = $1`,
+		`DELETE FROM group_members WHERE tenant_id = $1`,
+		`DELETE FROM groups WHERE tenant_id = $1`,
 		`DELETE FROM users WHERE tenant_id = $1`,
 		`DELETE FROM tenants WHERE id = $1`,
 	} {
@@ -645,9 +649,11 @@ func TestUnroutedRequests(t *testing.T) {
 		name, method, target string
 		want                 int
 	}{
-		{"PATCH on the collection", http.MethodPatch, "/Users", http.StatusMethodNotAllowed},
-		{"DELETE on the collection", http.MethodDelete, "/Users", http.StatusMethodNotAllowed},
-		{"unknown resource", http.MethodGet, "/Groups", http.StatusNotFound},
+		{"PATCH on the Users collection", http.MethodPatch, "/Users", http.StatusMethodNotAllowed},
+		{"DELETE on the Users collection", http.MethodDelete, "/Users", http.StatusMethodNotAllowed},
+		{"PATCH on the Groups collection", http.MethodPatch, "/Groups", http.StatusMethodNotAllowed},
+		{"DELETE on the Groups collection", http.MethodDelete, "/Groups", http.StatusMethodNotAllowed},
+		{"unknown resource", http.MethodGet, "/Devices", http.StatusNotFound},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rr := do(t, tc.method, tc.target, nil)

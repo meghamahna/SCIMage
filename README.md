@@ -13,7 +13,19 @@
 
 </div>
 
-SCIMage is a focused SCIM 2.0 server written in Go. It implements the core `/Users` resource from [RFC 7644](https://datatracker.ietf.org/doc/html/rfc7644), backed by real Postgres, with security practices that are load-bearing and covered by tests.
+SCIMage is a focused SCIM 2.0 server written in Go. It implements the core `/Users` and `/Groups` resources from [RFC 7644](https://datatracker.ietf.org/doc/html/rfc7644), backed by real Postgres, with security practices that are load-bearing and covered by tests.
+
+## ✨ Why SCIMage
+
+Most SCIM servers are a thin CRUD layer bolted onto an app. SCIMage treats the parts that actually matter once real customers are provisioning into you as first-class:
+
+- **Security is structural, not a checkbox** — tenant isolation, hashed and rotatable tokens, and an audit entry written in the *same transaction* as every change, enforced in code and tested against real Postgres rather than mocks.
+- **A tamper-evident audit trail** — every mutation *and every refusal* is recorded with before/after state, so a user can't be changed without leaving a record.
+- **Changes actually reach your app** — signed, retried webhooks with a dead-letter queue turn provisioning into events the rest of your system can act on.
+- **Extend by config, not by forking** — register any extra or custom attribute per tenant and it round-trips, keeping the core minimal and honest.
+- **Self-hosted and transparent** — plain Go + Postgres + raw SQL, no framework and no lock-in; you own the data and the audit trail.
+
+**Best fit:** a SaaS that needs to *receive* enterprise provisioning with a defensible security-and-audit story, wants to self-host, and values correctness over feature breadth. It's portfolio-grade, not a 1.0 — ARIA (the advisory audit reviewer) and release engineering are still in progress.
 
 ## 💡 Why I built this
 
@@ -33,16 +45,22 @@ SCIMage is the *service provider* side of SCIM: the endpoint an identity provide
 | PUT    | `/scim/v2/{tenantID}/Users/{id}`  | Replaces a user's attributes                                                    |
 | PATCH  | `/scim/v2/{tenantID}/Users/{id}`  | Applies operations to a user (how identity providers deprovision)               |
 | DELETE | `/scim/v2/{tenantID}/Users/{id}`  | Deactivates a user, preserving the row and its history                          |
+| POST   | `/scim/v2/{tenantID}/Groups`      | Creates a group. `201` with a `Location` header, `409` on a duplicate `displayName` |
+| GET    | `/scim/v2/{tenantID}/Groups/{id}` | Fetches one group, with its members                                            |
+| GET    | `/scim/v2/{tenantID}/Groups`      | Lists groups, paginated with `startIndex` and `count`                           |
+| PUT    | `/scim/v2/{tenantID}/Groups/{id}` | Replaces a group's attributes and its whole membership set                     |
+| PATCH  | `/scim/v2/{tenantID}/Groups/{id}` | Adds, removes or replaces members (how identity providers push group membership) |
+| DELETE | `/scim/v2/{tenantID}/Groups/{id}` | Deletes a group. Unlike Users there is no `active` attribute to deactivate into, so this is a real deletion |
 
 The discovery endpoints `/ServiceProviderConfig`, `/ResourceTypes` and `/Schemas` (same `/scim/v2/{tenantID}` prefix) declare exactly the attributes this server stores. A client reads them before provisioning.
 
-`GET .../Users` supports `filter=userName eq "…"` and `filter=externalId eq "…"`, the lookups a provider uses to decide whether a user already exists. Other expressions answer `400` with `scimType: invalidFilter`, telling the client plainly where the supported set ends.
+`GET .../Users` supports `filter=userName eq "…"` and `filter=externalId eq "…"`; `GET .../Groups` supports `filter=displayName eq "…"` and `filter=externalId eq "…"` — the lookups a provider uses to decide whether a resource already exists. Other expressions answer `400` with `scimType: invalidFilter`, telling the client plainly where the supported set ends.
 
 Responses use `application/scim+json`, and errors use the SCIM Error schema with the appropriate `scimType`.
 
 `userName` uniqueness is enforced case-insensitively, matching the spec's `caseExact=false` characteristic, so `bjensen` and `BJensen` are one identity.
 
-**Validated against [Microsoft's Entra ID SCIM validator](https://scimvalidator.microsoft.com/).** Core CRUD, filtering, and PATCH all pass. Known gap: the `User` schema is deliberately reduced to the attributes this server actually stores: `displayName`, `title`, `preferredLanguage`, `name.formatted`/`name.middleName`, and typed multi-valued emails aren't modeled, so Entra's attribute-completeness checks for those fail. Full [Entra app gallery](https://learn.microsoft.com/en-us/entra/identity/app-provisioning/) certification would mean adding them; that's out of scope for now.
+**Validated against [Microsoft's Entra ID SCIM validator](https://scimvalidator.microsoft.com/).** Core CRUD, filtering, and PATCH all pass. The `User` schema is deliberately reduced to a minimal set of typed columns — `displayName`, `title`, `preferredLanguage`, `name.formatted`/`name.middleName`, the enterprise extension and typed multi-valued emails aren't modeled that way. When a provider needs them, an operator registers the extra attributes per tenant (`scimage-admin attribute register`, gated by `SCIM_EXTENDED_ATTRIBUTES`) and the server captures and returns them through a JSONB pass-through — keeping the core minimal while still round-tripping whatever Okta or Entra maps. See [Configuration](docs/CONFIGURATION.md#extensible-attributes).
 
 ## 🏗️ How it's built
 
@@ -52,23 +70,17 @@ flowchart LR
     AUTH --> RL[Rate limiter<br/>keyed per issued token]
     RL --> ROUTER{Router}
     ROUTER -->|GET /ServiceProviderConfig, /Schemas, /ResourceTypes| DISCOVERY[Discovery]
-    ROUTER -->|POST /Users| CREATE[Create]
-    ROUTER -->|GET /Users, /Users/:id| READ[List / Fetch / Filter]
-    ROUTER -->|PUT /Users/:id| UPDATE[Replace]
-    ROUTER -->|PATCH /Users/:id| PATCHOP[Patch]
-    ROUTER -->|DELETE /Users/:id| DEACTIVATE[Deactivate]
-    CREATE --> TX[("Postgres: users + audit_log + outbox<br/>written in one transaction, scoped to the caller's tenant")]
-    UPDATE --> TX
-    PATCHOP --> TX
-    DEACTIVATE --> TX
-    READ --> DB[("Postgres: users, scoped to the caller's tenant")]
+    ROUTER -->|"POST/PUT/PATCH/DELETE /Users, /Groups"| MUTATE[Create / Replace / Patch / Delete]
+    ROUTER -->|"GET /Users, /Groups"| READ[List / Fetch / Filter]
+    MUTATE --> TX[("Postgres: users or groups + audit_log + outbox<br/>written in one transaction, scoped to the caller's tenant")]
+    READ --> DB[("Postgres: users, groups + group_members<br/>scoped to the caller's tenant")]
     AUTH -.->|"tenant_id, scim_tokens"| TENANTS[("Postgres: tenants + scim_tokens")]
     TX -.->|claims due rows| DISPATCH[Webhook dispatcher]
     DISPATCH -->|"signed POST, retried"| APP[Your application]
     DISPATCH -.->|"attempts exhausted"| DLQ[("Dead-letter queue")]
 ```
 
-A mutation writes the user row, its audit entry and its outbound event in one transaction, so a change always carries its record and its notification. Every query in that path is scoped by `tenant_id`, so one customer's token can never read or change another's data. The handler depends on a `UserStore` interface, so an application with its own user table can supply an implementation and skip webhooks entirely.
+A mutation writes the user or group row, its audit entry and its outbound event in one transaction, so a change always carries its record and its notification. `audit_log` carries a `resource_type` column so one trail covers both resources. Every query in that path is scoped by `tenant_id`, so one customer's token can never read or change another's data. The handler depends on `UserStore` and `GroupStore` interfaces, so an application with its own tables can supply an implementation and skip webhooks entirely.
 
 [Architecture](docs/ARCHITECTURE.md) covers the request path, the storage model and that interface's contract.
 
@@ -168,7 +180,7 @@ Store and audit tests run against a real Postgres instance via `docker-compose`,
 
 ## 🗺️ Roadmap
 
-Phases 1–10 are complete: schema, endpoints, auth, audit, hardening, identity-provider interoperability, change delivery, and multi-tenancy with issued API tokens. `/Groups` is next, followed by SCIMTrace AI and release engineering.
+Phases 1–11 are complete: schema, endpoints, auth, audit, hardening, identity-provider interoperability, change delivery, multi-tenancy with issued API tokens, and the `/Groups` resource with membership and per-tenant extensible attributes. ARIA, the advisory audit reviewer, is next, with release-engineering work ongoing.
 
 The [implementation plan](docs/IMPLEMENTATION_PLAN.md) has the phase-by-phase detail, with the decisions and trade-offs recorded as they were made.
 
