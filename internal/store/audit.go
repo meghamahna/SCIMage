@@ -21,7 +21,7 @@ const (
 	ActionDelete     = "delete"
 )
 
-// One audit_log table serves every resource kind, so SCIMTrace AI reads one
+// One audit_log table serves every resource kind, so ARIA reads one
 // trail rather than several that can drift apart in shape. resource_type
 // says which struct before/after decode as.
 const (
@@ -48,11 +48,11 @@ type AuditRecord struct {
 	TenantID   string
 }
 
-// AuditEntry is a row read back out, for review and for SAGE. Actor.TenantID
+// AuditEntry is a row read back out, for review and for ARIA. Actor.TenantID
 // is populated from the row's own tenant_id column.
 //
 // Before/After stay raw JSON rather than a typed *User: one row might
-// describe a User and the next a Group, and a reviewer (or SCIMTrace AI)
+// describe a User and the next a Group, and a reviewer (or ARIA)
 // decodes into whichever ResourceType says it is.
 type AuditEntry struct {
 	ID           int64

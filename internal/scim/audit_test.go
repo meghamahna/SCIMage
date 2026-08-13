@@ -241,7 +241,7 @@ func TestAuditGroupCreateAndDelete(t *testing.T) {
 	}
 }
 
-// Reads must not be audited: they'd bury the mutations SAGE is looking for.
+// Reads must not be audited: they'd bury the mutations ARIA is looking for.
 func TestAuditIgnoresReads(t *testing.T) {
 	requireDB(t)
 

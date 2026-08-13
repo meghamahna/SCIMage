@@ -1,11 +1,11 @@
 # SCIM 2.0 Provisioning Server: Project Guide
 
 ## What this is
-A SCIM 2.0 server in Go implementing the `/Users` resource per RFC
-7644, backed by Postgres in Docker. This is a portfolio project built
-to demonstrate real backend engineering skill for a Go/identity role.
-Correctness, testing, and security practices all matter more than
-feature breadth.
+A SCIM 2.0 server in Go implementing the `/Users` and `/Groups`
+resources per RFC 7644, backed by Postgres in Docker. This is a
+portfolio project built to demonstrate real backend engineering skill
+for a Go/identity role. Correctness, testing, and security practices
+all matter more than feature breadth.
 
 Full build plan lives in `docs/IMPLEMENTATION_PLAN.md`. Work through it in
 phase order. When a phase is complete, check its boxes off in that
@@ -21,8 +21,12 @@ file before moving to the next phase.
   error silently
 - Tests: table-driven where it fits, `httptest` for HTTP handlers,
   real Postgres (via docker-compose) for store integration tests,
-  no mocking the database. Run them with `make test`, which loads `.env`
-  and passes `-p 1`; both test packages share the `users` table
+  no mocking the database. Run them with `make test`, which loads
+  `.env`. `internal/store` and `internal/scim` run concurrently against
+  the same Postgres (`internal/store` gives each test its own tenant;
+  `internal/scim` shares one tenant per file), and every query is
+  scoped by `tenant_id`, which is what makes that safe without
+  serializing packages
 - Dependencies stay minimal: `pgx` for Postgres and
   `golang.org/x/time/rate` for the token bucket. Reach for the standard
   library first
@@ -32,9 +36,11 @@ file before moving to the next phase.
 ```text
 /cmd/server           entrypoint for the SCIM server
 /cmd/scimage-admin    tenant and token administration (Phase 10)
-/cmd/scimtrace        AI-assisted audit reviewer (Phase 12)
+/cmd/aria             AI-assisted audit reviewer (Phase 12)
 /internal/scim        HTTP handlers, SCIM models, auth, rate limiting
-/internal/store       Postgres-backed store and audit log, raw SQL
+/internal/store       Postgres-backed store, audit log and outbox, raw SQL
+/internal/webhook     signing and the outbound delivery dispatcher
+/internal/logging     structured logging setup
 /migrations           SQL migration files
 /scripts              env loading, migrations, secret scanning
 /.github/workflows    CI
@@ -44,9 +50,10 @@ docker-compose.yml
 ## Security design principles (non-negotiable)
 - Bearer token comparison must use `crypto/subtle.ConstantTimeCompare`,
   never `==`
-- Every mutating call (create/replace/deactivate) writes an `audit_log`
-  row (actor, action, target user id, timestamp, before/after state)
-  **inside the transaction that makes the change**, so the entry and the
+- Every mutating call (create/replace/deactivate/delete, across both
+  `/Users` and `/Groups`) writes an `audit_log` row (actor, action,
+  resource type, target id, timestamp, before/after state) **inside
+  the transaction that makes the change**, so the entry and the
   change commit together. The store owns that write, which keeps a
   handler from being able to skip it. Refusals are recorded too
 - All incoming SCIM payloads are validated against the expected schema
@@ -74,11 +81,11 @@ what the code already says, and don't write a paragraph where a line
 does.
 
 ## AI usage in this project
-The only AI component is `cmd/scimtrace`: **SCIMTrace AI**. It reads
-the `audit_log` table and produces a plain-English summary of patterns
-worth a human's attention (bulk deactivations, off-hours changes,
-unusual call volume from a caller).
-The name is deliberate: it traces and reports on activity, it doesn't decide anything.
+The only AI component is `cmd/aria`: **ARIA (Audit Risk Intelligence
+Advisor)**. It reads the `audit_log` table and produces a plain-English
+summary of patterns worth a human's attention (bulk deactivations,
+off-hours changes, unusual call volume from a caller).
+The name is deliberate: it advises on activity, it doesn't decide anything.
 
 This is advisory only. **The AI must never be given the ability to
 make or influence an authorization or provisioning decision.** If a

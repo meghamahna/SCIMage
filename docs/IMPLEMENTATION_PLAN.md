@@ -20,7 +20,7 @@ built to show.
 ```text
 /cmd/server           entrypoint for the SCIM server
 /cmd/scimage-admin    tenant and token administration (Phase 10)
-/cmd/scimtrace        audit reviewer (Phase 12)
+/cmd/aria             audit reviewer (Phase 12)
 /internal/scim        HTTP handlers, SCIM models, auth, rate limiting
 /internal/store       Postgres-backed store, audit log and outbox, raw SQL
 /internal/webhook     signing and the outbound delivery dispatcher
@@ -141,7 +141,7 @@ These landed alongside the code they cover, so each phase shipped verified.
       place immediately: `golang.org/x/text` v0.29.0 had a reachable
       infinite-loop bug via `pgxpool.New`, now on v0.40.0
 
-SCIMTrace AI reads the `audit_log` table directly. One authoritative copy of
+ARIA reads the `audit_log` table directly. One authoritative copy of
 the audit trail is what gives the transactional guarantee its meaning; a
 JSON-lines export for log shipping can layer on top.
 
@@ -220,7 +220,7 @@ someone needs it.
 
 ### Phase 10: Multi-tenancy and issued API tokens
 The shape real SCIM service providers ship. It also gives the audit `actor`
-and SCIMTrace AI's per-caller volume signal something to distinguish.
+and ARIA's per-caller volume signal something to distinguish.
 
 **Addressing.** Tenant in the path (one host, one certificate, plain DNS for
 self-hosters): `https://<host>/scim/v2/{tenantID}/Users`. That URL is what a
@@ -282,20 +282,20 @@ made-up member id rolls the whole mutation back rather than being silently
 dropped. `audit_log` gained a `resource_type` column and `AuditEntry`'s
 before/after images became raw JSON rather than a `*store.User`-typed pair:
 one audit trail now covers both resources, which is what Phase 12's
-SCIMTrace AI needs to see a bulk group deletion alongside a bulk user
+ARIA needs to see a bulk group deletion alongside a bulk user
 deactivation. Group mutations also enqueue webhook events
 (`group.created`/`replaced`/`deleted`) through the existing, resource-agnostic
 outbox and dispatcher from Phase 9 — group-to-role mapping is a common reason
 enterprises adopt SCIM groups at all, and the dispatcher needed no changes to
 carry them.
 
-### Phase 12: SCIMTrace AI
+### Phase 12: ARIA
 This tool reads the audit log and produces a plain-English summary for a human
 reviewer. It surfaces signal, while every authorization and provisioning
 decision stays in deterministic code, AI purely advisory, which is the design
-choice worth explaining in an interview. The name reflects that: it traces
-and reports on activity, the code decides.
-- [ ] CLI (`cmd/scimtrace`) that reads the `audit_log` table
+choice worth explaining in an interview. The name reflects that: it advises
+on activity, the code decides.
+- [ ] CLI (`cmd/aria`) that reads the `audit_log` table
 - [ ] Calls an LLM (Claude API) with recent entries to flag patterns
       worth a look: bulk deactivations in a short window, off-hours
       changes, a token spiking in call volume
@@ -332,5 +332,5 @@ own design pass.
 Phase 10 (multi-tenancy + tokens): a week, touching schema, store, router
 and CLI.
 Phase 11 (Groups): a week.
-Phase 12 (SCIMTrace AI): one evening.
+Phase 12 (ARIA): one evening.
 Phase 13 (release engineering): spread across the phases above.

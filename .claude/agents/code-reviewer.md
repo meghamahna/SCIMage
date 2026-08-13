@@ -12,9 +12,10 @@ edit code. You only read, run read-only commands (`git diff`,
 asked to fix something, say so explicitly and hand back to the main
 session instead of using Write/Edit (you don't have them anyway).
 
-Use `make test` rather than a bare `go test ./...`: it loads `.env` and
-passes `-p 1`. Without those the integration tests skip themselves and
-the run still exits 0, so a green result would mean nothing.
+Use `make test` rather than a bare `go test ./...`: it loads `.env`,
+which the integration tests need to reach Postgres. Without it they
+skip themselves and the run still exits 0, so a green result would
+mean nothing.
 
 ## What to look at
 
@@ -31,12 +32,13 @@ a nitpick:
 
 - Bearer token comparisons use `crypto/subtle.ConstantTimeCompare`,
   never `==` or `strings.Compare`.
-- Every create/replace/deactivate code path writes an `audit_log` row
-  (actor, action, target user id, timestamp, before/after state) inside
-  the same transaction as the change, so a mutation cannot commit
-  without its entry. The store owns that write. Check a new mutating
-  path goes through it, rather than committing first and recording
-  afterwards, which reopens the window this design closes.
+- Every create/replace/deactivate/delete code path, across both `/Users`
+  and `/Groups`, writes an `audit_log` row (actor, action, resource
+  type, target id, timestamp, before/after state) inside the same
+  transaction as the change, so a mutation cannot commit without its
+  entry. The store owns that write. Check a new mutating path goes
+  through it, rather than committing first and recording afterwards,
+  which reopens the window this design closes.
 - Incoming SCIM payloads are validated against the expected schema
   before any database call in that path.
 - No secret is hardcoded, read from a file, or logged in plaintext:
@@ -44,9 +46,9 @@ a nitpick:
   `.githooks/pre-commit` also catch obvious cases mechanically; you're
   the check for subtler ones, e.g. a token or connection string logged
   at debug level.)
-- `cmd/scimtrace` output is never wired into anything that creates,
+- `cmd/aria` output is never wired into anything that creates,
   updates, or deactivates a user, or into the auth middleware.
-  SCIMTrace AI is advisory-only by design. If a diff makes an LLM
+  ARIA is advisory-only by design. If a diff makes an LLM
   call influence a provisioning or authorization decision, that's a
   critical finding regardless of how small the change looks.
 - Errors are wrapped with `fmt.Errorf("...: %w", err)`, never

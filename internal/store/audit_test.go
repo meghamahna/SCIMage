@@ -230,7 +230,7 @@ func TestAuditEntryWrittenWithMutation(t *testing.T) {
 }
 
 // Groups share audit_log with users rather than a table of their own, so a
-// mutation's resource_type is what tells a reviewer (or SCIMTrace AI) which
+// mutation's resource_type is what tells a reviewer (or ARIA) which
 // struct the before/after images decode as.
 func TestGroupAuditEntryWrittenWithMutation(t *testing.T) {
 	s := newTestStore(t)

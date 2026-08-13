@@ -13,7 +13,7 @@
 
 </div>
 
-SCIMage is a focused SCIM 2.0 server written in Go. It implements the core `/Users` resource from [RFC 7644](https://datatracker.ietf.org/doc/html/rfc7644), backed by real Postgres, with security practices that are load-bearing and covered by tests.
+SCIMage is a focused SCIM 2.0 server written in Go. It implements the core `/Users` and `/Groups` resources from [RFC 7644](https://datatracker.ietf.org/doc/html/rfc7644), backed by real Postgres, with security practices that are load-bearing and covered by tests.
 
 ## 💡 Why I built this
 
@@ -58,23 +58,17 @@ flowchart LR
     AUTH --> RL[Rate limiter<br/>keyed per issued token]
     RL --> ROUTER{Router}
     ROUTER -->|GET /ServiceProviderConfig, /Schemas, /ResourceTypes| DISCOVERY[Discovery]
-    ROUTER -->|POST /Users| CREATE[Create]
-    ROUTER -->|GET /Users, /Users/:id| READ[List / Fetch / Filter]
-    ROUTER -->|PUT /Users/:id| UPDATE[Replace]
-    ROUTER -->|PATCH /Users/:id| PATCHOP[Patch]
-    ROUTER -->|DELETE /Users/:id| DEACTIVATE[Deactivate]
-    CREATE --> TX[("Postgres: users + audit_log + outbox<br/>written in one transaction, scoped to the caller's tenant")]
-    UPDATE --> TX
-    PATCHOP --> TX
-    DEACTIVATE --> TX
-    READ --> DB[("Postgres: users, scoped to the caller's tenant")]
+    ROUTER -->|"POST/PUT/PATCH/DELETE /Users, /Groups"| MUTATE[Create / Replace / Patch / Delete]
+    ROUTER -->|"GET /Users, /Groups"| READ[List / Fetch / Filter]
+    MUTATE --> TX[("Postgres: users or groups + audit_log + outbox<br/>written in one transaction, scoped to the caller's tenant")]
+    READ --> DB[("Postgres: users, groups + group_members<br/>scoped to the caller's tenant")]
     AUTH -.->|"tenant_id, scim_tokens"| TENANTS[("Postgres: tenants + scim_tokens")]
     TX -.->|claims due rows| DISPATCH[Webhook dispatcher]
     DISPATCH -->|"signed POST, retried"| APP[Your application]
     DISPATCH -.->|"attempts exhausted"| DLQ[("Dead-letter queue")]
 ```
 
-A mutation writes the user row, its audit entry and its outbound event in one transaction, so a change always carries its record and its notification. Every query in that path is scoped by `tenant_id`, so one customer's token can never read or change another's data. The handler depends on a `UserStore` interface, so an application with its own user table can supply an implementation and skip webhooks entirely.
+A mutation writes the user or group row, its audit entry and its outbound event in one transaction, so a change always carries its record and its notification. `audit_log` carries a `resource_type` column so one trail covers both resources. Every query in that path is scoped by `tenant_id`, so one customer's token can never read or change another's data. The handler depends on `UserStore` and `GroupStore` interfaces, so an application with its own tables can supply an implementation and skip webhooks entirely.
 
 [Architecture](docs/ARCHITECTURE.md) covers the request path, the storage model and that interface's contract.
 
@@ -174,7 +168,7 @@ Store and audit tests run against a real Postgres instance via `docker-compose`,
 
 ## 🗺️ Roadmap
 
-Phases 1–10 are complete: schema, endpoints, auth, audit, hardening, identity-provider interoperability, change delivery, and multi-tenancy with issued API tokens. `/Groups` is next, followed by SCIMTrace AI and release engineering.
+Phases 1–11 are complete: schema, endpoints, auth, audit, hardening, identity-provider interoperability, change delivery, multi-tenancy with issued API tokens, and the `/Groups` resource with membership. ARIA is next, followed by release engineering.
 
 The [implementation plan](docs/IMPLEMENTATION_PLAN.md) has the phase-by-phase detail, with the decisions and trade-offs recorded as they were made.
 

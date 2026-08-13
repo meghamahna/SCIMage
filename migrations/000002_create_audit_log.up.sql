@@ -21,7 +21,7 @@ CREATE TABLE audit_log (
     after       JSONB
 );
 
--- Reviewers and SAGE read recent activity first.
+-- Reviewers and ARIA read recent activity first.
 CREATE INDEX idx_audit_log_at ON audit_log (at DESC);
 
 -- "What happened to this user" is the other question worth answering fast.

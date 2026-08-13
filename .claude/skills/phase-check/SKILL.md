@@ -16,12 +16,12 @@ suggesting a `phase-N:` commit.
    lowest-numbered phase with any unchecked `- [ ]` box: that's the
    one under review. List its specific checklist items.
 
-2. **Tests.** Run `make test`: it loads `.env` and passes `-p 1`, both
-   of which the suite needs. A bare `go test ./...` skips every
-   integration test and still exits 0, so it proves nothing. Confirm
-   Postgres is up first (`docker compose ps`); integration tests must
-   hit the real database per CLAUDE.md, never a mock. A failing or
-   skipped test means the phase is not done.
+2. **Tests.** Run `make test`: it loads `.env`, which the suite needs to
+   reach Postgres. A bare `go test ./...` skips every integration test
+   and still exits 0, so it proves nothing. Confirm Postgres is up
+   first (`docker compose ps`); integration tests must hit the real
+   database per CLAUDE.md, never a mock. A failing or skipped test
+   means the phase is not done.
 
 3. **Formatting.** Run `gofmt -l .` and, if installed, `goimports -l .`.
    Both must print nothing. If either lists files, run `gofmt -w` /
