@@ -114,9 +114,11 @@ These landed alongside the code they cover, so each phase shipped verified.
 - [x] Deterministic under repeated runs. Both packages write to the same
       `users` table and `go test` parallelises across packages, so the
       store's row-count assertions raced against the handler tests
-      creating users, reproducible at `-count=20`. `make test` and the
-      pre-commit hook pass `-p 1`, which serialises packages within a run.
-      Per-tenant scoping will make that isolation structural and retire it
+      creating users, reproducible at `-count=20`. The original fix passed
+      `-p 1` to serialise packages within a run. Per-tenant scoping (Phase 10)
+      later made that isolation structural, so `make test` dropped `-p 1` and
+      runs packages concurrently; CI and the pre-commit hook still pass it as
+      a belt-and-suspenders
 
 ### Phase 7: Security hardening
 - [x] Validate every incoming SCIM payload against the expected schema
@@ -210,10 +212,11 @@ user's transition, so `DELETE` and `PATCH active:false` both emit
 shutdown landed here, ahead of Phase 13, to give the dispatcher a defined stop.
 
 **Open for later.** Retention for `delivered` rows belongs with the Phase 13
-operational work. `DeadLetters` reads the parked queue; replay arrives with
-`cmd/scimage-admin` in Phase 10, which also brings per-endpoint subscriptions.
-Today there is one endpoint from the environment, and the delivery row gains a
-subscription reference when tenants arrive. The `UserStore` interface lives in
+operational work. `DeadLetters` reads the parked queue; a `webhook replay`
+subcommand for `cmd/scimage-admin`, and per-endpoint subscriptions, remain
+unbuilt — Phase 10 landed tenants and tokens but not these. Today there is one
+endpoint from the environment, and the delivery row would gain a subscription
+reference if per-endpoint delivery ships. The `UserStore` interface lives in
 `internal/scim`, so supplying an implementation means forking; moving the
 domain types to an importable package turns it into a real extension point when
 someone needs it.
@@ -249,7 +252,8 @@ recognise a leaked token.
       `token revoke`. A CLI keeps the privileged surface off the network
 - [x] Every store query scoped by `tenant_id`, with cross-tenant isolation
       covered by tests. Per-tenant scoping also makes test isolation
-      structural, retiring `-p 1`
+      structural, so `make test` dropped `-p 1` and runs packages
+      concurrently (CI and the pre-commit hook keep it as a safety belt)
 
 **Addendum: enterprise governance gaps found after shipping.** Reviewing
 Phase 10 against what an enterprise operator would actually need surfaced

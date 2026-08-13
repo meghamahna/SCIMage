@@ -239,8 +239,8 @@ WHERE id = $1;
 ```
 
 `attempts = 0` matters: leaving the old count would let the row retry once and
-park again immediately. A `webhook replay` subcommand arrives with
-`cmd/scimage-admin`.
+park again immediately. A `webhook replay` subcommand for `cmd/scimage-admin`
+is planned but not yet built.
 
 The three outcome writes are each guarded on `status = 'pending'`, so `delivered`
 and `dead_letter` are terminal: a dispatcher whose lease expired mid-send can

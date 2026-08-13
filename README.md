@@ -168,7 +168,7 @@ Store and audit tests run against a real Postgres instance via `docker-compose`,
 
 ## 🗺️ Roadmap
 
-Phases 1–11 are complete: schema, endpoints, auth, audit, hardening, identity-provider interoperability, change delivery, multi-tenancy with issued API tokens, and the `/Groups` resource with membership. ARIA is next, followed by release engineering.
+Phases 1–11 are complete: schema, endpoints, auth, audit, hardening, identity-provider interoperability, change delivery, multi-tenancy with issued API tokens, and the `/Groups` resource with membership. Phase 14 (per-tenant extensible attributes) has also shipped. ARIA, the advisory audit reviewer, is next, with release-engineering work ongoing.
 
 The [implementation plan](docs/IMPLEMENTATION_PLAN.md) has the phase-by-phase detail, with the decisions and trade-offs recorded as they were made.
 
