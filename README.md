@@ -15,6 +15,18 @@
 
 SCIMage is a focused SCIM 2.0 server written in Go. It implements the core `/Users` and `/Groups` resources from [RFC 7644](https://datatracker.ietf.org/doc/html/rfc7644), backed by real Postgres, with security practices that are load-bearing and covered by tests.
 
+## ✨ Why SCIMage
+
+Most SCIM servers are a thin CRUD layer bolted onto an app. SCIMage treats the parts that actually matter once real customers are provisioning into you as first-class:
+
+- **Security is structural, not a checkbox** — tenant isolation, hashed and rotatable tokens, and an audit entry written in the *same transaction* as every change, enforced in code and tested against real Postgres rather than mocks.
+- **A tamper-evident audit trail** — every mutation *and every refusal* is recorded with before/after state, so a user can't be changed without leaving a record.
+- **Changes actually reach your app** — signed, retried webhooks with a dead-letter queue turn provisioning into events the rest of your system can act on.
+- **Extend by config, not by forking** — register any extra or custom attribute per tenant and it round-trips, keeping the core minimal and honest.
+- **Self-hosted and transparent** — plain Go + Postgres + raw SQL, no framework and no lock-in; you own the data and the audit trail.
+
+**Best fit:** a SaaS that needs to *receive* enterprise provisioning with a defensible security-and-audit story, wants to self-host, and values correctness over feature breadth. It's portfolio-grade, not a 1.0 — ARIA (the advisory audit reviewer) and release engineering are still in progress.
+
 ## 💡 Why I built this
 
 I spent years building JML (joiner mover leaver) automation on the identity provider side, configuring Okta Workflows to push user provisioning into 60+ SaaS applications. That gave me a solid understanding of the SCIM spec from the client's point of view.
