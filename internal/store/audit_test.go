@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // decodeAuditUser unmarshals a User audit image, failing the test if it's
@@ -47,29 +49,60 @@ func countAudit(t *testing.T, s *Store, tenantID string) int {
 	return n
 }
 
+// newFaultInjectingStore builds a *Store backed by a dedicated, single
+// connection pool, so a session-level setting on it can't leak onto — or be
+// disturbed by — any other test's connection. MaxConns: 1 guarantees every
+// Begin() a mutation opens against this pool lands on that one connection,
+// which is what lets a plain session-scoped SET (not SET LOCAL) reach a
+// mutation's own internally-opened transaction: the caller can't wrap it in
+// an outer transaction of its own, since Postgres has no nested transactions
+// and the store methods don't accept an external pgx.Tx.
+//
+// Closing the pool at test end tears down that one connection outright, so
+// the setting never has to be reset — nothing else was ever able to see it.
+func newFaultInjectingStore(t *testing.T) *Store {
+	t.Helper()
+
+	dsn, err := DSNFromEnv()
+	if err != nil {
+		t.Skipf("no database configured — run `make test` (%v)", err)
+	}
+
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatalf("parse test dsn: %v", err)
+	}
+	cfg.MaxConns = 1
+
+	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("open single-connection pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	return &Store{pool: pool}
+}
+
 // This is the guarantee the whole design turns on: a mutation and its audit
 // entry share one transaction, so a user cannot be changed without a record.
-// Renaming audit_log away makes the entry insert fail; the mutation has to roll
-// back rather than commit unrecorded.
+// audit_log_fault_injection (migrations/000009) raises on insert while this
+// session's scimage.simulate_audit_failure flag is set, forcing the entry
+// insert to fail so the mutation has to roll back rather than commit
+// unrecorded — with no footprint outside this test's own connection.
 func TestMutationRollsBackWhenAuditFails(t *testing.T) {
-	s := newTestStore(t)
+	s := newFaultInjectingStore(t)
 	ctx := context.Background()
 	tenantID := newTestTenant(t, s)
 
-	if _, err := s.pool.Exec(ctx, `ALTER TABLE audit_log RENAME TO audit_log_hidden`); err != nil {
-		t.Fatalf("hide audit_log: %v", err)
+	if _, err := s.pool.Exec(ctx, `SET scimage.simulate_audit_failure = 'true'`); err != nil {
+		t.Fatalf("enable audit fault injection: %v", err)
 	}
-	t.Cleanup(func() {
-		if _, err := s.pool.Exec(context.Background(), `ALTER TABLE audit_log_hidden RENAME TO audit_log`); err != nil {
-			t.Fatalf("restore audit_log: %v", err)
-		}
-	})
 
 	t.Run("create rolls back", func(t *testing.T) {
 		name := uniqueUserName()
 
 		if _, err := s.CreateUser(ctx, tenantID, &User{UserName: name, Active: true}, testAudit(tenantID)); err == nil {
-			t.Fatal("CreateUser succeeded with no audit table — the mutation was not rolled back")
+			t.Fatal("CreateUser succeeded despite the injected audit failure — the mutation was not rolled back")
 		}
 
 		var n int
