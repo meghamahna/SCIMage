@@ -325,27 +325,27 @@ clock, and the intended pattern is to apply idempotently and prefer the newest
 
 ## Audit review (ARIA)
 
-`cmd/aria` (ARIA — Audit Risk Intelligence Advisor) is the one AI-assisted
+`cmd/aria` (ARIA, the Audit Risk Intelligence Advisor) is the one AI-assisted
 component, and it is deliberately a leaf. It reads `audit_log` through
-`store.ListAuditEntriesSince` — a time window, optionally across every tenant —
-and computes the signals in Go: deactivations clustered in a short window,
-changes landing off-hours, per-caller volume, and denial bursts. The thresholds
-live as constants in `internal/aria`, so what counts as notable is auditable
-code, not a model's judgement.
+`store.ListAuditEntriesSince` over a time window, optionally across every
+tenant, and computes the signals in Go: deactivations clustered in a short
+window, changes landing off-hours, per-caller volume, and denial bursts. The
+thresholds live as constants in `internal/aria`, so what counts as notable
+stays auditable code.
 
-Only then is an LLM involved, and only to narrate: it is handed the
-already-computed facts and returns prose. The endpoint is provider-neutral —
-any OpenAI-compatible chat-completions API, set with `ARIA_LLM_*` — so ARIA
-isn't bound to one vendor and pulls no SDK into `go.mod`. The key is read from
-the environment and never logged, and a window with no findings prints a
-deterministic line and makes no call at all, so a clean review needs no key.
+Only then does an LLM take over, and only to narrate: it receives the
+already-computed facts and returns prose. The endpoint is provider-neutral, any
+OpenAI-compatible chat-completions API set with `ARIA_LLM_*`, so ARIA works with
+any vendor and keeps `go.mod` at `pgx` and `golang.org/x/time`. It reads the key
+from the environment and sends it only in the request's `Authorization` header,
+and a window with no findings prints a deterministic line and skips the model,
+so a clean review runs without a key.
 
-The boundary is the whole point. ARIA's output is printed for a human; it is
-never written back to the store and never consulted by the auth or provisioning
-path. The model advises on activity — the deterministic code decides. Wiring an
-LLM into a provisioning or authorization decision would break that, and the
-`code-reviewer` gate treats it as a critical finding regardless of how small the
-change looks.
+The boundary is the whole point. ARIA prints its briefing for a human, and the
+code routes it only there, clear of the store and the auth path. The human
+decides, and the model only advises on activity. Wiring an LLM into a
+provisioning or authorization decision would break that guarantee, so the
+`code-reviewer` gate treats it as a critical finding.
 
 ## Logging
 
