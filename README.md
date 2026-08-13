@@ -66,28 +66,25 @@ Responses use `application/scim+json`, and errors use the SCIM Error schema with
 
 ```mermaid
 flowchart LR
-    IDP["Customer's identity provider"] -->|"SCIM request to /scim/v2/{tenantID}, Bearer token"| AUTH["Auth middleware<br/>looks up the token, checks its tenant"]
-    AUTH --> RL["Rate limiter<br/>keyed per issued token"]
+    IDP["Identity provider"] -->|"SCIM request"| AUTH["Auth"]
+    AUTH -.->|"verify token"| DB[("Postgres")]
+    AUTH --> RL["Rate limiter"]
     RL --> ROUTER{"Router"}
-    ROUTER -->|"GET /ServiceProviderConfig, /Schemas, /ResourceTypes"| DISCOVERY["Discovery"]
-    ROUTER -->|"POST/PUT/PATCH/DELETE /Users, /Groups"| MUTATE["Create / Replace / Patch / Delete"]
-    ROUTER -->|"GET /Users, /Groups"| READ["List / Fetch / Filter"]
-
-    DB[("Postgres (one database, every query scoped by tenant_id)<br/>tenants, scim_tokens, users, groups, group_members,<br/>audit_log, admin_audit_log, tenant_attributes, webhook_deliveries")]
-
-    AUTH -.->|"verify token by key id"| DB
-    MUTATE ==>|"row + audit_log + outbox event, one transaction"| DB
+    ROUTER --> DISCOVERY["Discovery"]
+    ROUTER --> MUTATE["Mutate"]
+    ROUTER --> READ["Read"]
+    MUTATE ==>|"one txn"| DB
     READ --> DB
 
-    DB -.->|"claims due rows"| DISPATCH["Webhook dispatcher"]
-    DISPATCH -->|"signed POST, retried"| APP["Your application"]
-    DISPATCH -.->|"attempts exhausted, parked back"| DB
+    DB -.->|"due rows"| DISPATCH["Dispatcher"]
+    DISPATCH -->|"signed POST"| APP["Your app"]
+    DISPATCH -.->|"parked"| DB
 
-    ADMIN["scimage-admin CLI, off-network<br/>tenants, tokens, attributes"] -.-> DB
+    ADMIN["Admin CLI"] -.->|"off-network"| DB
 
-    DB -.->|"reads audit_log only"| ARIA["ARIA reviewer<br/>computes signals in Go"]
-    ARIA <-->|"facts out, narration back"| LLM["LLM, any OpenAI-compatible endpoint"]
-    ARIA -->|"plain-English briefing"| HUMAN["Human reviewer"]
+    DB -.->|"audit_log"| ARIA["ARIA"]
+    ARIA <-->|"narrate"| LLM["LLM"]
+    ARIA -->|"briefing"| HUMAN["Reviewer"]
 ```
 
 A mutation writes the user or group row, its audit entry and its outbound event in one transaction, so a change always carries its record and its notification. `audit_log` carries a `resource_type` column so one trail covers both resources. Every query in that path is scoped by `tenant_id`, so one customer's token can never read or change another's data. The handler depends on `UserStore` and `GroupStore` interfaces, so an application with its own tables can supply an implementation and skip webhooks entirely.
