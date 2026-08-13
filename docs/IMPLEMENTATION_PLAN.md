@@ -1,8 +1,8 @@
 # Implementation Plan: SCIM 2.0 Provisioning Server (Go + Postgres)
 
 ## Goal
-Build a working SCIM 2.0 server in Go that implements the `/Users`
-resource per RFC 7644, backed by Postgres running in Docker, with
+Build a working SCIM 2.0 server in Go that implements the `/Users` and
+`/Groups` resources per RFC 7644, backed by Postgres running in Docker, with
 production-grade security practices and an AI-assisted audit layer.
 
 ## Why Postgres
@@ -350,17 +350,3 @@ as a whole object, but not an individually-addressable sub-attribute path, a
 documented v1 boundary. Filtering grammar, sort, ETag, Bulk and `.search` stay
 unsupported: the same validator run confirmed neither Okta nor Entra needs them
 for provisioning, and they're advertised as unsupported.
-
-## Time estimate
-Phases 1-2 (Docker + schema): one evening.
-Phases 3-5 (store + endpoints + auth): two evenings.
-Phase 6 (tests): landed alongside the phases above.
-Phase 7 (security hardening): one evening.
-Phase 8 (IdP interoperability): a few evenings, paced by a live tenant.
-Phase 9 (change delivery): several evenings; webhook delivery earns its
-own design pass.
-Phase 10 (multi-tenancy + tokens): a week, touching schema, store, router
-and CLI.
-Phase 11 (Groups): a week.
-Phase 12 (ARIA): one evening.
-Phase 13 (release engineering): spread across the phases above.
