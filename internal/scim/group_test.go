@@ -36,6 +36,64 @@ func createGroup(t *testing.T, in Group) Group {
 	return out
 }
 
+// The members attribute is multi-valued, so a group with none must still
+// return `members: []` rather than dropping the key — some IdP clients (and
+// the Entra validator) choke on the absent key. And excludedAttributes=members,
+// which Okta and Entra send to skip large member lists, has to actually omit
+// it. decodeBody can't tell `[]` from absent, so these assert on the raw body.
+func TestGroupMembersSerialization(t *testing.T) {
+	requireDB(t)
+
+	t.Run("an empty group returns members as []", func(t *testing.T) {
+		created := createGroup(t, newGroup())
+
+		rr := do(t, http.MethodGet, "/Groups/"+created.ID, nil)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("GET = %d, want 200: %s", rr.Code, rr.Body)
+		}
+		if !strings.Contains(rr.Body.String(), `"members":[]`) {
+			t.Errorf("empty group body has no `members: []`: %s", rr.Body)
+		}
+	})
+
+	t.Run("a populated group returns its members", func(t *testing.T) {
+		u := createUser(t, newUser())
+		created := createGroup(t, Group{Schemas: []string{groupSchema}, DisplayName: uniqueGroupName(), Members: []Member{{Value: u.ID}}})
+
+		rr := do(t, http.MethodGet, "/Groups/"+created.ID, nil)
+		body := rr.Body.String()
+		if !strings.Contains(body, `"members":[`) || !strings.Contains(body, u.ID) {
+			t.Errorf("populated group body is missing its member: %s", body)
+		}
+	})
+
+	t.Run("excludedAttributes=members omits members entirely", func(t *testing.T) {
+		u := createUser(t, newUser())
+		created := createGroup(t, Group{Schemas: []string{groupSchema}, DisplayName: uniqueGroupName(), Members: []Member{{Value: u.ID}}})
+
+		rr := do(t, http.MethodGet, "/Groups/"+created.ID+"?excludedAttributes=members", nil)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("GET = %d, want 200: %s", rr.Code, rr.Body)
+		}
+		if strings.Contains(rr.Body.String(), `"members"`) {
+			t.Errorf("members should be excluded but is present: %s", rr.Body)
+		}
+	})
+
+	t.Run("list honors excludedAttributes=members for every resource", func(t *testing.T) {
+		u := createUser(t, newUser())
+		createGroup(t, Group{Schemas: []string{groupSchema}, DisplayName: uniqueGroupName(), Members: []Member{{Value: u.ID}}})
+
+		rr := do(t, http.MethodGet, "/Groups?excludedAttributes=members", nil)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("GET = %d, want 200: %s", rr.Code, rr.Body)
+		}
+		if strings.Contains(rr.Body.String(), `"members"`) {
+			t.Errorf("a listed group still carries members despite exclusion: %s", rr.Body)
+		}
+	})
+}
+
 // hardDeleteGroup is cleanup, not the behaviour under test: DeleteGroup is
 // already a hard delete, this just catches groups a test didn't delete
 // itself.

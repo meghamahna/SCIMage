@@ -281,7 +281,7 @@ func (h *Handler) createGroup(w http.ResponseWriter, r *http.Request) {
 
 	out := fromStoreGroup(created, h.baseURL(r))
 	w.Header().Set("Location", out.Meta.Location)
-	writeJSON(w, http.StatusCreated, out)
+	writeJSON(w, http.StatusCreated, shapeGroup(out, !membersExcluded(r)))
 }
 
 func (h *Handler) getGroup(w http.ResponseWriter, r *http.Request) {
@@ -291,7 +291,7 @@ func (h *Handler) getGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, fromStoreGroup(g, h.baseURL(r)))
+	writeJSON(w, http.StatusOK, shapeGroup(fromStoreGroup(g, h.baseURL(r)), !membersExcluded(r)))
 }
 
 func (h *Handler) listGroups(w http.ResponseWriter, r *http.Request) {
@@ -310,12 +310,13 @@ func (h *Handler) listGroups(w http.ResponseWriter, r *http.Request) {
 	}
 
 	base := h.baseURL(r)
-	resources := make([]Group, 0, len(groups))
+	includeMembers := !membersExcluded(r)
+	resources := make([]json.RawMessage, 0, len(groups))
 	for i := range groups {
-		resources = append(resources, fromStoreGroup(&groups[i], base))
+		resources = append(resources, shapeGroup(fromStoreGroup(&groups[i], base), includeMembers))
 	}
 
-	writeJSON(w, http.StatusOK, listOf[Group]{
+	writeJSON(w, http.StatusOK, listOf[json.RawMessage]{
 		Schemas:      []string{listSchema},
 		TotalResults: total,
 		ItemsPerPage: len(resources),
@@ -344,7 +345,7 @@ func (h *Handler) replaceGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, fromStoreGroup(changed.After, h.baseURL(r)))
+	writeJSON(w, http.StatusOK, shapeGroup(fromStoreGroup(changed.After, h.baseURL(r)), !membersExcluded(r)))
 }
 
 // patchGroup mirrors patch: read the current resource, fold the operations
@@ -390,7 +391,7 @@ func (h *Handler) patchGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, fromStoreGroup(changed.After, h.baseURL(r)))
+	writeJSON(w, http.StatusOK, shapeGroup(fromStoreGroup(changed.After, h.baseURL(r)), !membersExcluded(r)))
 }
 
 // deleteGroup is a hard delete: unlike Users, the Group schema has no active
@@ -404,6 +405,58 @@ func (h *Handler) deleteGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// membersExcluded reports whether the request asked to leave members out via
+// excludedAttributes=members — the one exclusion Okta and Entra actually send
+// on group reads (to avoid pulling large member lists). The full
+// attributes/excludedAttributes projection grammar isn't implemented; only
+// this member-list suppression is.
+func membersExcluded(r *http.Request) bool {
+	for _, field := range strings.Split(r.URL.Query().Get("excludedAttributes"), ",") {
+		if strings.EqualFold(strings.TrimSpace(field), "members") {
+			return true
+		}
+	}
+	return false
+}
+
+// shapeGroup renders a group response, resolving the three states of the
+// members attribute that a struct tag alone can't express: omitted when the
+// caller asked to exclude it, an empty array when a group simply has none
+// (rather than dropping the key, which some IdP clients choke on), or the
+// populated list. It round-trips through a map so everything else stays
+// exactly as the typed value marshals. The marshal steps can't fail for a
+// Group (a fixed shape of strings and slices); the guards only satisfy
+// errcheck, logging and returning whatever bytes exist rather than failing
+// the request.
+func shapeGroup(g Group, includeMembers bool) json.RawMessage {
+	b, err := json.Marshal(g)
+	if err != nil {
+		slog.Error("marshal group", "error", err)
+		return b
+	}
+
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(b, &m); err != nil {
+		slog.Error("reshape group", "error", err)
+		return b
+	}
+
+	if includeMembers {
+		if _, ok := m["members"]; !ok {
+			m["members"] = json.RawMessage("[]")
+		}
+	} else {
+		delete(m, "members")
+	}
+
+	out, err := json.Marshal(m)
+	if err != nil {
+		slog.Error("marshal shaped group", "error", err)
+		return b
+	}
+	return out
 }
 
 // auditRecord is the caller's identity, resolved by requireToken and read
