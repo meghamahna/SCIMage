@@ -25,7 +25,7 @@ Most SCIM servers are a thin CRUD layer bolted onto an app. SCIMage treats the p
 - **Extend by config, not by forking** — register any extra or custom attribute per tenant and it round-trips, keeping the core minimal and honest.
 - **Self-hosted and transparent** — plain Go + Postgres + raw SQL, no framework and no lock-in; you own the data and the audit trail.
 
-**Best fit:** a SaaS that needs to *receive* enterprise provisioning with a defensible security-and-audit story, wants to self-host, and values correctness over feature breadth. It's portfolio-grade, not a 1.0 — ARIA (the advisory audit reviewer) and release engineering are still in progress.
+**Best fit:** a SaaS that needs to *receive* enterprise provisioning with a defensible security-and-audit story, wants to self-host, and values correctness over feature breadth. It's portfolio-grade rather than a 1.0; release engineering (packaging, published images, tagged releases) is still in progress.
 
 ## 💡 Why I built this
 
@@ -66,21 +66,30 @@ Responses use `application/scim+json`, and errors use the SCIM Error schema with
 
 ```mermaid
 flowchart LR
-    IDP[Customer's identity provider] -->|"SCIM request to /scim/v2/{tenantID}, Bearer token"| AUTH[Auth middleware<br/>looks up the token, checks its tenant]
-    AUTH --> RL[Rate limiter<br/>keyed per issued token]
-    RL --> ROUTER{Router}
-    ROUTER -->|GET /ServiceProviderConfig, /Schemas, /ResourceTypes| DISCOVERY[Discovery]
-    ROUTER -->|"POST/PUT/PATCH/DELETE /Users, /Groups"| MUTATE[Create / Replace / Patch / Delete]
-    ROUTER -->|"GET /Users, /Groups"| READ[List / Fetch / Filter]
-    MUTATE --> TX[("Postgres: users or groups + audit_log + outbox<br/>written in one transaction, scoped to the caller's tenant")]
-    READ --> DB[("Postgres: users, groups + group_members<br/>scoped to the caller's tenant")]
-    AUTH -.->|"tenant_id, scim_tokens"| TENANTS[("Postgres: tenants + scim_tokens")]
-    TX -.->|claims due rows| DISPATCH[Webhook dispatcher]
-    DISPATCH -->|"signed POST, retried"| APP[Your application]
-    DISPATCH -.->|"attempts exhausted"| DLQ[("Dead-letter queue")]
+    IDP["Identity provider"] -->|"SCIM request"| AUTH["Auth"]
+    AUTH -.->|"verify token"| DB[("Postgres")]
+    AUTH --> RL["Rate limiter"]
+    RL --> ROUTER{"Router"}
+    ROUTER --> DISCOVERY["Discovery"]
+    ROUTER --> MUTATE["Mutate"]
+    ROUTER --> READ["Read"]
+    MUTATE ==>|"one txn"| DB
+    READ --> DB
+
+    DB -.->|"due rows"| DISPATCH["Dispatcher"]
+    DISPATCH -->|"signed POST"| APP["Your app"]
+    DISPATCH -.->|"parked"| DB
+
+    ADMIN["Admin CLI"] -.->|"off-network"| DB
+
+    DB -.->|"audit_log"| ARIA["ARIA"]
+    ARIA <-->|"narrate"| LLM["LLM"]
+    ARIA -->|"briefing"| HUMAN["Reviewer"]
 ```
 
 A mutation writes the user or group row, its audit entry and its outbound event in one transaction, so a change always carries its record and its notification. `audit_log` carries a `resource_type` column so one trail covers both resources. Every query in that path is scoped by `tenant_id`, so one customer's token can never read or change another's data. The handler depends on `UserStore` and `GroupStore` interfaces, so an application with its own tables can supply an implementation and skip webhooks entirely.
+
+Everything lives in **one Postgres database**, and both the `scimage-admin` CLI and ARIA reach it directly, off the network. ARIA is the one advisory branch: it *reads* `audit_log`, computes the signals in Go, and asks an LLM to narrate them. Its briefing goes to a human, and the code keeps it there, clear of the store and the auth path.
 
 [Architecture](docs/ARCHITECTURE.md) covers the request path, the storage model and that interface's contract.
 
@@ -110,6 +119,21 @@ These are load-bearing, and each one is covered by tests:
 Every setting comes from an environment variable; see [Configuration](docs/CONFIGURATION.md) for the full list.
 
 Operational logs are structured JSON on stdout and in a dated file under `LOG_DIR`. The audit trail is separate and lives in the `audit_log` table, so a change and its record commit together.
+
+## 🤖 ARIA, the advisory audit reviewer
+
+`aria` reads the audit trail and prints a plain-English briefing a reviewer can read in under a minute: clustered deactivations, changes landing off-hours, callers spiking in volume or racking up denials.
+
+The design is the point. **Deterministic Go computes every signal**, and the LLM only narrates the facts Go already found. What counts as a signal lives in `internal/aria` as constants (five deactivations inside ten minutes, activity outside business hours), so it stays auditable code. ARIA reads the audit log and prints a briefing; the human decides. Its output goes only to that human, and by design the code gives it no path into the store or the auth layer. ARIA advises on activity; the code decides.
+
+ARIA works with **any OpenAI-compatible chat-completions endpoint** (Anthropic's compat endpoint, OpenAI, OpenRouter, a local Ollama or vLLM). Point it there with `ARIA_LLM_BASE_URL`, `ARIA_LLM_API_KEY` and `ARIA_LLM_MODEL`.
+
+```bash
+make aria                                  # last 24h, every tenant
+make aria TENANT=tenant_9f2a... SINCE=7d   # one tenant, last week
+```
+
+A quiet window prints a deterministic "nothing tripped the thresholds" line and skips the model, so a clean review runs without a key. See [Configuration](docs/CONFIGURATION.md#audit-review-aria).
 
 ## 🚀 Getting started
 
@@ -180,7 +204,7 @@ Store and audit tests run against a real Postgres instance via `docker-compose`,
 
 ## 🗺️ Roadmap
 
-Phases 1–11 are complete: schema, endpoints, auth, audit, hardening, identity-provider interoperability, change delivery, multi-tenancy with issued API tokens, and the `/Groups` resource with membership and per-tenant extensible attributes. ARIA, the advisory audit reviewer, is next, with release-engineering work ongoing.
+Phases 1 through 12 are complete: schema, endpoints, auth, audit, hardening, identity-provider interoperability, change delivery, multi-tenancy with issued API tokens, the `/Groups` resource with membership and per-tenant extensible attributes, and ARIA, the advisory audit reviewer. Release-engineering work (packaging, published images, tagged releases) is ongoing.
 
 The [implementation plan](docs/IMPLEMENTATION_PLAN.md) has the phase-by-phase detail, with the decisions and trade-offs recorded as they were made.
 

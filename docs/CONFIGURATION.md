@@ -151,3 +151,35 @@ irreversible: a new token has to be issued if one is needed again.
 
 Treat every issued token as a privileged credential (it authorizes changes
 to that tenant's directory), and revoke it as soon as exposure is suspected.
+
+## Audit review (ARIA)
+
+`cmd/aria` (ARIA, the Audit Risk Intelligence Advisor) reads the `audit_log` and
+prints a plain-English briefing of activity worth a human's attention. It
+computes the signals in Go (clustered deactivations, off-hours changes,
+per-caller volume, and denial bursts), then asks an LLM to narrate those
+already-computed facts. It stays advisory: the code routes its output only to
+the human, clear of the store and the auth path.
+
+| Variable | Purpose |
+| --- | --- |
+| `ARIA_LLM_BASE_URL` | Base URL of an OpenAI-compatible chat-completions API (e.g. `https://api.anthropic.com/v1`). |
+| `ARIA_LLM_API_KEY` | Provider key. `cmd/aria` reads it from the environment and sends it only in the request's `Authorization` header, and only when a window has findings. |
+| `ARIA_LLM_MODEL` | Model id to request, e.g. `claude-sonnet-4-5`. |
+| `ARIA_TIMEZONE` | Optional. IANA zone for the off-hours check. Defaults to the host's local zone. |
+
+ARIA works with any OpenAI-compatible chat-completions API: Anthropic's
+compatibility endpoint, OpenAI, OpenRouter, a local Ollama or vLLM, and so on.
+Set the three `ARIA_LLM_*` variables to whichever you run.
+
+```bash
+aria [-tenant <tenantID>] [-since 24h] [-timezone America/Vancouver]
+```
+
+`-tenant` scopes the review to one customer; omit it for a deployment-wide pass
+across every tenant. `-since` accepts a bare day count (`7d`) or any Go duration
+(`24h`, `90m`), and defaults to `24h`. A window with nothing notable prints a
+deterministic "nothing tripped the thresholds" line and skips the model, so a
+quiet review runs without a key. The thresholds live in `internal/aria` as
+constants (for example, five deactivations in ten minutes), so what counts as a
+signal stays auditable code.
