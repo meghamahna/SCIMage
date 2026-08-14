@@ -66,6 +66,7 @@ SERVICE=postgres`, not `--service=postgres`.
 | `make attr-list TENANT=<id>` | Lists a tenant's registered extra attributes | |
 | `make attr-unregister TENANT=<id> NAME=displayName` | Removes a registered attribute | Stops future capture; doesn't touch stored values |
 | `make audit-list [TENANT=<id>]` | Reads the admin-audit trail | Every tenant created, token issued or revoked, attribute registered; omit `TENANT` for every tenant |
+| `make aria [TENANT=<id>] [SINCE=24h]` | Runs ARIA, the advisory audit reviewer | Optional `TZ=` for the off-hours check; needs the `ARIA_LLM_*` variables only when a window has findings |
 | `make hooks-install` | Activates the real git pre-commit hook | One-time per clone; doesn't travel with the repo |
 
 ## Supported attributes
@@ -183,6 +184,42 @@ audit list`). To query `audit_log` directly:
 docker compose exec postgres psql -U scimage -d scimage -c \
   "SELECT at, resource_type, actor_token, action, result, target_id FROM audit_log ORDER BY at DESC LIMIT 10;"
 ```
+
+## Audit review (ARIA)
+
+ARIA reads that audit trail and prints a short, plain-English briefing of
+activity worth a human's glance: deactivations clustered in a short window,
+changes landing off-hours, and callers spiking in volume or denials.
+Deterministic Go computes the signals, and an LLM only phrases them. The
+briefing goes to you, and the code keeps it there, clear of the store and the
+auth path.
+
+**One-time setup.** Point ARIA at any OpenAI-compatible chat-completions
+endpoint by adding three variables to `.env`. With a Claude API key:
+
+```bash
+ARIA_LLM_BASE_URL=https://api.anthropic.com/v1
+ARIA_LLM_API_KEY=sk-ant-...
+ARIA_LLM_MODEL=claude-sonnet-4-5
+```
+
+OpenAI, OpenRouter, and a local Ollama or vLLM work the same way: set the base
+URL, key, and model to match the provider you run.
+
+**Run a review:**
+
+```bash
+make aria                                  # last 24h, every tenant
+make aria TENANT=<tenantID> SINCE=7d       # one tenant, last 7 days
+make aria SINCE=48h TZ=America/Vancouver   # custom window and off-hours timezone
+```
+
+`SINCE` accepts a day count (`7d`) or any Go duration (`24h`, `90m`), and
+defaults to `24h`. A quiet window prints a deterministic "nothing tripped the
+thresholds" line and skips the model, so a clean review runs even with no key
+configured. ARIA calls the LLM only when a window has something to summarize.
+[Configuration](CONFIGURATION.md#audit-review-aria) lists every variable and
+flag.
 
 ## Run tests
 
