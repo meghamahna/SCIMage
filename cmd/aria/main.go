@@ -104,6 +104,11 @@ func run(args []string) error {
 		return err
 	}
 
+	// The deterministic header prints on every run, above the model's findings,
+	// so the tenant, window, and totals are always shown verbatim rather than
+	// left to the model.
+	fmt.Print(aria.Header(report))
+	fmt.Println()
 	fmt.Println(summary)
 	return nil
 }
