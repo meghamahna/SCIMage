@@ -58,6 +58,18 @@ func run(args []string) error {
 	}
 	defer s.Close()
 
+	// Resolve the tenant name up front when the review is scoped to one, so the
+	// report header can show it. An unknown id fails fast here rather than
+	// returning an empty, misleading review.
+	var tenantName string
+	if *tenantID != "" {
+		t, err := s.GetTenant(ctx, *tenantID)
+		if err != nil {
+			return fmt.Errorf("tenant %q: %w", *tenantID, err)
+		}
+		tenantName = t.Name
+	}
+
 	now := time.Now()
 	entries, err := s.ListAuditEntriesSince(ctx, *tenantID, now.Add(-window))
 	if err != nil {
@@ -65,10 +77,11 @@ func run(args []string) error {
 	}
 
 	report := aria.Detect(entries, *tenantID, now.Add(-window), now, loc)
+	report.TenantName = tenantName
 
 	// The reader clamps to store.MaxPageSize newest-first, so a full batch means
 	// the window may hold more than was read. Say so rather than quietly review a
-	// partial window — an audit tool that silently drops rows is worse than one
+	// partial window: an audit tool that silently drops rows is worse than one
 	// that admits its bound.
 	report.Truncated = len(entries) >= store.MaxPageSize
 

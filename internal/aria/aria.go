@@ -70,14 +70,15 @@ type Flag struct {
 // Report is the deterministic read of one audit window. Everything in it was
 // computed in Go; the LLM is handed this and asked only to narrate it.
 type Report struct {
-	TenantID  string         // "" means the review spans every tenant
-	Since     time.Time      // window start
-	Now       time.Time      // window end / "as of"
-	Location  *time.Location // timezone the business-hours check and rendering use
-	Total     int            // audit entries reviewed (includes refusals, not just successes)
-	Callers   int            // distinct actor tokens seen
-	Truncated bool           // the reader hit its cap, so older in-window entries may be missing
-	Flags     []Flag         // noteworthy patterns, most severe first
+	TenantID   string         // "" means the review spans every tenant
+	TenantName string         // display name for TenantID; set by the caller, empty across all tenants
+	Since      time.Time      // window start
+	Now        time.Time      // window end / "as of"
+	Location   *time.Location // timezone the business-hours check and rendering use
+	Total      int            // audit entries reviewed (includes refusals, not just successes)
+	Callers    int            // distinct actor tokens seen
+	Truncated  bool           // the reader hit its cap, so older in-window entries may be missing
+	Flags      []Flag         // noteworthy patterns, most severe first
 }
 
 // HasFindings reports whether anything tripped a threshold.

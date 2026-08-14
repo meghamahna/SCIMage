@@ -30,15 +30,15 @@ How to write it:
 - A few short sentences or tight bullets is plenty. Skip a preamble, and do not repeat everything in a closing summary.`
 
 // BuildPrompt returns the system and user messages for a Report. The user
-// message is a deterministic rendering of the already-computed facts — the
+// message is a deterministic rendering of the already-computed facts; the
 // model adds phrasing, not findings.
 func BuildPrompt(r Report) (system, user string) {
 	return systemPrompt, Render(r)
 }
 
 // Render is the deterministic text form of a Report. It is both the LLM's user
-// message and the output ARIA prints directly when a window has no findings —
-// in that case the facts are trivial, so there's nothing for the model to add
+// message and the output ARIA prints directly when a window has no findings.
+// In that case the facts are trivial, so there's nothing for the model to add
 // and no reason to spend a call.
 func Render(r Report) string {
 	loc := r.Location
@@ -48,15 +48,19 @@ func Render(r Report) string {
 
 	var b strings.Builder
 
-	scope := "all tenants"
+	b.WriteString("ARIA Audit Report\n")
 	if r.TenantID != "" {
-		scope = "tenant " + r.TenantID
+		if r.TenantName != "" {
+			fmt.Fprintf(&b, "Tenant Name: %s\n", r.TenantName)
+		}
+		fmt.Fprintf(&b, "Tenant ID: %s\n", r.TenantID)
+	} else {
+		b.WriteString("Tenant: all tenants\n")
 	}
-	fmt.Fprintf(&b, "Audit review for %s\n", scope)
 	fmt.Fprintf(&b, "Window: %s to %s\n", r.Since.In(loc).Format(time.RFC3339), r.Now.In(loc).Format(time.RFC3339))
-	fmt.Fprintf(&b, "Audit entries reviewed: %d, from %d distinct caller(s)\n", r.Total, r.Callers)
+	fmt.Fprintf(&b, "Activity: %d audit entries from %d distinct caller(s)\n", r.Total, r.Callers)
 	if r.Truncated {
-		b.WriteString("Note: the reviewer returned its maximum number of entries, so older activity in this window may be omitted — narrow the window (a smaller -since) for full coverage.\n")
+		b.WriteString("Note: the reviewer returned its maximum number of entries, so older activity in this window may be omitted. Narrow the window (a smaller -since) for full coverage.\n")
 	}
 
 	if !r.HasFindings() {
