@@ -49,20 +49,21 @@ func Header(r Report) string {
 	}
 
 	var b strings.Builder
-	b.WriteString("ARIA Audit Report\n")
+	b.WriteString("## ARIA Audit Report\n")
 	if r.TenantID != "" {
 		if r.TenantName != "" {
-			fmt.Fprintf(&b, "Tenant Name: %s\n", r.TenantName)
+			fmt.Fprintf(&b, "**Tenant Name**: %s\n", r.TenantName)
 		}
-		fmt.Fprintf(&b, "Tenant ID: %s\n", r.TenantID)
+		fmt.Fprintf(&b, "**Tenant ID**: %s\n", r.TenantID)
 	} else {
-		b.WriteString("Tenant: all tenants\n")
+		b.WriteString("**Tenant**: all tenants\n")
 	}
-	fmt.Fprintf(&b, "Window: %s to %s\n", r.Since.In(loc).Format(time.RFC3339), r.Now.In(loc).Format(time.RFC3339))
-	fmt.Fprintf(&b, "Activity: %d audit entries from %d distinct caller(s)\n", r.Total, r.Callers)
+	fmt.Fprintf(&b, "**Time Window**: %s to %s\n", r.Since.In(loc).Format(time.RFC3339), r.Now.In(loc).Format(time.RFC3339))
+	fmt.Fprintf(&b, "**Activity**: %d audit entries from %d distinct caller(s)\n", r.Total, r.Callers)
 	if r.Truncated {
-		b.WriteString("Note: the reviewer returned its maximum number of entries, so older activity in this window may be omitted. Narrow the window (a smaller -since) for full coverage.\n")
+		b.WriteString("**Note**: the reviewer returned its maximum number of entries, so older activity in this window may be omitted. Narrow the window (a smaller -since) for full coverage.\n")
 	}
+	b.WriteString("\n---\n")
 	return b.String()
 }
 
