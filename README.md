@@ -208,13 +208,16 @@ Store and audit tests run against a real Postgres instance via `docker-compose`,
 
 Phases 1 through 12 are complete: schema, endpoints, auth, audit, hardening, identity-provider interoperability, change delivery, multi-tenancy with issued API tokens, the `/Groups` resource with membership and per-tenant extensible attributes, and ARIA, the advisory audit reviewer. Release-engineering work (packaging, published images, tagged releases) is ongoing.
 
-The [implementation plan](docs/IMPLEMENTATION_PLAN.md) has the phase-by-phase detail, with the decisions and trade-offs recorded as they were made.
+[ROADMAP.md](ROADMAP.md) tracks what's deliberately left for later, and [CHANGELOG.md](CHANGELOG.md) records what's landed. The [implementation plan](docs/IMPLEMENTATION_PLAN.md) has the phase-by-phase detail, with the decisions and trade-offs recorded as they were made.
 
 ## 📚 Documentation
 
 - [Architecture](docs/ARCHITECTURE.md): request path, storage model, change delivery internals
 - [Configuration](docs/CONFIGURATION.md): every environment variable, and token rotation
 - [Local development](docs/LOCAL-DEVELOPMENT.md): prerequisites and every `make` target
+- [Connecting Okta](docs/OKTA.md) and [Entra ID](docs/ENTRA.md): identity-provider setup guides
+- [Threat model](docs/THREAT-MODEL.md): trust boundaries, threats and mitigations
+- [Security policy](SECURITY.md), [contributing](CONTRIBUTING.md), [roadmap](ROADMAP.md), [changelog](CHANGELOG.md)
 - [Implementation plan](docs/IMPLEMENTATION_PLAN.md): the phase-by-phase build, with decisions recorded
 
 ## 🧰 Tech

@@ -357,7 +357,11 @@ on activity, the code decides.
       the interop work tractable
 - [x] Graceful shutdown: SIGINT/SIGTERM drains the listener, then stops the
       webhook dispatcher. Landed in Phase 9, which needed a defined stop
-- [ ] `CHANGELOG.md`, `ROADMAP.md`, `SECURITY.md`, `CONTRIBUTING.md`
+- [x] `CHANGELOG.md` (Keep a Changelog, the intended 1.0.0 surface),
+      `ROADMAP.md` (deferred items with the reason each waited), `SECURITY.md`
+      (reporting via GitHub advisories, plus the enforced security model and the
+      advisory-only ARIA guarantee), `CONTRIBUTING.md` (setup, conventions, the
+      non-negotiable principles). Linked from the README
 - [x] `/healthz` and `/readyz`: unauthenticated operational probes mounted on
       the root mux, outside the SCIM handler's auth and tenant path. Liveness is
       process-up with no database dependency, so a transient DB blip can't drive
@@ -371,5 +375,11 @@ on activity, the code decides.
       partial index on `(delivered_at) WHERE status='delivered'` keeps the
       periodic DELETE a range scan
 - [ ] Published container image and tagged releases via GoReleaser
-- [ ] Okta and Entra setup guides, and a threat model
+- [x] Okta and Entra setup guides (`docs/OKTA.md`, `docs/ENTRA.md`): tenant and
+      token creation, connector/provisioning config, attribute mapping against
+      the minimal core plus registration for extras, deactivation and groups,
+      and an honest list of what each IdP can't use here. A threat model
+      (`docs/THREAT-MODEL.md`): assets, the B1–B5 trust boundaries, threats and
+      the in-code mitigations per boundary, and the deployment assumptions and
+      residual risks left to the operator
 - [ ] Tag v1.0.0
