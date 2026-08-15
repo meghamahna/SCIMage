@@ -358,8 +358,18 @@ on activity, the code decides.
 - [x] Graceful shutdown: SIGINT/SIGTERM drains the listener, then stops the
       webhook dispatcher. Landed in Phase 9, which needed a defined stop
 - [ ] `CHANGELOG.md`, `ROADMAP.md`, `SECURITY.md`, `CONTRIBUTING.md`
-- [ ] `/healthz` and `/readyz`
-- [ ] Retention for delivered webhook rows
+- [x] `/healthz` and `/readyz`: unauthenticated operational probes mounted on
+      the root mux, outside the SCIM handler's auth and tenant path. Liveness is
+      process-up with no database dependency, so a transient DB blip can't drive
+      a restart loop; readiness pings Postgres under a 2s timeout and answers 503
+      when it's unreachable, pulling a bad instance from rotation
+- [x] Retention for delivered webhook rows: the dispatcher prunes `delivered`
+      rows older than `SCIM_WEBHOOK_RETENTION_DAYS` (default 30, `0` disables) on
+      an hourly sweep separate from the poll. Only delivered rows are swept —
+      pending ones are in flight and dead-lettered ones are kept for a human to
+      replay — and `audit_log`, the authoritative trail, is never touched. A
+      partial index on `(delivered_at) WHERE status='delivered'` keeps the
+      periodic DELETE a range scan
 - [ ] Published container image and tagged releases via GoReleaser
 - [ ] Okta and Entra setup guides, and a threat model
 - [ ] Tag v1.0.0

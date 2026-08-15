@@ -35,6 +35,7 @@ bursts, then goes quiet for hours. Set `SCIM_RATE_LIMIT=0` to opt out.
 | `SCIM_WEBHOOK_SECRET` | HMAC signing secret. Required alongside a webhook URL. |
 | `SCIM_WEBHOOK_ALLOW_HTTP` | Set to `1` to allow a plaintext endpoint. |
 | `SCIM_WEBHOOK_MAX_ATTEMPTS` | Attempts before a delivery is dead-lettered. Defaults to 6. |
+| `SCIM_WEBHOOK_RETENTION_DAYS` | Days a delivered row is kept before the dispatcher prunes it. Defaults to 30; `0` keeps them forever. Pending and dead-lettered rows are never swept. |
 
 Leaving `SCIM_WEBHOOK_URL` unset keeps change delivery off, and the store skips
 queueing events, so the queue stays empty while nothing is draining it.

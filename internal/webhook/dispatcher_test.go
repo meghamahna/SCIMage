@@ -32,6 +32,11 @@ type fakeQueue struct {
 	rescheduled map[int64]time.Time
 	causes      map[int64]string
 	dead        []int64
+
+	// purgedBefore records the cutoff of the last retention sweep, and purged
+	// how many rows it claimed to remove.
+	purgedBefore time.Time
+	purged       int64
 }
 
 func newFakeQueue(ds ...store.Delivery) *fakeQueue {
@@ -82,6 +87,14 @@ func (q *fakeQueue) DeadLetterDelivery(_ context.Context, id int64, cause string
 	q.dead = append(q.dead, id)
 	q.causes[id] = cause
 	return nil
+}
+
+func (q *fakeQueue) PurgeDeliveredBefore(_ context.Context, cutoff time.Time) (int64, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	q.purgedBefore = cutoff
+	return q.purged, nil
 }
 
 func delivery(id int64, attempts int) store.Delivery {
@@ -228,6 +241,48 @@ func TestDeliveryOutcomesByStatus(t *testing.T) {
 			// The receiver's answer is kept, so a reviewer can see why.
 			if cause := q.causes[1]; !strings.Contains(cause, strconv.Itoa(tc.status)) {
 				t.Errorf("cause = %q, want it to mention %d", cause, tc.status)
+			}
+		})
+	}
+}
+
+// The retention sweep asks the queue to prune everything delivered before
+// now-Retention, using the same pinned clock the rest of the dispatcher does.
+func TestPurgeDeliveredUsesRetentionCutoff(t *testing.T) {
+	quietLogs(t)
+
+	q := newFakeQueue()
+	q.purged = 3
+	d := newDispatcher(t, q, "https://receiver.invalid")
+	d.cfg.Retention = 30 * 24 * time.Hour
+
+	d.purgeDelivered(context.Background())
+
+	want := signedAt.Add(-d.cfg.Retention)
+	if !q.purgedBefore.Equal(want) {
+		t.Errorf("cutoff = %s, want %s", q.purgedBefore.Format(time.RFC3339), want.Format(time.RFC3339))
+	}
+}
+
+func TestRetentionFromEnv(t *testing.T) {
+	// An empty value takes the same trimmed-and-unset branch a missing variable
+	// does, so t.Setenv covers both and restores the environment afterwards.
+	for _, tc := range []struct {
+		name string
+		val  string
+		want time.Duration
+	}{
+		{"unset falls back to the default", "", defaultRetention},
+		{"an explicit day count is honored", "7", 7 * 24 * time.Hour},
+		{"zero disables the sweep", "0", 0},
+		{"a negative value is ignored", "-5", defaultRetention},
+		{"junk is ignored", "soon", defaultRetention},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("SCIM_WEBHOOK_RETENTION_DAYS", tc.val)
+
+			if got := retentionFromEnv(); got != tc.want {
+				t.Errorf("retentionFromEnv() = %s, want %s", got, tc.want)
 			}
 		})
 	}

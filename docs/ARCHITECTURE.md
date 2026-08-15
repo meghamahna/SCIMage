@@ -250,6 +250,23 @@ report late without overwriting an outcome another dispatcher already recorded.
 stripped of NUL and invalid UTF-8 before it reaches the column, so a malformed
 error body stays writable, and the delivery keeps moving.
 
+### Retention
+
+Every mutation queues a row, so a delivered one would sit in the outbox forever
+without a sweep. The dispatcher prunes delivered rows older than
+`SCIM_WEBHOOK_RETENTION_DAYS` (default 30) on a slow, hourly cadence, separate
+from the poll — pruning is housekeeping, not the hot path. Setting the value to
+`0` disables the sweep and keeps delivered rows indefinitely.
+
+Only delivered rows are touched. A pending row is still in flight, and a
+dead-lettered one is kept for a human to inspect and replay, so retention only
+ever deletes deliveries that already succeeded. The sweep is deployment-wide
+rather than tenant-scoped: one dispatcher runs it for the whole server, and a
+partial index on `(delivered_at) WHERE status = 'delivered'` keeps the periodic
+`DELETE` a range scan rather than a growing full-table scan. A delivered row is
+an operational receipt, not the audit trail — `audit_log` is the authoritative,
+untouched record of every change.
+
 ### Signing
 
 A delivery on the wire:

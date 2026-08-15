@@ -58,6 +58,17 @@ func deliveryStatus(t *testing.T, s *Store, id int64) (status string, attempts i
 	return status, attempts, nextAt, lastError
 }
 
+func deliveryExists(t *testing.T, s *Store, id int64) bool {
+	t.Helper()
+
+	var exists bool
+	if err := s.pool.QueryRow(context.Background(),
+		`SELECT EXISTS(SELECT 1 FROM webhook_deliveries WHERE id = $1)`, id).Scan(&exists); err != nil {
+		t.Fatalf("check delivery %d: %v", id, err)
+	}
+	return exists
+}
+
 func decodeEvent(t *testing.T, d Delivery) ChangeEvent {
 	t.Helper()
 
@@ -361,6 +372,71 @@ func TestDeliveryOutcomesArePersisted(t *testing.T) {
 	}
 	if lastError != nil {
 		t.Errorf("last_error = %q, want it cleared on success", *lastError)
+	}
+}
+
+// Retention prunes delivered rows past the window and leaves everything else:
+// a delivered row newer than the cutoff, a pending row still in flight, and a
+// dead-lettered one kept for a human to replay.
+//
+// The sweep is deployment-wide, not tenant-scoped — one dispatcher runs it for
+// the whole server. So this test can't assert on a global row count while other
+// store tests create deliveries concurrently; it backdates the one row it wants
+// gone and uses a recent-past cutoff, which leaves every other test's fresh rows
+// untouched, then asserts on its own ids alone.
+func TestPurgeDeliveredRemovesOnlyOldDeliveredRows(t *testing.T) {
+	s := newEventStore(t)
+	ctx := context.Background()
+	tenantID := newTestTenant(t, s)
+
+	oldUser := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
+	freshUser := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
+	pendingUser := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
+	deadUser := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
+
+	oldID := deliveriesFor(t, s, oldUser.ID)[0].ID
+	freshID := deliveriesFor(t, s, freshUser.ID)[0].ID
+	pendingID := deliveriesFor(t, s, pendingUser.ID)[0].ID
+	deadID := deliveriesFor(t, s, deadUser.ID)[0].ID
+
+	if err := s.MarkDelivered(ctx, oldID); err != nil {
+		t.Fatalf("MarkDelivered old: %v", err)
+	}
+	if err := s.MarkDelivered(ctx, freshID); err != nil {
+		t.Fatalf("MarkDelivered fresh: %v", err)
+	}
+	if err := s.DeadLetterDelivery(ctx, deadID, "receiver returned 400"); err != nil {
+		t.Fatalf("DeadLetterDelivery: %v", err)
+	}
+
+	// Push one delivery's receipt back beyond the window; the fresh one keeps
+	// its now() timestamp, which is what proves the cutoff is honored.
+	backdateDelivery(t, s, oldID, time.Now().Add(-48*time.Hour))
+
+	if _, err := s.PurgeDeliveredBefore(ctx, time.Now().Add(-24*time.Hour)); err != nil {
+		t.Fatalf("PurgeDeliveredBefore: %v", err)
+	}
+
+	if deliveryExists(t, s, oldID) {
+		t.Error("a delivery older than the window survived retention")
+	}
+	if !deliveryExists(t, s, freshID) {
+		t.Error("retention removed a delivery newer than the cutoff")
+	}
+	if !deliveryExists(t, s, pendingID) {
+		t.Error("retention removed a pending row that was still in flight")
+	}
+	if !deliveryExists(t, s, deadID) {
+		t.Error("retention removed a dead-lettered row a human still needs")
+	}
+}
+
+func backdateDelivery(t *testing.T, s *Store, id int64, at time.Time) {
+	t.Helper()
+
+	if _, err := s.pool.Exec(context.Background(),
+		`UPDATE webhook_deliveries SET delivered_at = $2 WHERE id = $1`, id, at); err != nil {
+		t.Fatalf("backdate delivery %d: %v", id, err)
 	}
 }
 
