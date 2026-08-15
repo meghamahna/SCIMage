@@ -82,9 +82,17 @@ func run() error {
 		addr = ":8080"
 	}
 
+	// Health probes mount outside the SCIM handler's auth and tenant path: an
+	// orchestrator has no token and no tenant, and liveness must not depend on
+	// either. /healthz is process-up; /readyz reflects database reachability.
+	root := http.NewServeMux()
+	root.Handle("GET /healthz", scim.LivenessHandler())
+	root.Handle("GET /readyz", scim.ReadinessHandler(s))
+	root.Handle("/", scim.NewHandler(s, s, s, s).Routes())
+
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           scim.NewHandler(s, s, s, s).Routes(),
+		Handler:           root,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
