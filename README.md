@@ -5,7 +5,7 @@
 ### A SCIM 2.0 provisioning server with signed change delivery and an AI-advisory audit trail
 
 [![CI](https://github.com/meghamahna/SCIMage/actions/workflows/ci.yml/badge.svg)](https://github.com/meghamahna/SCIMage/actions/workflows/ci.yml)
-[![govulncheck](https://github.com/meghamahna/SCIMage/actions/workflows/ci.yml/badge.svg)](https://github.com/meghamahna/SCIMage/actions/workflows/ci.yml)
+[![govulncheck](https://img.shields.io/github/actions/workflow/status/meghamahna/SCIMage/ci.yml?label=govulncheck)](https://github.com/meghamahna/SCIMage/actions/workflows/ci.yml)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/meghamahna/SCIMage?logo=go&logoColor=white)](go.mod)
 ![PostgreSQL](https://img.shields.io/badge/Postgres-16-4169E1?style=flat&logo=postgresql&logoColor=white)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
