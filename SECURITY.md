@@ -57,8 +57,8 @@ risks.
 - **Outbound webhooks are signed** with HMAC-SHA256 over the timestamp, delivery
   id, event type and body. A configured endpoint requires a secret at startup, so
   nothing goes out unsigned, and redirects are never followed.
-- **Secrets come only from environment variables** — database credentials, the
-  bearer/webhook secrets — never hardcoded, never committed. Repository hooks
+- **Secrets come only from environment variables** (database credentials, the
+  bearer/webhook secrets), never hardcoded, never committed. Repository hooks
   block reading `.env`/key files and block commits whose staged diff looks like a
   secret.
 

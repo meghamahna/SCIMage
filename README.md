@@ -19,11 +19,11 @@ SCIMage is a focused SCIM 2.0 server written in Go. It implements the core `/Use
 
 Most SCIM servers are a thin CRUD layer bolted onto an app. SCIMage treats the parts that actually matter once real customers are provisioning into you as first-class:
 
-- **Security is structural** — tenant isolation, hashed and rotatable tokens, and an audit entry written in the *same transaction* as every change, enforced in code and tested against real Postgres.
-- **A tamper-evident audit trail** — every mutation *and every refusal* is recorded with before/after state, so every change leaves a record.
-- **Changes actually reach your app** — signed, retried webhooks with a dead-letter queue turn provisioning into events the rest of your system can act on.
-- **Extend by config** — register any extra or custom attribute per tenant and it round-trips, keeping the core minimal and honest.
-- **Self-hosted and transparent** — plain Go + Postgres + raw SQL, no framework and no lock-in; you own the data and the audit trail.
+- **Security is structural:** tenant isolation, hashed and rotatable tokens, and an audit entry written in the *same transaction* as every change, enforced in code and tested against real Postgres.
+- **A tamper-evident audit trail:** every mutation *and every refusal* is recorded with before/after state, so every change leaves a record.
+- **Changes actually reach your app:** signed, retried webhooks with a dead-letter queue turn provisioning into events the rest of your system can act on.
+- **Extend by config:** register any extra or custom attribute per tenant and it round-trips, keeping the core minimal and honest.
+- **Self-hosted and transparent:** plain Go + Postgres + raw SQL, no framework and no lock-in; you own the data and the audit trail.
 
 **Best fit:** a SaaS that needs to *receive* enterprise provisioning with a defensible security-and-audit story, wants to self-host, and values correctness over feature breadth. It's portfolio-grade; release engineering (packaging, published images, tagged releases) is still in progress.
 
@@ -56,13 +56,13 @@ The discovery endpoints `/ServiceProviderConfig`, `/ResourceTypes` and `/Schemas
 
 Two unauthenticated operational probes sit outside the tenant path, for an orchestrator or load balancer: `GET /healthz` is process liveness (always `200` while the process serves, with no database dependency, so a transient DB blip never triggers a restart loop), and `GET /readyz` is readiness (`200` when Postgres is reachable, `503` when it isn't, so a failing instance is pulled from rotation).
 
-`GET .../Users` supports `filter=userName eq "…"` and `filter=externalId eq "…"`; `GET .../Groups` supports `filter=displayName eq "…"` and `filter=externalId eq "…"` — the lookups a provider uses to decide whether a resource already exists. Other expressions answer `400` with `scimType: invalidFilter`, telling the client plainly where the supported set ends.
+`GET .../Users` supports `filter=userName eq "…"` and `filter=externalId eq "…"`; `GET .../Groups` supports `filter=displayName eq "…"` and `filter=externalId eq "…"`. These are the lookups a provider uses to decide whether a resource already exists. Other expressions answer `400` with `scimType: invalidFilter`, telling the client plainly where the supported set ends.
 
 Responses use `application/scim+json`, and errors use the SCIM Error schema with the appropriate `scimType`.
 
 `userName` uniqueness is enforced case-insensitively, matching the spec's `caseExact=false` characteristic, so `bjensen` and `BJensen` are one identity.
 
-**Validated against [Microsoft's Entra ID SCIM validator](https://scimvalidator.microsoft.com/).** Core CRUD, filtering, and PATCH all pass. The `User` schema is deliberately reduced to a minimal set of typed columns — `displayName`, `title`, `preferredLanguage`, `name.formatted`/`name.middleName`, the enterprise extension and typed multi-valued emails aren't modeled that way. When a provider needs them, an operator registers the extra attributes per tenant (`scimage-admin attribute register`, gated by `SCIM_EXTENDED_ATTRIBUTES`) and the server captures and returns them through a JSONB pass-through — keeping the core minimal while still round-tripping whatever Okta or Entra maps. See [Configuration](docs/CONFIGURATION.md#extensible-attributes).
+**Validated against [Microsoft's Entra ID SCIM validator](https://scimvalidator.microsoft.com/).** Core CRUD, filtering, and PATCH all pass. The `User` schema is deliberately reduced to a minimal set of typed columns. `displayName`, `title`, `preferredLanguage`, `name.formatted`/`name.middleName`, the enterprise extension and typed multi-valued emails aren't modeled that way. When a provider needs them, an operator registers the extra attributes per tenant (`scimage-admin attribute register`, gated by `SCIM_EXTENDED_ATTRIBUTES`) and the server captures and returns them through a JSONB pass-through, which keeps the core minimal while still round-tripping whatever Okta or Entra maps. See [Configuration](docs/CONFIGURATION.md#extensible-attributes).
 
 ## 🏗️ How it's built
 

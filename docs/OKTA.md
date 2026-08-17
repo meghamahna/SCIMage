@@ -47,10 +47,10 @@ confirms bearer auth, filtering and PATCH are advertised.
 
 On **Provisioning → To App**, enable:
 
-- **Create Users** — Okta `POST`s the new user; SCIMage returns `201` with a
+- **Create Users:** Okta `POST`s the new user; SCIMage returns `201` with a
   `Location`. A duplicate `userName` (case-insensitive) is a `409`.
-- **Update User Attributes** — sent as `PUT`/`PATCH`.
-- **Deactivate Users** — sent as `PATCH {"op":"replace","path":"active","value":
+- **Update User Attributes:** sent as `PUT`/`PATCH`.
+- **Deactivate Users:** sent as `PATCH {"op":"replace","path":"active","value":
   false}`, which emits a `user.deactivated` change event. SCIMage soft-deletes:
   the row is kept as inactive, preserving the audit trail.
 
@@ -60,8 +60,8 @@ SCIMage models a deliberately minimal, typed core: `userName`,
 `name.givenName`, `name.familyName`, a primary `email`, `active`, and
 `externalId`. Okta's default SCIM mappings line up with these out of the box.
 
-To sync anything beyond that core — `displayName`, `title`, phone numbers, the
-enterprise extension, a custom field — register it on the tenant first, then map
+To sync anything beyond that core (`displayName`, `title`, phone numbers, the
+enterprise extension, a custom field), register it on the tenant first, then map
 Okta to it:
 
 ```bash
@@ -72,13 +72,13 @@ The server must also be started with `SCIM_EXTENDED_ATTRIBUTES=1`. Registered
 attributes appear in the tenant's `/Schemas` document, so they become mappable in
 Okta. See [CONFIGURATION.md](CONFIGURATION.md#extensible-attributes). An attribute
 Okta sends that is neither modeled nor registered is accepted and dropped, not an
-error — so an over-broad default mapping won't break provisioning, it just won't
+error, so an over-broad default mapping won't break provisioning. It just won't
 persist.
 
 ## 5. Groups
 
 On the **Push Groups** tab, push the groups you want mirrored. SCIMage creates a
-Group with its members, validating each member against this tenant's users — a
+Group with its members, validating each member against this tenant's users. A
 member id that doesn't exist, or belongs to another tenant, rejects the whole
 push rather than silently dropping it. Membership changes arrive as `PATCH` and
 emit `group.replaced`.
@@ -87,7 +87,7 @@ emit `group.replaced`.
 
 The discovery document is honest about the edges, so Okta won't offer these:
 
-- **Import (read) from SCIMage** isn't a supported flow — this is a push-only
+- **Import (read) from SCIMage** isn't a supported flow: this is a push-only
   provisioning target.
 - **Bulk, sorting and ETags** are not supported.
 - **Filtering** is limited to `userName eq` and `externalId eq`, which is what
@@ -95,12 +95,12 @@ The discovery document is honest about the edges, so Okta won't offer these:
 
 ## Troubleshooting
 
-- **Test connector fails** — check the base URL includes the `/scim/v2/<tenantID>`
+- **Test connector fails:** check the base URL includes the `/scim/v2/<tenantID>`
   path, the token is the full `scimage_…` string, and the tenant in the token
   matches the tenant in the URL (a token for one tenant is a `401` on another's
   path).
-- **A user won't create** — a `409` means the `userName` already exists for this
+- **A user won't create:** a `409` means the `userName` already exists for this
   tenant (case-insensitively). Turn on `SCIM_LOG_REQUESTS=1` on the server to see
   exactly what Okta sent (the log path is `0600`; bodies carry user attributes).
-- **An attribute isn't persisting** — it's outside the core and not registered.
+- **An attribute isn't persisting:** it's outside the core and not registered.
   Register it and set `SCIM_EXTENDED_ATTRIBUTES=1`.

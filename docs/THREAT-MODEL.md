@@ -18,7 +18,7 @@ Postgres schema they share.
 
 Out of scope: the security of the identity provider itself, the TLS-terminating
 proxy, the host OS, the Postgres deployment's own hardening, and the webhook
-receiver — each is an assumption listed at the end.
+receiver. Each is an assumption listed at the end.
 
 ## Assets
 
@@ -43,29 +43,29 @@ receiver — each is an assumption listed at the end.
    B1 crosses the public network. B3 and B5' leave the trusted zone outbound.
 ```
 
-- **B1 — IdP → server.** Public, authenticated. The primary attack surface.
-- **B2 — server → Postgres.** Private. Assumed not exposed to the network.
-- **B3 — server → webhook receiver.** Outbound, signed, to one configured host.
-- **B4 — operator → admin CLI → Postgres.** Off-network, direct to the database.
-- **B5 — ARIA → audit log** (read) and **B5' — ARIA → LLM** (outbound).
+- **B1: IdP → server.** Public, authenticated. The primary attack surface.
+- **B2: server → Postgres.** Private. Assumed not exposed to the network.
+- **B3: server → webhook receiver.** Outbound, signed, to one configured host.
+- **B4: operator → admin CLI → Postgres.** Off-network, direct to the database.
+- **B5: ARIA → audit log** (read) and **B5': ARIA → LLM** (outbound).
 
 ## Threats and mitigations
 
-### B1 — Identity provider to server
+### B1: Identity provider to server
 
 - **Spoofing a caller / stolen or forged token.** Tokens are
   `scimage_<keyID>_<secret>`; only `sha256(secret)` is stored. Verification looks
   up the row by key id and compares with `crypto/subtle.ConstantTimeCompare`
-  against the stored hash — constant-time in both content and length, since the
-  compare is over fixed-width digests. A malformed token (wrong prefix, empty key
-  id or secret) is rejected before any lookup; an unknown key id, a revoked or
-  expired token, a wrong secret, or a tenant that doesn't match the URL each fail
-  in turn — so anything that isn't a live, correct token for this tenant fails
-  closed.
+  against the stored hash, which is constant-time in both content and length,
+  since the compare is over fixed-width digests. A malformed token (wrong prefix,
+  empty key id or secret) is rejected before any lookup; an unknown key id, a
+  revoked or expired token, a wrong secret, or a tenant that doesn't match the URL
+  each fail in turn, so anything that isn't a live, correct token for this tenant
+  fails closed.
 - **Reaching another tenant's data (elevation / information disclosure).** The
   token must name the tenant in the URL, and *every* store query is scoped by
   `tenant_id`, including lookups by id. A valid token for one tenant naming
-  another tenant's real resource id gets the same `404` as a made-up id — the
+  another tenant's real resource id gets the same `404` as a made-up id, so the
   isolation is structural. Covered by cross-tenant tests.
 - **Reaching an unauthenticated path.** `Routes()` wraps the whole surface in the
   token check, and unknown paths are rejected uniformly, so there is no
@@ -77,8 +77,8 @@ receiver — each is an assumption listed at the end.
   (`1 MiB`) and individual attributes are length-bounded, so an oversized field
   can't become a `500` against an indexed column.
 - **Repudiation.** Every create/replace/deactivate/delete on Users and Groups
-  writes an `audit_log` row — actor, action, resource type, target id, timestamp,
-  before/after — **inside the transaction that makes the change**, so the record
+  writes an `audit_log` row (actor, action, resource type, target id, timestamp,
+  before/after) **inside the transaction that makes the change**, so the record
   and the change commit together or not at all. Refused mutations are recorded
   too, so a burst of denials is visible. The audit actor's IP comes from the
   connection, not a caller-supplied `X-Forwarded-For`, which would otherwise let a
@@ -87,7 +87,7 @@ receiver — each is an assumption listed at the end.
   caller (token-bucket), so one tenant's flood spends only its own budget. See the
   residual-risk note on pre-authentication volume.
 
-### B2 — Server to Postgres
+### B2: Server to Postgres
 
 - **Injection.** Queries are parameterized throughout `internal/store`; no SQL is
   built by string concatenation from request data.
@@ -95,7 +95,7 @@ receiver — each is an assumption listed at the end.
   percent-encoded when assembled from parts so reserved characters can't corrupt
   the connection string. Credentials are never logged.
 
-### B3 — Server to webhook receiver
+### B3: Server to webhook receiver
 
 - **Forged events at the receiver.** Deliveries are signed with HMAC-SHA256 over
   the timestamp, delivery id, event type and body. Signing the timestamp lets a
@@ -104,14 +104,14 @@ receiver — each is an assumption listed at the end.
   nothing goes out unsigned.
 - **Exfiltration via redirect (information disclosure).** The payload carries user
   attributes and is signed for the configured host only. Redirects are never
-  followed — a `3xx` is reported for the operator, not chased to another host.
+  followed: a `3xx` is reported for the operator, not chased to another host.
   Plaintext `http` is refused unless explicitly opted in for a local receiver.
 - **A hostile receiver response.** The error body stored in `last_error` is read
   bounded, truncated in runes, and stripped of NUL and invalid UTF-8, so a
   malformed or oversized response can't stream unbounded data into a column or
   wedge a delivery.
 
-### B4 — Operator to admin CLI
+### B4: Operator to admin CLI
 
 - **Repudiation of privileged actions.** Creating a tenant, issuing a token and
   revoking one each write an `admin_audit_log` entry in the same transaction as
@@ -120,7 +120,7 @@ receiver — each is an assumption listed at the end.
   administration is a CLI against the database, not an HTTP endpoint, so it isn't
   reachable from the internet at all.
 
-### B5 — ARIA
+### B5: ARIA
 
 - **The advisory-only guarantee (tampering with decisions).** ARIA computes its
   signals in deterministic Go and calls an LLM only to narrate already-computed
@@ -148,8 +148,8 @@ boundary, noted here so an operator can close it.
   *before* the per-caller rate limiter applies, so a flood of unauthenticated
   requests still costs a lookup each. A pre-auth limiter was considered and
   deferred; front the service with one at the proxy if this matters. `/readyz` is
-  likewise unauthenticated and touches the pool on each hit — standard for a
-  readiness probe, but a load source to be aware of.
+  likewise unauthenticated and touches the pool on each hit. That is standard for
+  a readiness probe, but a load source to be aware of.
 - **Concurrent updates to one user.** `PATCH` reads, folds operations, and writes
   back in separate statements, so two concurrent changes to the same user could
   lose one. Provisioning traffic for a single user is serial in practice; making
@@ -158,5 +158,5 @@ boundary, noted here so an operator can close it.
   security after issuance is the holder's. Rotation with overlap exists so a
   suspected-leaked token can be revoked without downtime.
 - **The webhook receiver.** Once a signed event is delivered, what the receiver
-  does with it — and whether it verifies the signature (`webhook.Verify` is
-  provided) — is outside this boundary.
+  does with it, including whether it verifies the signature (`webhook.Verify` is
+  provided), is outside this boundary.

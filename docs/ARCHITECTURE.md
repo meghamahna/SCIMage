@@ -73,7 +73,7 @@ caller can't learn which check failed or probe which tenants exist.
 `id` in the same `WHERE` clause, so a token from tenant A naming tenant B's
 real user or group id gets the same "not found" as a made-up one: the
 isolation doesn't depend on a caller never guessing a valid UUID. A group's
-membership carries the same guarantee one level deeper — every member id is
+membership carries the same guarantee one level deeper: every member id is
 validated against this tenant's own `users` in the same statement that adds
 it, so a group can't reference another tenant's user even if a caller
 already knows its id.
@@ -103,7 +103,7 @@ able to skip them.
 `audit_log` carries a `resource_type` column (`user` or `group`) and its
 before/after images are raw JSON rather than a type-specific pair, so one
 table serves both resources without one drifting out of step with the
-other — the design ARIA (Phase 12) reads from.
+other, the design ARIA (Phase 12) reads from.
 
 With `SCIM_WEBHOOK_URL` unset the store skips the outbox, so the queue stays
 empty while nothing is draining it.
@@ -152,13 +152,13 @@ The design keeps the core honest and the addition additive:
 
 - **Off by default.** With `SCIM_EXTENDED_ATTRIBUTES` unset or nothing
   registered, the registry is never consulted and a user serialises exactly as
-  before — one JSONB column that is simply `NULL`.
+  before: one JSONB column that is simply `NULL`.
 - **Capture and PATCH consult the registry; plain reads don't.** A `GET` merges
   whatever is already stored, so it never depends on a registry lookup. Only
   writes (to know which body keys to keep) and the `/Schemas` document (to
   advertise them) query `tenant_attributes`.
 - **Core attributes always win.** A captured value can never shadow a typed
-  attribute — the merge skips any key the core resource already carries, and the
+  attribute: the merge skips any key the core resource already carries, and the
   registry refuses to register a core name in the first place.
 - **It rides the existing guarantees.** The blob is part of the `store.User`
   the audit log serialises, so an extended attribute's before/after state is in
@@ -167,7 +167,7 @@ The design keeps the core honest and the addition additive:
 
 The registered name is a top-level SCIM key, which covers the enterprise
 extension as a whole object but not an individually-addressable sub-attribute
-path — a documented v1 boundary.
+path, a documented v1 boundary.
 
 ## Change delivery
 
@@ -255,7 +255,7 @@ error body stays writable, and the delivery keeps moving.
 Every mutation queues a row, so a delivered one would sit in the outbox forever
 without a sweep. The dispatcher prunes delivered rows older than
 `SCIM_WEBHOOK_RETENTION_DAYS` (default 30) on a slow, hourly cadence, separate
-from the poll — pruning is housekeeping, not the hot path. Setting the value to
+from the poll. Pruning is housekeeping, not the hot path. Setting the value to
 `0` disables the sweep and keeps delivered rows indefinitely.
 
 Only delivered rows are touched. A pending row is still in flight, and a
@@ -264,7 +264,7 @@ ever deletes deliveries that already succeeded. The sweep is deployment-wide
 rather than tenant-scoped: one dispatcher runs it for the whole server, and a
 partial index on `(delivered_at) WHERE status = 'delivered'` keeps the periodic
 `DELETE` a range scan rather than a growing full-table scan. A delivered row is
-an operational receipt, not the audit trail — `audit_log` is the authoritative,
+an operational receipt, not the audit trail. `audit_log` is the authoritative,
 untouched record of every change.
 
 ### Signing
@@ -325,8 +325,8 @@ Identity providers deprovision with `PATCH active:false` far more often than wit
 `DELETE`, and that `PATCH` is applied through the same full-replace path as a
 `PUT`. Classifying a replace by the active transition is what lets a consumer
 subscribe to deactivations and see every real deprovisioning. Groups have no
-`active` attribute to classify by, so a membership `PATCH` — the shape an IdP
-actually uses to push group membership — reports the same `group.replaced` a
+`active` attribute to classify by, so a membership `PATCH` (the shape an IdP
+actually uses to push group membership) reports the same `group.replaced` a
 `PUT` would, rather than a separate membership-change event.
 
 `DELETE` means "deactivate whatever the current state", so it reports

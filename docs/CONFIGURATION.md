@@ -64,9 +64,9 @@ for what retries and what parks immediately.
 | `SCIM_EXTENDED_ATTRIBUTES` | Set to `1` to capture and return attributes a tenant has registered. Off by default. |
 
 By design this server models a minimal, honest set of User attributes as typed
-columns. When an identity provider needs to sync more — a known SCIM attribute
-this server doesn't model (`displayName`, `title`, `phoneNumbers`, the
-enterprise extension, …) or a fully custom field — an operator can register it
+columns. When an identity provider needs to sync more, whether a known SCIM
+attribute this server doesn't model (`displayName`, `title`, `phoneNumbers`, the
+enterprise extension, …) or a fully custom field, an operator can register it
 per tenant, and the server captures it into a single JSONB column and returns
 it. Registered attributes are advertised in that
 tenant's `/Schemas` document, so an IdP admin can discover and map to them.
@@ -80,14 +80,14 @@ scimage-admin attribute unregister -tenant <tenantID> -name displayName
 
 Two steps turn it on: set `SCIM_EXTENDED_ATTRIBUTES=1` on the server, and
 register the names you want with the CLI. With the flag unset, or nothing
-registered, a user serialises exactly as it did before — the feature has zero
+registered, a user serialises exactly as it did before. The feature has zero
 effect until both are in place.
 
 A registered name is a **top-level** key of the SCIM resource. That covers
 `displayName`, `phoneNumbers`, `addresses`, custom fields, and the enterprise
 extension as its whole `urn:…:enterprise:2.0:User` object. A path into an
 extension (e.g. patching `urn:…:department` on its own) isn't individually
-addressable — register the URN and replace the whole object, or map the IdP to
+addressable. Register the URN and replace the whole object, or map the IdP to
 a top-level custom attribute. Core attributes (`userName`, `emails`, `active`,
 …) can't be registered; they're already modelled, and a captured value is never
 allowed to shadow one. Unregistering stops future capture and advertising; it

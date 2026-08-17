@@ -102,7 +102,7 @@ reasoning:
 | `meta.resourceType`, `.created`, `.lastModified`, `.location` | Server-managed |
 
 `DELETE /Groups/{id}` is a real deletion, not the soft delete `DELETE
-/Users/{id}` does — the Group schema has no `active` attribute to
+/Users/{id}` does, because the Group schema has no `active` attribute to
 deactivate into.
 
 ## Migrations
@@ -116,7 +116,7 @@ runs the official `migrate/migrate` image on the compose network, so no local
 install is required either way.
 
 To add a migration, create the next numbered pair by hand (check
-`migrations/` for the current highest number — this example is illustrative,
+`migrations/` for the current highest number; this example is illustrative,
 not the literal next one):
 
 ```text
@@ -174,8 +174,8 @@ directory is `0700`, files are `0600`, and `logs/` is gitignored.
 
 ## Audit trail
 
-Every create, replace, deactivate and delete — for both `/Users` and
-`/Groups` — writes a row to `audit_log` in the same transaction as the
+Every create, replace, deactivate and delete (for both `/Users` and
+`/Groups`) writes a row to `audit_log` in the same transaction as the
 change; every tenant/token admin action writes a row to `admin_audit_log`
 the same way (see the table above for reading it back via `scimage-admin
 audit list`). To query `audit_log` directly:

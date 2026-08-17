@@ -38,7 +38,7 @@ Credentials**:
 | Secret Token | the token from step 1 |
 
 Click **Test Connection**. Entra reads `/ServiceProviderConfig`, then issues a
-filtered `GET /Users?filter=userName eq "…"` to confirm reconciliation works —
+filtered `GET /Users?filter=userName eq "…"` to confirm reconciliation works,
 both of which SCIMage supports. A green result means the credentials and the URL
 are right.
 
@@ -53,7 +53,7 @@ Two ways to handle the extras:
 
 - **Trim the mapping** to the modeled core plus `externalId`. Anything left over
   is accepted and dropped rather than erroring, so an over-broad mapping won't
-  break provisioning — it just won't persist.
+  break provisioning. It just won't persist.
 - **Register the attributes you need** on the tenant and keep the mapping:
 
   ```bash
@@ -92,15 +92,15 @@ The discovery document declares these unsupported, so Entra won't rely on them:
 
 - **Bulk, sorting and ETags** are not supported.
 - **Filtering** is limited to `userName eq` / `externalId eq` for users and
-  `displayName eq` for groups — the reconciliation lookups Entra actually sends.
+  `displayName eq` for groups, the reconciliation lookups Entra actually sends.
   Other expressions return `invalidFilter`.
 
 ## Troubleshooting
 
-- **Test Connection fails** — confirm the Tenant URL includes the
+- **Test Connection fails**: confirm the Tenant URL includes the
   `/scim/v2/<tenantID>` path, the Secret Token is the full `scimage_…` string, and
   the token's tenant matches the URL's tenant (a mismatch is a `401`).
-- **Provisioning logs show attribute errors** — usually an over-broad mapping.
+- **Provisioning logs show attribute errors**: usually an over-broad mapping.
   Trim it to the core, or register the extra attributes and set
   `SCIM_EXTENDED_ATTRIBUTES=1`.
 - **To see exactly what Entra sent**, set `SCIM_LOG_REQUESTS=1` on the server. The

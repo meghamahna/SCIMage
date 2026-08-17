@@ -232,7 +232,7 @@ shutdown landed here, ahead of Phase 13, to give the dispatcher a defined stop.
 **Open for later.** Retention for `delivered` rows belongs with the Phase 13
 operational work. `DeadLetters` reads the parked queue; a `webhook replay`
 subcommand for `cmd/scimage-admin`, and per-endpoint subscriptions, remain
-unbuilt — Phase 10 landed tenants and tokens but not these. Today there is one
+unbuilt. Phase 10 landed tenants and tokens but not these. Today there is one
 endpoint from the environment, and the delivery row would gain a subscription
 reference if per-endpoint delivery ships. The `UserStore` interface lives in
 `internal/scim`, so supplying an implementation means forking; moving the
@@ -309,7 +309,7 @@ Group schema has no `active` attribute, so there is nothing to soft-delete
 into. `displayName` uniqueness is enforced per tenant, case-insensitive, the
 same reconciliation reasoning `userName` already uses. Membership lives in a
 `group_members` join table rather than an array column, validated against
-this tenant's `users` in the same statement that inserts it — a foreign or
+this tenant's `users` in the same statement that inserts it. A foreign or
 made-up member id rolls the whole mutation back rather than being silently
 dropped. `audit_log` gained a `resource_type` column and `AuditEntry`'s
 before/after images became raw JSON rather than a `*store.User`-typed pair:
@@ -317,7 +317,7 @@ one audit trail now covers both resources, which is what Phase 12's
 ARIA needs to see a bulk group deletion alongside a bulk user
 deactivation. Group mutations also enqueue webhook events
 (`group.created`/`replaced`/`deleted`) through the existing, resource-agnostic
-outbox and dispatcher from Phase 9 — group-to-role mapping is a common reason
+outbox and dispatcher from Phase 9. Group-to-role mapping is a common reason
 enterprises adopt SCIM groups at all, and the dispatcher needed no changes to
 carry them.
 
@@ -332,9 +332,9 @@ on activity, the code decides.
 - [x] CLI (`cmd/aria`) that reads the `audit_log` table, over a time
       window (`-since`) and optionally across every tenant. A new
       `store.ListAuditEntriesSince` backs it
-- [x] Deterministic Go computes the signals — bulk deactivations in a
+- [x] Deterministic Go computes the signals (bulk deactivations in a
       short window, off-hours changes, per-caller volume and denial
-      bursts — and an LLM is called only to narrate those already-computed
+      bursts), and an LLM is called only to narrate those already-computed
       facts. The endpoint is provider-neutral: any OpenAI-compatible
       chat-completions API (Claude via its compat endpoint by default,
       or OpenAI, OpenRouter, a local model), set with `ARIA_LLM_*`. The
@@ -369,9 +369,9 @@ on activity, the code decides.
       when it's unreachable, pulling a bad instance from rotation
 - [x] Retention for delivered webhook rows: the dispatcher prunes `delivered`
       rows older than `SCIM_WEBHOOK_RETENTION_DAYS` (default 30, `0` disables) on
-      an hourly sweep separate from the poll. Only delivered rows are swept —
-      pending ones are in flight and dead-lettered ones are kept for a human to
-      replay — and `audit_log`, the authoritative trail, is never touched. A
+      an hourly sweep separate from the poll. Only delivered rows are swept
+      (pending ones are in flight and dead-lettered ones are kept for a human to
+      replay), and `audit_log`, the authoritative trail, is never touched. A
       partial index on `(delivered_at) WHERE status='delivered'` keeps the
       periodic DELETE a range scan
 - [ ] Published container image and tagged releases. A `Dockerfile` now ships,
@@ -383,6 +383,6 @@ on activity, the code decides.
       token creation, connector/provisioning config, attribute mapping against
       the minimal core plus registration for extras, deactivation and groups,
       and an honest list of what each IdP can't use here. A threat model
-      (`docs/THREAT-MODEL.md`): assets, the B1–B5 trust boundaries, threats and
+      (`docs/THREAT-MODEL.md`): assets, the B1 to B5 trust boundaries, threats and
       the in-code mitigations per boundary, and the deployment assumptions and
       residual risks left to the operator
