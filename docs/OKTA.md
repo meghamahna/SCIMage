@@ -2,8 +2,7 @@
 
 This guide points Okta's SCIM provisioning at a SCIMage tenant. It assumes the
 server is deployed behind TLS and reachable from Okta, and that you have run the
-[setup](../README.md#-getting-started) so `scimage-admin` can talk to the
-database.
+[setup](../README.md) so `scimage-admin` can talk to the database.
 
 SCIMage is the SCIM *service provider*; Okta is the *client*. Okta reads the
 discovery documents first, so what it offers to configure reflects what this

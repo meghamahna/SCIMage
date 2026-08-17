@@ -10,9 +10,12 @@ waited.
 
 The remaining release-engineering work before the first tag:
 
-- **Published container image and tagged releases** via GoReleaser, targeting
-  GitHub Container Registry (`ghcr.io`).
-- **Tag `v1.0.0`** once the above and the docs below have landed.
+- **A published container image, optionally.** A `Dockerfile` already ships, so
+  anyone can build and run the server (see the README Deploy section). Pushing a
+  prebuilt image to a registry such as GitHub Container Registry (`ghcr.io`) can
+  layer on later; GoReleaser was considered and dropped as unnecessary for a
+  container-run server.
+- **Tag `v1.0.0`** once the docs below have landed.
 
 ## Near-term
 
