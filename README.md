@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/scimage_logo.png" alt="SCIMage: SCIM Audit and Governance Engine" width="820">
+<img src="docs/assets/scimage_logo.png" alt="SCIMage: SCIM Audit and Governance Engine" width="200">
 
 ### A SCIM 2.0 provisioning server with signed change delivery and an AI-advisory audit trail
 
