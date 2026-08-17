@@ -374,12 +374,15 @@ on activity, the code decides.
       replay — and `audit_log`, the authoritative trail, is never touched. A
       partial index on `(delivered_at) WHERE status='delivered'` keeps the
       periodic DELETE a range scan
-- [ ] Published container image and tagged releases via GoReleaser
-- [x] Okta and Entra setup guides (`docs/OKTA.md`, `docs/ENTRA.md`): tenant and
+- [ ] Published container image and tagged releases. A `Dockerfile` now ships,
+      so anyone can build a small static image and run it (see the README Deploy
+      section); GoReleaser was dropped as unnecessary for a container-run server.
+      Publishing a prebuilt image to a registry and cutting the release tag stay
+      optional and are not done yet
+- [x] Okta and Entra setup guides (`docs/OKTA.md`, `docs/MS-ENTRA.md`): tenant and
       token creation, connector/provisioning config, attribute mapping against
       the minimal core plus registration for extras, deactivation and groups,
       and an honest list of what each IdP can't use here. A threat model
       (`docs/THREAT-MODEL.md`): assets, the B1–B5 trust boundaries, threats and
       the in-code mitigations per boundary, and the deployment assumptions and
       residual risks left to the operator
-- [ ] Tag v1.0.0

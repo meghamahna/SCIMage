@@ -155,6 +155,23 @@ make run
 
 The server starts on `:8080`. Migrations run through `golang-migrate`, and `make migrate` uses a host `migrate` binary when one is present and the official container otherwise. See [Local development](docs/LOCAL-DEVELOPMENT.md) for prerequisites and the full set of targets.
 
+## 🐳 Deploy with Docker
+
+The repo ships a `Dockerfile`, so you can build a small (about 20 MB) container and run it anywhere. There is no image to pull; you build it once.
+
+```bash
+docker build -t scimage .
+
+docker run --rm -p 8080:8080 \
+  -e DATABASE_URL="postgres://user:pass@your-db:5432/scimage?sslmode=require" \
+  -e SCIM_BASE_URL="https://scim.yourcompany.com" \
+  scimage
+```
+
+The container runs the server only. It needs a Postgres you already operate, with the migrations applied. Apply them with `make migrate` against that database, or run the `golang-migrate` image over the files in [`migrations/`](migrations/). Point the server at the database with `DATABASE_URL`.
+
+Run it behind a proxy that terminates TLS, and set `SCIM_BASE_URL` to the public HTTPS URL so the links the server returns stay `https`. For an orchestrator, `GET /healthz` is the liveness check and `GET /readyz` is the readiness check. Every setting is an environment variable; see [Configuration](docs/CONFIGURATION.md).
+
 ## 🏢 Creating a tenant
 
 There's no `SCIM_TOKEN` to configure. A deployment starts with zero tenants and zero tokens, both issued through `cmd/scimage-admin`, which talks to Postgres directly rather than over the network:
@@ -215,7 +232,7 @@ Phases 1 through 12 are complete: schema, endpoints, auth, audit, hardening, ide
 - [Architecture](docs/ARCHITECTURE.md): request path, storage model, change delivery internals
 - [Configuration](docs/CONFIGURATION.md): every environment variable, and token rotation
 - [Local development](docs/LOCAL-DEVELOPMENT.md): prerequisites and every `make` target
-- [Connecting Okta](docs/OKTA.md) and [Entra ID](docs/ENTRA.md): identity-provider setup guides
+- [Connecting Okta](docs/OKTA.md) and [Entra ID](docs/MS-ENTRA.md): identity-provider setup guides
 - [Threat model](docs/THREAT-MODEL.md): trust boundaries, threats and mitigations
 - [Security policy](SECURITY.md), [contributing](CONTRIBUTING.md), [roadmap](ROADMAP.md), [changelog](CHANGELOG.md)
 - [Implementation plan](docs/IMPLEMENTATION_PLAN.md): the phase-by-phase build, with decisions recorded

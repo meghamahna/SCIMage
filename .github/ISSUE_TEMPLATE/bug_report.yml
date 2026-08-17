@@ -1,0 +1,37 @@
+name: Bug report
+description: Something is not working the way it should.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you see, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The smallest set of steps that shows the problem. Include the request you sent if it is an API issue.
+      placeholder: |
+        1. Issue a token with ...
+        2. POST /Users with ...
+        3. See ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: The release tag or git commit you are running.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Any relevant server logs. Remove tokens and user data first.
+      render: text
+    validations:
+      required: false

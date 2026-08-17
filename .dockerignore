@@ -1,0 +1,14 @@
+# Keep secrets and local noise out of the build context.
+.env
+.env.*
+!.env.example
+logs/
+.git/
+.githooks/
+.github/
+.claude/
+
+# Docs and local tooling the binary does not need.
+*.md
+docs/
+tests/
