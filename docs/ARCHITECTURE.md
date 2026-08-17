@@ -88,8 +88,8 @@ Creating a tenant, issuing a token and revoking a token each write an
 `admin_audit_log` entry (actor, action, target, timestamp) in the same
 transaction as the change, the identical discipline `audit_log` already
 applies to user mutations. `actor` defaults to `$USER`/`$USERNAME` and can be
-overridden with `-created-by`, so the trail names a real operator rather than
-always reading `scimage-admin`. A revoke that turns out to be a no-op (the
+overridden with `-created-by`, so the trail names a real operator. A revoke that
+turns out to be a no-op (the
 token was already dead) writes nothing, so a retried command doesn't pad the
 trail with duplicate entries. `scimage-admin audit list [-tenant <id>]`
 surfaces it.

@@ -86,8 +86,8 @@ code (`internal/scim/models.go`, `internal/scim/discovery.go`).
 | `meta.resourceType`, `.created`, `.lastModified`, `.location` | Server-managed |
 
 Not modeled: `displayName`, `title`, `preferredLanguage`, `name.formatted`,
-`name.middleName`, and typed multi-valued emails. A deliberate scope cut,
-not an oversight; see the [README](../README.md) for the Entra validator
+`name.middleName`, and typed multi-valued emails. A deliberate scope cut;
+see the [README](../README.md) for the Entra validator
 results this shows up in.
 
 What `POST`/`PUT`/`PATCH /Groups` accepts and returns, same source-of-truth
@@ -228,7 +228,7 @@ make up      # the integration tests use a real Postgres
 make test
 ```
 
-The store tests run against the real database, not a mock, and clean up
+The store tests run against the real database and clean up
 after themselves. They skip when no database is configured, so a plain
 `go test ./...` still works.
 

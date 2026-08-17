@@ -66,8 +66,7 @@ receiver — each is an assumption listed at the end.
   token must name the tenant in the URL, and *every* store query is scoped by
   `tenant_id`, including lookups by id. A valid token for one tenant naming
   another tenant's real resource id gets the same `404` as a made-up id — the
-  isolation is structural, not a filter that could be forgotten. Covered by
-  cross-tenant tests.
+  isolation is structural. Covered by cross-tenant tests.
 - **Reaching an unauthenticated path.** `Routes()` wraps the whole surface in the
   token check, and unknown paths are rejected uniformly, so there is no
   before-auth path to probe and responses don't distinguish real resources from
@@ -116,8 +115,7 @@ receiver — each is an assumption listed at the end.
 
 - **Repudiation of privileged actions.** Creating a tenant, issuing a token and
   revoking one each write an `admin_audit_log` entry in the same transaction as
-  the action, naming a real operator by default (`$USER`, overridable) rather than
-  a constant.
+  the action, naming a real operator by default (`$USER`, overridable).
 - **Keeping the privileged surface off the network.** Tenant and token
   administration is a CLI against the database, not an HTTP endpoint, so it isn't
   reachable from the internet at all.

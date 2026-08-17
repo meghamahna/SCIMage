@@ -19,13 +19,13 @@ SCIMage is a focused SCIM 2.0 server written in Go. It implements the core `/Use
 
 Most SCIM servers are a thin CRUD layer bolted onto an app. SCIMage treats the parts that actually matter once real customers are provisioning into you as first-class:
 
-- **Security is structural, not a checkbox** — tenant isolation, hashed and rotatable tokens, and an audit entry written in the *same transaction* as every change, enforced in code and tested against real Postgres rather than mocks.
-- **A tamper-evident audit trail** — every mutation *and every refusal* is recorded with before/after state, so a user can't be changed without leaving a record.
+- **Security is structural** — tenant isolation, hashed and rotatable tokens, and an audit entry written in the *same transaction* as every change, enforced in code and tested against real Postgres.
+- **A tamper-evident audit trail** — every mutation *and every refusal* is recorded with before/after state, so every change leaves a record.
 - **Changes actually reach your app** — signed, retried webhooks with a dead-letter queue turn provisioning into events the rest of your system can act on.
-- **Extend by config, not by forking** — register any extra or custom attribute per tenant and it round-trips, keeping the core minimal and honest.
+- **Extend by config** — register any extra or custom attribute per tenant and it round-trips, keeping the core minimal and honest.
 - **Self-hosted and transparent** — plain Go + Postgres + raw SQL, no framework and no lock-in; you own the data and the audit trail.
 
-**Best fit:** a SaaS that needs to *receive* enterprise provisioning with a defensible security-and-audit story, wants to self-host, and values correctness over feature breadth. It's portfolio-grade rather than a 1.0; release engineering (packaging, published images, tagged releases) is still in progress.
+**Best fit:** a SaaS that needs to *receive* enterprise provisioning with a defensible security-and-audit story, wants to self-host, and values correctness over feature breadth. It's portfolio-grade; release engineering (packaging, published images, tagged releases) is still in progress.
 
 ## 💡 Why I built this
 
@@ -107,16 +107,16 @@ Set `SCIM_WEBHOOK_URL` to turn it on. [Architecture](docs/ARCHITECTURE.md#change
 
 These are load-bearing, and each one is covered by tests:
 
-- **Issued, tenant-scoped tokens, never a shared secret.** Each token is `scimage_<keyID>_<secret>`; only `sha256(secret)` is stored, and a lookup by key id is compared with `crypto/subtle.ConstantTimeCompare` against the stored hash. A token also has to name the right tenant in the URL. A valid token for one customer is a 401 against another's path.
+- **Issued, tenant-scoped tokens.** Each token is `scimage_<keyID>_<secret>`; only `sha256(secret)` is stored, and a lookup by key id is compared with `crypto/subtle.ConstantTimeCompare` against the stored hash. A token also has to name the right tenant in the URL. A valid token for one customer is a 401 against another's path.
 - **Auth applied by the router itself.** `Routes()` wraps every path in the token check, so authentication covers the whole surface structurally, and rejects unregistered paths the same way as real ones.
-- **Cross-tenant isolation is structural, not a filter.** Every store query is scoped by `tenant_id`, including lookups by id, so a token from one tenant naming another tenant's real user id gets the same 404 as a made-up one.
+- **Cross-tenant isolation is structural.** Every store query is scoped by `tenant_id`, including lookups by id, so a token from one tenant naming another tenant's real user id gets the same 404 as a made-up one.
 - **Audit logging in the same transaction as the change.** Create, replace and deactivate each write an entry (actor, action, target user ID, timestamp, before/after state) inside the transaction that makes the change, so the entry and the change commit together. Refusals are recorded too, which makes a burst of denied deactivations visible to a reviewer.
-- **Privileged CLI actions are audited too.** Creating a tenant, issuing a token and revoking one each write an `admin_audit_log` entry in the same transaction as the change, naming a real operator by default (`$USER`, overridable with `-created-by`) rather than a generic string. `scimage-admin audit list` reads it back.
-- **Tenant names are unique, case-insensitively.** Two customers can't silently share a display name; `tenant create` rejects an exact or case-variant duplicate the same way `userName` uniqueness does.
+- **Privileged CLI actions are audited too.** Creating a tenant, issuing a token and revoking one each write an `admin_audit_log` entry in the same transaction as the change, naming a real operator by default (`$USER`, overridable with `-created-by`). `scimage-admin audit list` reads it back.
+- **Tenant names are unique, case-insensitively.** Each customer keeps a distinct display name; `tenant create` rejects an exact or case-variant duplicate the same way `userName` uniqueness does.
 - **Schema validation before the database.** Every incoming SCIM payload is checked against the expected shape, with attribute lengths bounded, before it reaches a query.
 - **Signed outbound webhooks.** Change events are signed with HMAC-SHA256 and verified with `hmac.Equal`. A configured endpoint requires a secret at startup, so every event that goes out is signed. Plaintext endpoints are opt-in for local receivers.
 - **Rate limiting per caller.** A token bucket returns `429` with `Retry-After`, so a runaway sync loop stays bounded.
-- **Secrets from the environment.** The webhook secret and database credentials are read from environment variables at runtime; bearer tokens are issued and stored in Postgres rather than configured, so a leak is revoked, not rotated by redeploying. Git hooks scan staged diffs for credential-shaped content, and CI runs `govulncheck` against dependencies.
+- **Secrets from the environment.** The webhook secret and database credentials are read from environment variables at runtime; bearer tokens are issued and stored in Postgres, so a leak is handled by revoking the token. Git hooks scan staged diffs for credential-shaped content, and CI runs `govulncheck` against dependencies.
 
 Every setting comes from an environment variable; see [Configuration](docs/CONFIGURATION.md) for the full list.
 
@@ -174,7 +174,7 @@ Run it behind a proxy that terminates TLS, and set `SCIM_BASE_URL` to the public
 
 ## 🏢 Creating a tenant
 
-There's no `SCIM_TOKEN` to configure. A deployment starts with zero tenants and zero tokens, both issued through `cmd/scimage-admin`, which talks to Postgres directly rather than over the network:
+There's no `SCIM_TOKEN` to configure. A deployment starts with zero tenants and zero tokens, both issued through `cmd/scimage-admin`, which talks to Postgres directly, off the network:
 
 ```bash
 make tenant NAME="Acme Corp"

@@ -2,8 +2,8 @@
 
 SCIMage is a SCIM 2.0 provisioning server. It handles user identity data and the
 credentials that guard it, so security is treated as a first-class property of
-the codebase rather than a layer on top. This document explains how to report a
-problem and summarizes the guarantees the server is built to keep.
+the codebase. This document explains how to report a problem and summarizes the
+guarantees the server is built to keep.
 
 ## Reporting a vulnerability
 
@@ -18,8 +18,8 @@ You can expect an acknowledgement within a few days. Once a fix is available it
 will land with a note in [CHANGELOG.md](CHANGELOG.md), and the advisory will
 credit the reporter unless you ask otherwise.
 
-Because this is a portfolio project rather than a hosted service, there is no bug
-bounty. Reports are still very welcome.
+Because this is a portfolio project, there is no bug bounty. Reports are still
+very welcome.
 
 ## Supported versions
 
@@ -32,12 +32,12 @@ default branch, and that is the supported target for a report.
 
 ## Security model
 
-These properties are enforced in code and covered by tests, not just documented.
+These properties are enforced in code and covered by tests.
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has the mechanisms in full; the
 [threat model](docs/THREAT-MODEL.md) walks the trust boundaries and residual
 risks.
 
-- **Bearer tokens are issued and tenant-scoped, never a shared secret.** A token
+- **Bearer tokens are issued and tenant-scoped.** A token
   is `scimage_<keyID>_<secret>`; only `sha256(secret)` is stored. Verification
   looks the row up by key id and compares with `crypto/subtle.ConstantTimeCompare`
   against the stored hash, then confirms the token's tenant matches the tenant in
@@ -47,7 +47,7 @@ risks.
   unregistered path is rejected the same way as a real one.
 - **Tenant isolation is structural.** Every store query is scoped by `tenant_id`,
   including lookups by id, so one tenant's token naming another tenant's resource
-  gets a `404`, never that resource.
+  gets a `404`.
 - **Every mutation is audited in its own transaction.** The audit row (actor,
   action, resource, target id, timestamp, before/after) commits with the change
   or not at all. Refusals are recorded too. Privileged CLI actions write an
@@ -69,7 +69,7 @@ and narrates already-computed activity signals for a human reviewer. It is
 strictly advisory: the model never makes or influences an authorization or
 provisioning decision, and it has no path into the auth middleware or any
 mutating code. A change that would wire model output into a decision is a design
-break, not a feature. Report it as one.
+break. Report it as one.
 
 ## Operational expectations
 

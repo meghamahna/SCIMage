@@ -3,7 +3,7 @@
 Phases 1 through 12 are complete, and phase 13 (release engineering) is in
 progress. The [implementation plan](docs/IMPLEMENTATION_PLAN.md) has the
 phase-by-phase detail. This document tracks what's deliberately left for later —
-each item is a considered deferral, not an oversight, with a note on why it
+each item is a considered deferral, with a note on why it
 waited.
 
 ## Finishing 1.0.0

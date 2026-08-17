@@ -68,7 +68,7 @@ columns. When an identity provider needs to sync more — a known SCIM attribute
 this server doesn't model (`displayName`, `title`, `phoneNumbers`, the
 enterprise extension, …) or a fully custom field — an operator can register it
 per tenant, and the server captures it into a single JSONB column and returns
-it, rather than dropping it. Registered attributes are advertised in that
+it. Registered attributes are advertised in that
 tenant's `/Schemas` document, so an IdP admin can discover and map to them.
 
 ```bash
@@ -113,7 +113,7 @@ Used when `DATABASE_URL` is absent, and by `docker-compose.yml`.
 
 There is no bearer-token environment variable: authentication is issued,
 tenant by tenant, through `cmd/scimage-admin`, which connects to Postgres
-directly rather than over the network. The privileged surface for creating a
+directly. The privileged surface for creating a
 tenant or minting a credential is never a network endpoint.
 
 ```bash
@@ -137,10 +137,9 @@ name that only differs from an existing one by casing, the same reasoning
 
 **Every privileged action is attributed.** `-created-by` defaults to
 `$USER` (`$USERNAME` on Windows) when omitted, so `tenant create` and
-`token issue` record a real operator by default rather than a generic
-"scimage-admin" string. Pass it explicitly for automation, e.g.
-`-created-by "provisioning-automation"`, so the trail says what ran the
-command, not just that something did. `scimage-admin audit list [-tenant
+`token issue` record a real operator by default. Pass it explicitly for
+automation, e.g. `-created-by "provisioning-automation"`, so the trail says
+what ran the command. `scimage-admin audit list [-tenant
 <tenantID>]` reads that trail back: every tenant created, every token issued
 or revoked, who did it, and when.
 

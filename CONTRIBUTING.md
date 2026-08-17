@@ -39,7 +39,7 @@ that matter most:
   in pairs (`.up.sql` / `.down.sql`) with the next sequence number.
 - **Errors** are wrapped with `fmt.Errorf("...: %w", err)`, never swallowed.
 - **Tests** are table-driven where it fits, use `httptest` for handlers, and run
-  against real Postgres for store integration tests — the database is not mocked.
+  against real Postgres for store integration tests.
   Every query is scoped by `tenant_id`, which is what lets the suites run
   concurrently without racing on shared tables.
 - **Formatting** is `gofmt` / `goimports` before every commit. The hook enforces
