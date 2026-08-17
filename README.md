@@ -4,10 +4,10 @@
 
 ### A SCIM 2.0 provisioning server with signed change delivery and an AI-advisory audit trail
 
-![Go](https://img.shields.io/badge/Go-00ADD8?style=flat&logo=go&logoColor=white)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/meghamahna/SCIMage?logo=go&logoColor=white)](go.mod)
 ![PostgreSQL](https://img.shields.io/badge/Postgres-16-4169E1?style=flat&logo=postgresql&logoColor=white)
-![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat)
-![Status](https://img.shields.io/badge/status-work%20in%20progress-yellow?style=flat)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/meghamahna/SCIMage?sort=semver&logo=github)](https://github.com/meghamahna/SCIMage/releases)
 
 </div>
 
