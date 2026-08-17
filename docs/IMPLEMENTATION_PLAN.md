@@ -38,6 +38,20 @@ README.md
 
 ## Milestones
 
+- [Phase 1: Infrastructure](#phase-1-infrastructure)
+- [Phase 2: Schema](#phase-2-schema)
+- [Phase 3: Store layer](#phase-3-store-layer)
+- [Phase 4: HTTP layer (SCIM endpoints)](#phase-4-http-layer-scim-endpoints)
+- [Phase 5: Auth](#phase-5-auth)
+- [Phase 6: Tests](#phase-6-tests)
+- [Phase 7: Security hardening](#phase-7-security-hardening)
+- [Phase 8: Identity provider interoperability](#phase-8-identity-provider-interoperability)
+- [Phase 9: Change delivery](#phase-9-change-delivery)
+- [Phase 10: Multi-tenancy and issued API tokens](#phase-10-multi-tenancy-and-issued-api-tokens)
+- [Phase 11: Groups and Extended Attributes](#phase-11-groups-and-extended-attributes)
+- [Phase 12: ARIA](#phase-12-aria)
+- [Phase 13: Release engineering](#phase-13-release-engineering)
+
 ### Phase 1: Infrastructure
 
 - [x] Write `docker-compose.yml` with a `postgres:16` service
@@ -223,14 +237,9 @@ both emit `user.deactivated`. The full retry and signing detail lives in
 The shape real SCIM service providers ship. It also gives the audit `actor`
 and ARIA's per-caller volume signal something to distinguish.
 
-**Addressing.** Tenant in the path (one host, one certificate, plain DNS for
-self-hosters): `https://<host>/scim/v2/{tenantID}/Users`. That URL is what a
-customer enters as Okta's *Base URL* or Entra's *Tenant URL*.
-
-**Token format.** `scimage_<keyID>_<secret>`. The key ID makes the row
-indexable, since a constant-time comparison needs a single candidate, and the
-secret authenticates. The `scimage_` prefix lets GitHub secret scanning
-recognise a leaked token.
+**Addressing and token format.** One host, tenant in the path, one token
+format for every customer. Mechanism detail (URL shape, token structure,
+verification order) lives in [Architecture](ARCHITECTURE.md#multi-tenancy).
 
 - [x] Migration: `tenants` and `scim_tokens`; `users` gains `tenant_id`;
       uniqueness becomes `(tenant_id, lower(user_name))`, so the same

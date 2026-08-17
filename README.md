@@ -1,9 +1,10 @@
 <div align="center">
 
-<img src="docs/assets/scimage_banner.png" alt="SCIMage: SCIM Audit and Governance Engine" width="820">
+<img src="docs/assets/scimage_logo.png" alt="SCIMage: SCIM Audit and Governance Engine" width="820">
 
 ### A SCIM 2.0 provisioning server with signed change delivery and an AI-advisory audit trail
 
+[![CI](https://github.com/meghamahna/SCIMage/actions/workflows/ci.yml/badge.svg)](https://github.com/meghamahna/SCIMage/actions/workflows/ci.yml)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/meghamahna/SCIMage?logo=go&logoColor=white)](go.mod)
 ![PostgreSQL](https://img.shields.io/badge/Postgres-16-4169E1?style=flat&logo=postgresql&logoColor=white)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -12,6 +13,23 @@
 </div>
 
 SCIMage is a focused SCIM 2.0 server written in Go. It implements the core `/Users` and `/Groups` resources from [RFC 7644](https://datatracker.ietf.org/doc/html/rfc7644), backed by real Postgres, with security practices that are load-bearing and covered by tests.
+
+- [Why SCIMage](#-why-scimage)
+- [Why I built this](#-why-i-built-this)
+- [What it does](#-what-it-does)
+- [How it's built](#-how-its-built)
+- [Change delivery](#-change-delivery)
+- [Security practices](#-security-practices)
+- [ARIA, the advisory audit reviewer](#-aria-the-advisory-audit-reviewer)
+- [Getting started](#-getting-started)
+- [Deploy with Docker](#-deploy-with-docker)
+- [Creating a tenant](#-creating-a-tenant)
+- [Example request](#-example-request)
+- [Running tests](#-running-tests)
+- [Roadmap](#-roadmap)
+- [Documentation](#-documentation)
+- [Tech](#-tech)
+- [License](#-license)
 
 ## ✨ Why SCIMage
 
@@ -87,17 +105,13 @@ flowchart LR
     ARIA -->|"briefing"| HUMAN["Reviewer"]
 ```
 
-A mutation writes the user or group row, its audit entry and its outbound event in one transaction, so a change always carries its record and its notification. `audit_log` carries a `resource_type` column so one trail covers both resources. Every query in that path is scoped by `tenant_id`, so one customer's token can never read or change another's data. The handler depends on `UserStore` and `GroupStore` interfaces, so an application with its own tables can supply an implementation and skip webhooks entirely.
+Everything lives in **one Postgres database**. A mutation writes its row, audit entry and outbound event in one transaction, so a change always carries its record and its notification, and every query is scoped by `tenant_id`. ARIA is the one advisory branch, reading `audit_log` off to the side, clear of the store and the auth path.
 
-Everything lives in **one Postgres database**, and both the `scimage-admin` CLI and ARIA reach it directly, off the network. ARIA is the one advisory branch: it *reads* `audit_log`, computes the signals in Go, and asks an LLM to narrate them. Its briefing goes to a human, and the code keeps it there, clear of the store and the auth path.
-
-[Architecture](docs/ARCHITECTURE.md) covers the request path, the storage model and that interface's contract.
+[Architecture](docs/ARCHITECTURE.md) covers the request path, storage model, multi-tenancy and the `UserStore`/`GroupStore` interface contract in full.
 
 ## 📤 Change delivery
 
-Provisioning pays off once the change reaches the system that needs it. Every mutation queues a signed webhook, so a user created by an identity provider lands in your application directly.
-
-The event is queued in the mutation's own transaction, so a committed change is always queued. Delivery is at-least-once with retries and a dead-letter queue, and requests are signed with HMAC-SHA256 over the timestamp, delivery id, event type and body. Events name what happened to the user: a person moving from active to inactive emits `user.deactivated` whether the provider sent `DELETE` or `PATCH active:false`.
+Provisioning pays off once the change reaches the system that needs it. Every mutation queues a signed webhook, at-least-once with retries and a dead-letter queue, so a user created by an identity provider lands in your application directly.
 
 Set `SCIM_WEBHOOK_URL` to turn it on. [Architecture](docs/ARCHITECTURE.md#change-delivery) covers the outbox, claim leases, retry rules, the signing scheme and the event payload; `webhook.Verify` is exported for Go receivers.
 
@@ -105,18 +119,19 @@ Set `SCIM_WEBHOOK_URL` to turn it on. [Architecture](docs/ARCHITECTURE.md#change
 
 These are load-bearing, and each one is covered by tests:
 
-- **Issued, tenant-scoped tokens.** Each token is `scimage_<keyID>_<secret>`; only `sha256(secret)` is stored, and a lookup by key id is compared with `crypto/subtle.ConstantTimeCompare` against the stored hash. A token also has to name the right tenant in the URL. A valid token for one customer is a 401 against another's path.
-- **Auth applied by the router itself.** `Routes()` wraps every path in the token check, so authentication covers the whole surface structurally, and rejects unregistered paths the same way as real ones.
-- **Cross-tenant isolation is structural.** Every store query is scoped by `tenant_id`, including lookups by id, so a token from one tenant naming another tenant's real user id gets the same 404 as a made-up one.
-- **Audit logging in the same transaction as the change.** Create, replace and deactivate each write an entry (actor, action, target user ID, timestamp, before/after state) inside the transaction that makes the change, so the entry and the change commit together. Refusals are recorded too, which makes a burst of denied deactivations visible to a reviewer.
-- **Privileged CLI actions are audited too.** Creating a tenant, issuing a token and revoking one each write an `admin_audit_log` entry in the same transaction as the change, naming a real operator by default (`$USER`, overridable with `-created-by`). `scimage-admin audit list` reads it back.
-- **Tenant names are unique, case-insensitively.** Each customer keeps a distinct display name; `tenant create` rejects an exact or case-variant duplicate the same way `userName` uniqueness does.
-- **Schema validation before the database.** Every incoming SCIM payload is checked against the expected shape, with attribute lengths bounded, before it reaches a query.
-- **Signed outbound webhooks.** Change events are signed with HMAC-SHA256 and verified with `hmac.Equal`. A configured endpoint requires a secret at startup, so every event that goes out is signed. Plaintext endpoints are opt-in for local receivers.
-- **Rate limiting per caller.** A token bucket returns `429` with `Retry-After`, so a runaway sync loop stays bounded.
-- **Secrets from the environment.** The webhook secret and database credentials are read from environment variables at runtime; bearer tokens are issued and stored in Postgres, so a leak is handled by revoking the token. Git hooks scan staged diffs for credential-shaped content, and CI runs `govulncheck` against dependencies.
+- **Issued, tenant-scoped tokens**, compared with `crypto/subtle.ConstantTimeCompare` against a stored hash.
+- **Auth applied by the router itself**, so it covers the whole surface structurally.
+- **Cross-tenant isolation is structural**, not just convention.
+- **Audit logging in the same transaction as the change**, including refusals.
+- **Privileged CLI actions are audited too**, naming a real operator.
+- **Tenant names are unique, case-insensitively.**
+- **Schema validation before the database**, with attribute lengths bounded.
+- **Signed outbound webhooks**, HMAC-SHA256, verified with `hmac.Equal`.
+- **Rate limiting per caller**, a token bucket returning `429`.
+- **Secrets from the environment**, never hardcoded or logged.
+- **Secret and dependency scanning in CI.** Git hooks block staged diffs that look like credentials; `govulncheck` runs against every dependency.
 
-Every setting comes from an environment variable; see [Configuration](docs/CONFIGURATION.md) for the full list.
+See [Threat model](docs/THREAT-MODEL.md) for the full threat-by-threat reasoning behind each of these, and [Configuration](docs/CONFIGURATION.md) for every environment variable.
 
 Operational logs are structured JSON on stdout and in a dated file under `LOG_DIR`. The audit trail is separate and lives in the `audit_log` table, so a change and its record commit together.
 
