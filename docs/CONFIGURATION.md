@@ -116,6 +116,11 @@ tenant by tenant, through `cmd/scimage-admin`, which connects to Postgres
 directly. The privileged surface for creating a
 tenant or minting a credential is never a network endpoint.
 
+Build the CLI once with `go install ./cmd/scimage-admin` to put `scimage-admin`
+on your PATH, or run it in place with `go run ./cmd/scimage-admin`. Locally, the
+`make tenant`, `make token`, `make token-list`, `make token-revoke` and
+`make audit-list` targets wrap the common commands.
+
 ```bash
 scimage-admin tenant create -name "Acme Corp" [-created-by "who"]
 scimage-admin tenant list

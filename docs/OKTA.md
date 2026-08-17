@@ -11,7 +11,8 @@ server actually supports.
 ## 1. Create the tenant and a token
 
 Each Okta app provisions into one SCIMage tenant, over its own URL with its own
-token.
+token. Get the admin CLI with `go install ./cmd/scimage-admin` (puts
+`scimage-admin` on your PATH), or run it in place with `go run ./cmd/scimage-admin`.
 
 ```bash
 scimage-admin tenant create -name "Acme Corp"

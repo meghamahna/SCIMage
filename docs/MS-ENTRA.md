@@ -10,7 +10,9 @@ supports.
 
 ## 1. Create the tenant and a token
 
-Each Entra enterprise application provisions into one SCIMage tenant.
+Each Entra enterprise application provisions into one SCIMage tenant. Get the
+admin CLI with `go install ./cmd/scimage-admin` (puts `scimage-admin` on your
+PATH), or run it in place with `go run ./cmd/scimage-admin`.
 
 ```bash
 scimage-admin tenant create -name "Acme Corp"
