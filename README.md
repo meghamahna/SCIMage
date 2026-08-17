@@ -241,4 +241,4 @@ Go with the standard library `net/http`, Postgres 16 via `pgx` with raw SQL, and
 
 ## 📄 License
 
-MIT, see [LICENSE](LICENSE).
+SCIMage is released under the [MIT License](LICENSE). You are free to use, modify, and distribute it, including in commercial products. The one condition is attribution: keep the copyright line (`Copyright (c) 2026 Megha Mahna`) and the license notice in any copy or substantial portion. If you build on SCIMage, a link back to this repository is appreciated.
