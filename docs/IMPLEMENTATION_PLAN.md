@@ -38,6 +38,20 @@ README.md
 
 ## Milestones
 
+- [Phase 1: Infrastructure](#phase-1-infrastructure)
+- [Phase 2: Schema](#phase-2-schema)
+- [Phase 3: Store layer](#phase-3-store-layer)
+- [Phase 4: HTTP layer (SCIM endpoints)](#phase-4-http-layer-scim-endpoints)
+- [Phase 5: Auth](#phase-5-auth)
+- [Phase 6: Tests](#phase-6-tests)
+- [Phase 7: Security hardening](#phase-7-security-hardening)
+- [Phase 8: Identity provider interoperability](#phase-8-identity-provider-interoperability)
+- [Phase 9: Change delivery](#phase-9-change-delivery)
+- [Phase 10: Multi-tenancy and issued API tokens](#phase-10-multi-tenancy-and-issued-api-tokens)
+- [Phase 11: Groups and Extended Attributes](#phase-11-groups-and-extended-attributes)
+- [Phase 12: ARIA](#phase-12-aria)
+- [Phase 13: Release engineering](#phase-13-release-engineering)
+
 ### Phase 1: Infrastructure
 
 - [x] Write `docker-compose.yml` with a `postgres:16` service
@@ -202,56 +216,30 @@ How provisioned users reach the application's own data, which is what makes
 this deployable by someone other than its author.
 
 - [x] Signed outbound webhooks on every mutation, with retries and a
-      dead-letter path. The event is queued in the mutation's own
-      transaction, the same discipline as the audit entry, so a committed
-      change is always queued and a rolled-back one leaves the queue as it
-      was. HMAC-SHA256 covers the timestamp, delivery id, event type and
-      body: signing the timestamp lets a receiver enforce freshness, and
-      signing the id and event type keeps its deduplication key and routing
-      header authentic. A dispatcher claims due rows with `FOR UPDATE SKIP
-      LOCKED`, counting the attempt and extending a lease in one statement,
-      so concurrent dispatchers take disjoint sets and an interrupted one's
-      rows return on lease expiry
+      dead-letter path. The event is queued in the mutation's own transaction,
+      the same discipline as the audit entry. HMAC-SHA256 covers the timestamp,
+      delivery id, event type and body. A dispatcher claims due rows with
+      `FOR UPDATE SKIP LOCKED`, so concurrent dispatchers take disjoint sets
 - [x] A `UserStore` interface, with the Postgres store as the default
       implementation, so a Go application can back SCIMage with its own
       schema
 
-**Decisions.** The lease spans the whole batch, matching the sequential send.
-A per-send lease would let rows queued behind the current attempt come due
-mid-batch, delivering them twice and spending each row's retry budget at
-double rate. A `4xx` other than `408`/`429` parks immediately, since the
-receiver has already given its verdict. Requests reach the configured endpoint
-only, so a `3xx` is reported for the operator to resolve and a signed payload of
-user attributes stays on its intended host. `last_error` holds a receiver's
-response body, bounded in runes and sanitised of NUL and invalid UTF-8, which
-keeps a malformed error body writable and the delivery moving. Events name the
-user's transition, so `DELETE` and `PATCH active:false` both emit
-`user.deactivated`: the event a receiver most needs to act on. Graceful
-shutdown landed here, ahead of Phase 13, to give the dispatcher a defined stop.
-
-**Open for later.** Retention for `delivered` rows belongs with the Phase 13
-operational work. `DeadLetters` reads the parked queue; a `webhook replay`
-subcommand for `cmd/scimage-admin`, and per-endpoint subscriptions, remain
-unbuilt — Phase 10 landed tenants and tokens but not these. Today there is one
-endpoint from the environment, and the delivery row would gain a subscription
-reference if per-endpoint delivery ships. The `UserStore` interface lives in
-`internal/scim`, so supplying an implementation means forking; moving the
-domain types to an importable package turns it into a real extension point when
-someone needs it.
+**Decisions.** The lease spans the whole batch, matching the sequential send, so
+rows queued behind a slow attempt aren't delivered twice. A `4xx` other than
+`408`/`429` parks immediately, since the receiver has given its verdict, and a
+`3xx` is reported rather than followed, so a signed payload stays on its intended
+host. Events name the user's transition, so `DELETE` and `PATCH active:false`
+both emit `user.deactivated`. The full retry and signing detail lives in
+[ARCHITECTURE.md](ARCHITECTURE.md#change-delivery).
 
 ### Phase 10: Multi-tenancy and issued API tokens
 
 The shape real SCIM service providers ship. It also gives the audit `actor`
 and ARIA's per-caller volume signal something to distinguish.
 
-**Addressing.** Tenant in the path (one host, one certificate, plain DNS for
-self-hosters): `https://<host>/scim/v2/{tenantID}/Users`. That URL is what a
-customer enters as Okta's *Base URL* or Entra's *Tenant URL*.
-
-**Token format.** `scimage_<keyID>_<secret>`. The key ID makes the row
-indexable, since a constant-time comparison needs a single candidate, and the
-secret authenticates. The `scimage_` prefix lets GitHub secret scanning
-recognise a leaked token.
+**Addressing and token format.** One host, tenant in the path, one token
+format for every customer. Mechanism detail (URL shape, token structure,
+verification order) lives in [Architecture](ARCHITECTURE.md#multi-tenancy).
 
 - [x] Migration: `tenants` and `scim_tokens`; `users` gains `tenant_id`;
       uniqueness becomes `(tenant_id, lower(user_name))`, so the same
@@ -309,7 +297,7 @@ Group schema has no `active` attribute, so there is nothing to soft-delete
 into. `displayName` uniqueness is enforced per tenant, case-insensitive, the
 same reconciliation reasoning `userName` already uses. Membership lives in a
 `group_members` join table rather than an array column, validated against
-this tenant's `users` in the same statement that inserts it — a foreign or
+this tenant's `users` in the same statement that inserts it. A foreign or
 made-up member id rolls the whole mutation back rather than being silently
 dropped. `audit_log` gained a `resource_type` column and `AuditEntry`'s
 before/after images became raw JSON rather than a `*store.User`-typed pair:
@@ -317,7 +305,7 @@ one audit trail now covers both resources, which is what Phase 12's
 ARIA needs to see a bulk group deletion alongside a bulk user
 deactivation. Group mutations also enqueue webhook events
 (`group.created`/`replaced`/`deleted`) through the existing, resource-agnostic
-outbox and dispatcher from Phase 9 — group-to-role mapping is a common reason
+outbox and dispatcher from Phase 9. Group-to-role mapping is a common reason
 enterprises adopt SCIM groups at all, and the dispatcher needed no changes to
 carry them.
 
@@ -332,9 +320,9 @@ on activity, the code decides.
 - [x] CLI (`cmd/aria`) that reads the `audit_log` table, over a time
       window (`-since`) and optionally across every tenant. A new
       `store.ListAuditEntriesSince` backs it
-- [x] Deterministic Go computes the signals — bulk deactivations in a
+- [x] Deterministic Go computes the signals (bulk deactivations in a
       short window, off-hours changes, per-caller volume and denial
-      bursts — and an LLM is called only to narrate those already-computed
+      bursts), and an LLM is called only to narrate those already-computed
       facts. The endpoint is provider-neutral: any OpenAI-compatible
       chat-completions API (Claude via its compat endpoint by default,
       or OpenAI, OpenRouter, a local model), set with `ARIA_LLM_*`. The
@@ -347,19 +335,21 @@ on activity, the code decides.
 
 ### Phase 13: Release engineering
 
-- [x] README: setup, endpoint table, security practices, architecture diagram
-- [x] `make` targets: `make up`, `make migrate`, `make test`, `make run`
-- [x] Structured logging: JSON with RFC 3339 timestamps, to stdout and a
-      dated file under `LOG_DIR` (default `logs/`, empty for stdout only in
-      a container). `SCIM_LOG_REQUESTS=1` adds request bodies, which carry
-      user attributes, so the directory is `0700` and files `0600`. Landed
-      during Phase 8, where reading a client's real requests is what made
-      the interop work tractable
+- [x] README, `make` targets, and the docs set: `CHANGELOG.md`, `ROADMAP.md`,
+      `SECURITY.md`, `CONTRIBUTING.md`, Okta and Entra setup guides, and a
+      threat model under `docs/`
+- [x] Structured JSON logging (RFC 3339, stdout and a dated `LOG_DIR` file).
+      `SCIM_LOG_REQUESTS=1` adds request bodies, so the directory is `0700` and
+      files `0600`. Landed in Phase 8
 - [x] Graceful shutdown: SIGINT/SIGTERM drains the listener, then stops the
-      webhook dispatcher. Landed in Phase 9, which needed a defined stop
-- [ ] `CHANGELOG.md`, `ROADMAP.md`, `SECURITY.md`, `CONTRIBUTING.md`
-- [ ] `/healthz` and `/readyz`
-- [ ] Retention for delivered webhook rows
-- [ ] Published container image and tagged releases via GoReleaser
-- [ ] Okta and Entra setup guides, and a threat model
-- [ ] Tag v1.0.0
+      dispatcher. Landed in Phase 9
+- [x] `/healthz` (liveness, no database dependency) and `/readyz` (readiness,
+      pings Postgres under a 2s timeout), mounted outside auth and the tenant path
+- [x] Retention for delivered webhook rows: an hourly sweep prunes `delivered`
+      rows past `SCIM_WEBHOOK_RETENTION_DAYS` (default 30, `0` disables). Pending,
+      dead-lettered and `audit_log` rows are never touched, and a partial index
+      keeps the DELETE a range scan
+- [x] A `Dockerfile` for a small static image (see the README Deploy section)
+
+A published registry image and the `v1.0.0` tag are the remaining release steps,
+tracked in `ROADMAP.md`.

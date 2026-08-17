@@ -35,6 +35,7 @@ bursts, then goes quiet for hours. Set `SCIM_RATE_LIMIT=0` to opt out.
 | `SCIM_WEBHOOK_SECRET` | HMAC signing secret. Required alongside a webhook URL. |
 | `SCIM_WEBHOOK_ALLOW_HTTP` | Set to `1` to allow a plaintext endpoint. |
 | `SCIM_WEBHOOK_MAX_ATTEMPTS` | Attempts before a delivery is dead-lettered. Defaults to 6. |
+| `SCIM_WEBHOOK_RETENTION_DAYS` | Days a delivered row is kept before the dispatcher prunes it. Defaults to 30; `0` keeps them forever. Pending and dead-lettered rows are never swept. |
 
 Leaving `SCIM_WEBHOOK_URL` unset keeps change delivery off, and the store skips
 queueing events, so the queue stays empty while nothing is draining it.
@@ -63,11 +64,11 @@ for what retries and what parks immediately.
 | `SCIM_EXTENDED_ATTRIBUTES` | Set to `1` to capture and return attributes a tenant has registered. Off by default. |
 
 By design this server models a minimal, honest set of User attributes as typed
-columns. When an identity provider needs to sync more — a known SCIM attribute
-this server doesn't model (`displayName`, `title`, `phoneNumbers`, the
-enterprise extension, …) or a fully custom field — an operator can register it
+columns. When an identity provider needs to sync more, whether a known SCIM
+attribute this server doesn't model (`displayName`, `title`, `phoneNumbers`, the
+enterprise extension, …) or a fully custom field, an operator can register it
 per tenant, and the server captures it into a single JSONB column and returns
-it, rather than dropping it. Registered attributes are advertised in that
+it. Registered attributes are advertised in that
 tenant's `/Schemas` document, so an IdP admin can discover and map to them.
 
 ```bash
@@ -79,14 +80,14 @@ scimage-admin attribute unregister -tenant <tenantID> -name displayName
 
 Two steps turn it on: set `SCIM_EXTENDED_ATTRIBUTES=1` on the server, and
 register the names you want with the CLI. With the flag unset, or nothing
-registered, a user serialises exactly as it did before — the feature has zero
+registered, a user serialises exactly as it did before. The feature has zero
 effect until both are in place.
 
 A registered name is a **top-level** key of the SCIM resource. That covers
 `displayName`, `phoneNumbers`, `addresses`, custom fields, and the enterprise
 extension as its whole `urn:…:enterprise:2.0:User` object. A path into an
 extension (e.g. patching `urn:…:department` on its own) isn't individually
-addressable — register the URN and replace the whole object, or map the IdP to
+addressable. Register the URN and replace the whole object, or map the IdP to
 a top-level custom attribute. Core attributes (`userName`, `emails`, `active`,
 …) can't be registered; they're already modelled, and a captured value is never
 allowed to shadow one. Unregistering stops future capture and advertising; it
@@ -112,8 +113,13 @@ Used when `DATABASE_URL` is absent, and by `docker-compose.yml`.
 
 There is no bearer-token environment variable: authentication is issued,
 tenant by tenant, through `cmd/scimage-admin`, which connects to Postgres
-directly rather than over the network. The privileged surface for creating a
+directly. The privileged surface for creating a
 tenant or minting a credential is never a network endpoint.
+
+Build the CLI once with `go install ./cmd/scimage-admin` to put `scimage-admin`
+on your PATH, or run it in place with `go run ./cmd/scimage-admin`. Locally, the
+`make tenant`, `make token`, `make token-list`, `make token-revoke` and
+`make audit-list` targets wrap the common commands.
 
 ```bash
 scimage-admin tenant create -name "Acme Corp" [-created-by "who"]
@@ -136,10 +142,9 @@ name that only differs from an existing one by casing, the same reasoning
 
 **Every privileged action is attributed.** `-created-by` defaults to
 `$USER` (`$USERNAME` on Windows) when omitted, so `tenant create` and
-`token issue` record a real operator by default rather than a generic
-"scimage-admin" string. Pass it explicitly for automation, e.g.
-`-created-by "provisioning-automation"`, so the trail says what ran the
-command, not just that something did. `scimage-admin audit list [-tenant
+`token issue` record a real operator by default. Pass it explicitly for
+automation, e.g. `-created-by "provisioning-automation"`, so the trail says
+what ran the command. `scimage-admin audit list [-tenant
 <tenantID>]` reads that trail back: every tenant created, every token issued
 or revoked, who did it, and when.
 

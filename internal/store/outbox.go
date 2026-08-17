@@ -262,6 +262,25 @@ func (s *Store) updateDelivery(ctx context.Context, q, op string, id int64, args
 	return nil
 }
 
+// PurgeDeliveredBefore deletes delivered rows whose delivery committed before
+// cutoff, returning how many went. It bounds a table that otherwise only grows:
+// every mutation queues a row, and a successful one would sit in the outbox
+// forever without this.
+//
+// Only delivered rows are touched. A pending row is still in flight, and a
+// dead-lettered one is kept for a human to inspect and replay once the receiver
+// is fixed — dropping either would lose a delivery the operator still needs. The
+// status guard is what makes retention safe to run unattended.
+func (s *Store) PurgeDeliveredBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	const q = `DELETE FROM webhook_deliveries WHERE status = $1 AND delivered_at < $2`
+
+	tag, err := s.pool.Exec(ctx, q, DeliveryDelivered, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("purge delivered deliveries before %s: %w", cutoff.Format(time.RFC3339), err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // DeadLetters returns parked deliveries, newest first, for review and replay.
 func (s *Store) DeadLetters(ctx context.Context, limit int) ([]Delivery, error) {
 	if limit <= 0 || limit > MaxPageSize {

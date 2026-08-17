@@ -26,6 +26,7 @@ type Queue interface {
 	MarkDelivered(ctx context.Context, id int64) error
 	RescheduleDelivery(ctx context.Context, id int64, cause string, at time.Time) error
 	DeadLetterDelivery(ctx context.Context, id int64, cause string) error
+	PurgeDeliveredBefore(ctx context.Context, cutoff time.Time) (int64, error)
 }
 
 var _ Queue = (*store.Store)(nil)
@@ -43,6 +44,12 @@ type Config struct {
 	Timeout     time.Duration
 	BaseBackoff time.Duration
 	MaxBackoff  time.Duration
+
+	// Retention is how long a delivered row is kept before the dispatcher prunes
+	// it; zero disables the sweep. RetentionInterval is how often the sweep runs,
+	// kept well above Poll since pruning is housekeeping, not the hot path.
+	Retention         time.Duration
+	RetentionInterval time.Duration
 }
 
 // Sized for provisioning traffic: changes arrive in bursts and a receiver that
@@ -55,6 +62,13 @@ const (
 	defaultTimeout     = 10 * time.Second
 	defaultBaseBackoff = 5 * time.Second
 	defaultMaxBackoff  = 5 * time.Minute
+
+	// A delivered row is an operational receipt, not the audit trail (audit_log
+	// is the authoritative record), so a month is ample for an operator to
+	// inspect a recent send before it's pruned. The sweep runs hourly: often
+	// enough to keep the table bounded, rare enough to be invisible.
+	defaultRetention         = 30 * 24 * time.Hour
+	defaultRetentionInterval = time.Hour
 )
 
 // ConfigFromEnv reads the webhook settings. It reports false when
@@ -98,15 +112,32 @@ func ConfigFromEnv() (Config, bool, error) {
 	}
 
 	return Config{
-		URL:         raw,
-		Secret:      secret,
-		MaxAttempts: envInt("SCIM_WEBHOOK_MAX_ATTEMPTS", defaultMaxAttempts),
-		Poll:        defaultPoll,
-		Batch:       defaultBatch,
-		Timeout:     defaultTimeout,
-		BaseBackoff: defaultBaseBackoff,
-		MaxBackoff:  defaultMaxBackoff,
+		URL:               raw,
+		Secret:            secret,
+		MaxAttempts:       envInt("SCIM_WEBHOOK_MAX_ATTEMPTS", defaultMaxAttempts),
+		Poll:              defaultPoll,
+		Batch:             defaultBatch,
+		Timeout:           defaultTimeout,
+		BaseBackoff:       defaultBaseBackoff,
+		MaxBackoff:        defaultMaxBackoff,
+		Retention:         retentionFromEnv(),
+		RetentionInterval: defaultRetentionInterval,
 	}, true, nil
+}
+
+// retentionFromEnv reads SCIM_WEBHOOK_RETENTION_DAYS. Unset falls back to the
+// default; an explicit 0 disables pruning (keep delivered rows forever), which
+// is why 0 is distinguished from unset rather than folded into the default.
+func retentionFromEnv() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("SCIM_WEBHOOK_RETENTION_DAYS"))
+	if raw == "" {
+		return defaultRetention
+	}
+	days, err := strconv.Atoi(raw)
+	if err != nil || days < 0 {
+		return defaultRetention
+	}
+	return time.Duration(days) * 24 * time.Hour
 }
 
 func envInt(name string, fallback int) int {
@@ -131,6 +162,9 @@ func New(q Queue, cfg Config) *Dispatcher {
 	cfg.Timeout = orDefaultDuration(cfg.Timeout, defaultTimeout)
 	cfg.BaseBackoff = orDefaultDuration(cfg.BaseBackoff, defaultBaseBackoff)
 	cfg.MaxBackoff = orDefaultDuration(cfg.MaxBackoff, defaultMaxBackoff)
+	// Retention itself is left as given: zero is a real setting (sweep off), not
+	// a missing one, so it can't take a default here. Only the cadence does.
+	cfg.RetentionInterval = orDefaultDuration(cfg.RetentionInterval, defaultRetentionInterval)
 
 	return &Dispatcher{
 		queue: q,
@@ -165,12 +199,23 @@ func (d *Dispatcher) leaseFor() time.Duration {
 	return d.cfg.Poll + time.Duration(d.cfg.Batch)*d.cfg.Timeout
 }
 
-// Run drains the queue until ctx is cancelled.
+// Run drains the queue until ctx is cancelled, pruning delivered rows on a
+// separate slow cadence.
 func (d *Dispatcher) Run(ctx context.Context) {
-	slog.Info("webhook dispatcher started", "poll", d.cfg.Poll, "max_attempts", d.cfg.MaxAttempts)
+	slog.Info("webhook dispatcher started",
+		"poll", d.cfg.Poll, "max_attempts", d.cfg.MaxAttempts, "retention", d.cfg.Retention)
 
 	ticker := time.NewTicker(d.cfg.Poll)
 	defer ticker.Stop()
+
+	// A zero Retention leaves this channel nil, which blocks forever in the
+	// select — the sweep is simply off, rather than a special case in the loop.
+	var retentionC <-chan time.Time
+	if d.cfg.Retention > 0 {
+		rt := time.NewTicker(d.cfg.RetentionInterval)
+		defer rt.Stop()
+		retentionC = rt.C
+	}
 
 	for {
 		if err := d.drain(ctx); err != nil && ctx.Err() == nil {
@@ -182,7 +227,27 @@ func (d *Dispatcher) Run(ctx context.Context) {
 			slog.Info("webhook dispatcher stopped")
 			return
 		case <-ticker.C:
+		case <-retentionC:
+			d.purgeDelivered(ctx)
 		}
+	}
+}
+
+// purgeDelivered prunes delivered rows older than the retention window. A
+// failure is logged and shrugged off: the next sweep will try again, and an
+// oversized outbox degrades nothing but disk until then.
+func (d *Dispatcher) purgeDelivered(ctx context.Context) {
+	cutoff := d.now().Add(-d.cfg.Retention)
+
+	n, err := d.queue.PurgeDeliveredBefore(ctx, cutoff)
+	if err != nil {
+		if ctx.Err() == nil {
+			slog.Error("purge delivered webhooks", "error", err)
+		}
+		return
+	}
+	if n > 0 {
+		slog.Info("purged delivered webhooks", "count", n, "retention", d.cfg.Retention)
 	}
 }
 

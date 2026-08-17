@@ -49,21 +49,21 @@ SERVICE=postgres`, not `--service=postgres`.
 | `make stop` | Stops service(s) without removing them | `SERVICE=postgres` to scope to one |
 | `make restart` | Restarts service(s) in place, keeping data | `SERVICE=postgres` to scope to one |
 | `make reset` | Wipes the data volume and re-initializes from `.env` | Destructive, always whole-project; use when you want a clean slate |
-| `make ps` | Shows what's running | |
+| `make ps` | Shows what's running | Whole-project; wraps `docker compose ps` |
 | `make logs` | Follows container logs | `SERVICE=postgres` to scope to one |
 | `make migrate` | Applies every pending migration | `make up` already runs this for you; use this to re-run after adding a migration file |
-| `make migrate-down` | Rolls back the most recent migration | |
-| `make migrate-version` | Shows which migration version the database is on | |
+| `make migrate-down` | Rolls back the most recent migration | Run again to go further back |
+| `make migrate-version` | Shows which migration version the database is on | Flags a `dirty` version left by a failed migration |
 | `make test` | Runs the full test suite against a real Postgres | Run `make up` first |
 | `make run` | Runs the SCIM server | Listens on `:8080` by default (`SCIM_ADDR` to override) |
 | `make fmt` | Formats every Go file | `gofmt` + `goimports` |
 | `make tenant NAME="Acme Corp"` | Creates a tenant | Prints the tenant id and its SCIM base URL |
-| `make tenant-list` | Lists every tenant | |
+| `make tenant-list` | Lists every tenant | Shows each tenant's id, name and creator |
 | `make token TENANT=<id> LABEL="Okta prod"` | Issues a token for a tenant | Optional `EXPIRES=90d`; token is shown once |
 | `make token-list TENANT=<id>` | Lists a tenant's tokens | Never shows the secret, only metadata |
 | `make token-revoke KEY=<keyID>` | Revokes a token immediately | Irreversible; idempotent on an already-revoked key |
 | `make attr-register TENANT=<id> NAME=displayName` | Registers an extra attribute a tenant should capture | Optional `TYPE=string`; server captures it only with `SCIM_EXTENDED_ATTRIBUTES=1` |
-| `make attr-list TENANT=<id>` | Lists a tenant's registered extra attributes | |
+| `make attr-list TENANT=<id>` | Lists a tenant's registered extra attributes | Requires `TENANT` |
 | `make attr-unregister TENANT=<id> NAME=displayName` | Removes a registered attribute | Stops future capture; doesn't touch stored values |
 | `make audit-list [TENANT=<id>]` | Reads the admin-audit trail | Every tenant created, token issued or revoked, attribute registered; omit `TENANT` for every tenant |
 | `make aria [TENANT=<id>] [SINCE=24h]` | Runs ARIA, the advisory audit reviewer | Optional `TZ=` for the off-hours check; needs the `ARIA_LLM_*` variables only when a window has findings |
@@ -80,14 +80,14 @@ code (`internal/scim/models.go`, `internal/scim/discovery.go`).
 | `id` | Server-assigned, read-only |
 | `externalId` | The identity provider's own key, for reconciliation |
 | `userName` | Required; unique per tenant, case-insensitively |
-| `name.givenName`, `name.familyName` | |
+| `name.givenName`, `name.familyName` | Optional; stored and returned as given |
 | `emails[].value`, `emails[].primary` | Multiple accepted on input; only the primary (or first) is stored and returned |
 | `active` | Defaults to `true`; a `PATCH replace` on this is how identity providers deprovision |
 | `meta.resourceType`, `.created`, `.lastModified`, `.location` | Server-managed |
 
 Not modeled: `displayName`, `title`, `preferredLanguage`, `name.formatted`,
-`name.middleName`, and typed multi-valued emails. A deliberate scope cut,
-not an oversight; see the [README](../README.md) for the Entra validator
+`name.middleName`, and typed multi-valued emails. A deliberate scope cut;
+see the [README](../README.md) for the Entra validator
 results this shows up in.
 
 What `POST`/`PUT`/`PATCH /Groups` accepts and returns, same source-of-truth
@@ -102,7 +102,7 @@ reasoning:
 | `meta.resourceType`, `.created`, `.lastModified`, `.location` | Server-managed |
 
 `DELETE /Groups/{id}` is a real deletion, not the soft delete `DELETE
-/Users/{id}` does — the Group schema has no `active` attribute to
+/Users/{id}` does, because the Group schema has no `active` attribute to
 deactivate into.
 
 ## Migrations
@@ -116,7 +116,7 @@ runs the official `migrate/migrate` image on the compose network, so no local
 install is required either way.
 
 To add a migration, create the next numbered pair by hand (check
-`migrations/` for the current highest number — this example is illustrative,
+`migrations/` for the current highest number; this example is illustrative,
 not the literal next one):
 
 ```text
@@ -174,8 +174,8 @@ directory is `0700`, files are `0600`, and `logs/` is gitignored.
 
 ## Audit trail
 
-Every create, replace, deactivate and delete — for both `/Users` and
-`/Groups` — writes a row to `audit_log` in the same transaction as the
+Every create, replace, deactivate and delete (for both `/Users` and
+`/Groups`) writes a row to `audit_log` in the same transaction as the
 change; every tenant/token admin action writes a row to `admin_audit_log`
 the same way (see the table above for reading it back via `scimage-admin
 audit list`). To query `audit_log` directly:
@@ -228,7 +228,7 @@ make up      # the integration tests use a real Postgres
 make test
 ```
 
-The store tests run against the real database, not a mock, and clean up
+The store tests run against the real database and clean up
 after themselves. They skip when no database is configured, so a plain
 `go test ./...` still works.
 

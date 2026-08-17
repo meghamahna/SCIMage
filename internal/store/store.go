@@ -74,6 +74,14 @@ func (s *Store) Close() {
 	s.pool.Close()
 }
 
+// Ping reports whether the database is reachable, backing the readiness probe.
+func (s *Store) Ping(ctx context.Context) error {
+	if err := s.pool.Ping(ctx); err != nil {
+		return fmt.Errorf("ping postgres: %w", err)
+	}
+	return nil
+}
+
 // DSNFromEnv prefers DATABASE_URL and otherwise assembles one from the
 // POSTGRES_* variables docker-compose.yml already uses.
 func DSNFromEnv() (string, error) {

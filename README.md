@@ -1,31 +1,48 @@
 <div align="center">
 
-# 🛡️ SCIMage
-
-**SCIM Audit & Governance Engine**
+<img src="docs/assets/scimage_logo.png" alt="SCIMage: SCIM Audit and Governance Engine" width="200">
 
 ### A SCIM 2.0 provisioning server with signed change delivery and an AI-advisory audit trail
 
-![Go](https://img.shields.io/badge/Go-00ADD8?style=flat&logo=go&logoColor=white)
+[![CI](https://github.com/meghamahna/SCIMage/actions/workflows/ci.yml/badge.svg)](https://github.com/meghamahna/SCIMage/actions/workflows/ci.yml)
+[![govulncheck](https://img.shields.io/github/actions/workflow/status/meghamahna/SCIMage/ci.yml?label=govulncheck)](https://github.com/meghamahna/SCIMage/actions/workflows/ci.yml)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/meghamahna/SCIMage?logo=go&logoColor=white)](go.mod)
 ![PostgreSQL](https://img.shields.io/badge/Postgres-16-4169E1?style=flat&logo=postgresql&logoColor=white)
-![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat)
-![Status](https://img.shields.io/badge/status-work%20in%20progress-yellow?style=flat)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/meghamahna/SCIMage?sort=semver&logo=github)](https://github.com/meghamahna/SCIMage/releases)
 
 </div>
 
 SCIMage is a focused SCIM 2.0 server written in Go. It implements the core `/Users` and `/Groups` resources from [RFC 7644](https://datatracker.ietf.org/doc/html/rfc7644), backed by real Postgres, with security practices that are load-bearing and covered by tests.
 
+- [Why SCIMage](#-why-scimage)
+- [Why I built this](#-why-i-built-this)
+- [What it does](#-what-it-does)
+- [How it's built](#-how-its-built)
+- [Change delivery](#-change-delivery)
+- [Security practices](#-security-practices)
+- [ARIA, the advisory audit reviewer](#-aria-the-advisory-audit-reviewer)
+- [Getting started](#-getting-started)
+- [Deploy with Docker](#-deploy-with-docker)
+- [Creating a tenant](#-creating-a-tenant)
+- [Example request](#-example-request)
+- [Running tests](#-running-tests)
+- [Roadmap](#-roadmap)
+- [Documentation](#-documentation)
+- [Tech](#-tech)
+- [License](#-license)
+
 ## ✨ Why SCIMage
 
 Most SCIM servers are a thin CRUD layer bolted onto an app. SCIMage treats the parts that actually matter once real customers are provisioning into you as first-class:
 
-- **Security is structural, not a checkbox** — tenant isolation, hashed and rotatable tokens, and an audit entry written in the *same transaction* as every change, enforced in code and tested against real Postgres rather than mocks.
-- **A tamper-evident audit trail** — every mutation *and every refusal* is recorded with before/after state, so a user can't be changed without leaving a record.
-- **Changes actually reach your app** — signed, retried webhooks with a dead-letter queue turn provisioning into events the rest of your system can act on.
-- **Extend by config, not by forking** — register any extra or custom attribute per tenant and it round-trips, keeping the core minimal and honest.
-- **Self-hosted and transparent** — plain Go + Postgres + raw SQL, no framework and no lock-in; you own the data and the audit trail.
+- **Security is structural:** tenant isolation, hashed and rotatable tokens, and an audit entry written in the *same transaction* as every change, enforced in code and tested against real Postgres.
+- **A tamper-evident audit trail:** every mutation *and every refusal* is recorded with before/after state, so every change leaves a record.
+- **Changes actually reach your app:** signed, retried webhooks with a dead-letter queue turn provisioning into events the rest of your system can act on.
+- **Extend by config:** register any extra or custom attribute per tenant and it round-trips, keeping the core minimal and honest.
+- **Self-hosted and transparent:** plain Go + Postgres + raw SQL, no framework and no lock-in; you own the data and the audit trail.
 
-**Best fit:** a SaaS that needs to *receive* enterprise provisioning with a defensible security-and-audit story, wants to self-host, and values correctness over feature breadth. It's portfolio-grade rather than a 1.0; release engineering (packaging, published images, tagged releases) is still in progress.
+**Best fit:** a SaaS that needs to *receive* enterprise provisioning with a defensible security-and-audit story, wants to self-host, and values correctness over feature breadth. It's portfolio-grade; release engineering (packaging, published images, tagged releases) is still in progress.
 
 ## 💡 Why I built this
 
@@ -54,13 +71,15 @@ SCIMage is the *service provider* side of SCIM: the endpoint an identity provide
 
 The discovery endpoints `/ServiceProviderConfig`, `/ResourceTypes` and `/Schemas` (same `/scim/v2/{tenantID}` prefix) declare exactly the attributes this server stores. A client reads them before provisioning.
 
-`GET .../Users` supports `filter=userName eq "…"` and `filter=externalId eq "…"`; `GET .../Groups` supports `filter=displayName eq "…"` and `filter=externalId eq "…"` — the lookups a provider uses to decide whether a resource already exists. Other expressions answer `400` with `scimType: invalidFilter`, telling the client plainly where the supported set ends.
+Two unauthenticated operational probes sit outside the tenant path, for an orchestrator or load balancer: `GET /healthz` is process liveness (always `200` while the process serves, with no database dependency, so a transient DB blip never triggers a restart loop), and `GET /readyz` is readiness (`200` when Postgres is reachable, `503` when it isn't, so a failing instance is pulled from rotation).
+
+`GET .../Users` supports `filter=userName eq "…"` and `filter=externalId eq "…"`; `GET .../Groups` supports `filter=displayName eq "…"` and `filter=externalId eq "…"`. These are the lookups a provider uses to decide whether a resource already exists. Other expressions answer `400` with `scimType: invalidFilter`, telling the client plainly where the supported set ends.
 
 Responses use `application/scim+json`, and errors use the SCIM Error schema with the appropriate `scimType`.
 
 `userName` uniqueness is enforced case-insensitively, matching the spec's `caseExact=false` characteristic, so `bjensen` and `BJensen` are one identity.
 
-**Validated against [Microsoft's Entra ID SCIM validator](https://scimvalidator.microsoft.com/).** Core CRUD, filtering, and PATCH all pass. The `User` schema is deliberately reduced to a minimal set of typed columns — `displayName`, `title`, `preferredLanguage`, `name.formatted`/`name.middleName`, the enterprise extension and typed multi-valued emails aren't modeled that way. When a provider needs them, an operator registers the extra attributes per tenant (`scimage-admin attribute register`, gated by `SCIM_EXTENDED_ATTRIBUTES`) and the server captures and returns them through a JSONB pass-through — keeping the core minimal while still round-tripping whatever Okta or Entra maps. See [Configuration](docs/CONFIGURATION.md#extensible-attributes).
+**Validated against [Microsoft's Entra ID SCIM validator](https://scimvalidator.microsoft.com/).** Core CRUD, filtering, and PATCH all pass. The `User` schema is deliberately reduced to a minimal set of typed columns. `displayName`, `title`, `preferredLanguage`, `name.formatted`/`name.middleName`, the enterprise extension and typed multi-valued emails aren't modeled that way. When a provider needs them, an operator registers the extra attributes per tenant (`scimage-admin attribute register`, gated by `SCIM_EXTENDED_ATTRIBUTES`) and the server captures and returns them through a JSONB pass-through, which keeps the core minimal while still round-tripping whatever Okta or Entra maps. See [Configuration](docs/CONFIGURATION.md#extensible-attributes).
 
 ## 🏗️ How it's built
 
@@ -87,17 +106,13 @@ flowchart LR
     ARIA -->|"briefing"| HUMAN["Reviewer"]
 ```
 
-A mutation writes the user or group row, its audit entry and its outbound event in one transaction, so a change always carries its record and its notification. `audit_log` carries a `resource_type` column so one trail covers both resources. Every query in that path is scoped by `tenant_id`, so one customer's token can never read or change another's data. The handler depends on `UserStore` and `GroupStore` interfaces, so an application with its own tables can supply an implementation and skip webhooks entirely.
+Everything lives in **one Postgres database**. A mutation writes its row, audit entry and outbound event in one transaction, so a change always carries its record and its notification, and every query is scoped by `tenant_id`. ARIA is the one advisory branch, reading `audit_log` off to the side, clear of the store and the auth path.
 
-Everything lives in **one Postgres database**, and both the `scimage-admin` CLI and ARIA reach it directly, off the network. ARIA is the one advisory branch: it *reads* `audit_log`, computes the signals in Go, and asks an LLM to narrate them. Its briefing goes to a human, and the code keeps it there, clear of the store and the auth path.
-
-[Architecture](docs/ARCHITECTURE.md) covers the request path, the storage model and that interface's contract.
+[Architecture](docs/ARCHITECTURE.md) covers the request path, storage model, multi-tenancy and the `UserStore`/`GroupStore` interface contract in full.
 
 ## 📤 Change delivery
 
-Provisioning pays off once the change reaches the system that needs it. Every mutation queues a signed webhook, so a user created by an identity provider lands in your application directly.
-
-The event is queued in the mutation's own transaction, so a committed change is always queued. Delivery is at-least-once with retries and a dead-letter queue, and requests are signed with HMAC-SHA256 over the timestamp, delivery id, event type and body. Events name what happened to the user: a person moving from active to inactive emits `user.deactivated` whether the provider sent `DELETE` or `PATCH active:false`.
+Provisioning pays off once the change reaches the system that needs it. Every mutation queues a signed webhook, at-least-once with retries and a dead-letter queue, so a user created by an identity provider lands in your application directly.
 
 Set `SCIM_WEBHOOK_URL` to turn it on. [Architecture](docs/ARCHITECTURE.md#change-delivery) covers the outbox, claim leases, retry rules, the signing scheme and the event payload; `webhook.Verify` is exported for Go receivers.
 
@@ -105,18 +120,19 @@ Set `SCIM_WEBHOOK_URL` to turn it on. [Architecture](docs/ARCHITECTURE.md#change
 
 These are load-bearing, and each one is covered by tests:
 
-- **Issued, tenant-scoped tokens, never a shared secret.** Each token is `scimage_<keyID>_<secret>`; only `sha256(secret)` is stored, and a lookup by key id is compared with `crypto/subtle.ConstantTimeCompare` against the stored hash. A token also has to name the right tenant in the URL. A valid token for one customer is a 401 against another's path.
-- **Auth applied by the router itself.** `Routes()` wraps every path in the token check, so authentication covers the whole surface structurally, and rejects unregistered paths the same way as real ones.
-- **Cross-tenant isolation is structural, not a filter.** Every store query is scoped by `tenant_id`, including lookups by id, so a token from one tenant naming another tenant's real user id gets the same 404 as a made-up one.
-- **Audit logging in the same transaction as the change.** Create, replace and deactivate each write an entry (actor, action, target user ID, timestamp, before/after state) inside the transaction that makes the change, so the entry and the change commit together. Refusals are recorded too, which makes a burst of denied deactivations visible to a reviewer.
-- **Privileged CLI actions are audited too.** Creating a tenant, issuing a token and revoking one each write an `admin_audit_log` entry in the same transaction as the change, naming a real operator by default (`$USER`, overridable with `-created-by`) rather than a generic string. `scimage-admin audit list` reads it back.
-- **Tenant names are unique, case-insensitively.** Two customers can't silently share a display name; `tenant create` rejects an exact or case-variant duplicate the same way `userName` uniqueness does.
-- **Schema validation before the database.** Every incoming SCIM payload is checked against the expected shape, with attribute lengths bounded, before it reaches a query.
-- **Signed outbound webhooks.** Change events are signed with HMAC-SHA256 and verified with `hmac.Equal`. A configured endpoint requires a secret at startup, so every event that goes out is signed. Plaintext endpoints are opt-in for local receivers.
-- **Rate limiting per caller.** A token bucket returns `429` with `Retry-After`, so a runaway sync loop stays bounded.
-- **Secrets from the environment.** The webhook secret and database credentials are read from environment variables at runtime; bearer tokens are issued and stored in Postgres rather than configured, so a leak is revoked, not rotated by redeploying. Git hooks scan staged diffs for credential-shaped content, and CI runs `govulncheck` against dependencies.
+- **Issued, tenant-scoped tokens**, compared with `crypto/subtle.ConstantTimeCompare` against a stored hash.
+- **Auth applied by the router itself**, so it covers the whole surface structurally.
+- **Cross-tenant isolation is structural**, not just convention.
+- **Audit logging in the same transaction as the change**, including refusals.
+- **Privileged CLI actions are audited too**, naming a real operator.
+- **Tenant names are unique, case-insensitively.**
+- **Schema validation before the database**, with attribute lengths bounded.
+- **Signed outbound webhooks**, HMAC-SHA256, verified with `hmac.Equal`.
+- **Rate limiting per caller**, a token bucket returning `429`.
+- **Secrets from the environment**, never hardcoded or logged.
+- **Secret and dependency scanning in CI.** Git hooks block staged diffs that look like credentials; `govulncheck` runs against every dependency.
 
-Every setting comes from an environment variable; see [Configuration](docs/CONFIGURATION.md) for the full list.
+See [Threat model](docs/THREAT-MODEL.md) for the full threat-by-threat reasoning behind each of these, and [Configuration](docs/CONFIGURATION.md) for every environment variable.
 
 Operational logs are structured JSON on stdout and in a dated file under `LOG_DIR`. The audit trail is separate and lives in the `audit_log` table, so a change and its record commit together.
 
@@ -153,9 +169,26 @@ make run
 
 The server starts on `:8080`. Migrations run through `golang-migrate`, and `make migrate` uses a host `migrate` binary when one is present and the official container otherwise. See [Local development](docs/LOCAL-DEVELOPMENT.md) for prerequisites and the full set of targets.
 
+## 🐳 Deploy with Docker
+
+The repo ships a `Dockerfile`, so you can build a small (about 20 MB) container and run it anywhere. There is no image to pull; you build it once.
+
+```bash
+docker build -t scimage .
+
+docker run --rm -p 8080:8080 \
+  -e DATABASE_URL="postgres://user:pass@your-db:5432/scimage?sslmode=require" \
+  -e SCIM_BASE_URL="https://scim.yourcompany.com" \
+  scimage
+```
+
+The container runs the server only. It needs a Postgres you already operate, with the migrations applied. Apply them with `make migrate` against that database, or run the `golang-migrate` image over the files in [`migrations/`](migrations/). Point the server at the database with `DATABASE_URL`.
+
+Run it behind a proxy that terminates TLS, and set `SCIM_BASE_URL` to the public HTTPS URL so the links the server returns stay `https`. For an orchestrator, `GET /healthz` is the liveness check and `GET /readyz` is the readiness check. Every setting is an environment variable; see [Configuration](docs/CONFIGURATION.md).
+
 ## 🏢 Creating a tenant
 
-There's no `SCIM_TOKEN` to configure. A deployment starts with zero tenants and zero tokens, both issued through `cmd/scimage-admin`, which talks to Postgres directly rather than over the network:
+There's no `SCIM_TOKEN` to configure. A deployment starts with zero tenants and zero tokens, both issued through `cmd/scimage-admin`, which talks to Postgres directly, off the network:
 
 ```bash
 make tenant NAME="Acme Corp"
@@ -206,13 +239,16 @@ Store and audit tests run against a real Postgres instance via `docker-compose`,
 
 Phases 1 through 12 are complete: schema, endpoints, auth, audit, hardening, identity-provider interoperability, change delivery, multi-tenancy with issued API tokens, the `/Groups` resource with membership and per-tenant extensible attributes, and ARIA, the advisory audit reviewer. Release-engineering work (packaging, published images, tagged releases) is ongoing.
 
-The [implementation plan](docs/IMPLEMENTATION_PLAN.md) has the phase-by-phase detail, with the decisions and trade-offs recorded as they were made.
+[ROADMAP.md](ROADMAP.md) tracks what's deliberately left for later, and [CHANGELOG.md](CHANGELOG.md) records what's landed. The [implementation plan](docs/IMPLEMENTATION_PLAN.md) has the phase-by-phase detail, with the decisions and trade-offs recorded as they were made.
 
 ## 📚 Documentation
 
 - [Architecture](docs/ARCHITECTURE.md): request path, storage model, change delivery internals
 - [Configuration](docs/CONFIGURATION.md): every environment variable, and token rotation
 - [Local development](docs/LOCAL-DEVELOPMENT.md): prerequisites and every `make` target
+- [Connecting Okta](docs/OKTA.md) and [Entra ID](docs/MS-ENTRA.md): identity-provider setup guides
+- [Threat model](docs/THREAT-MODEL.md): trust boundaries, threats and mitigations
+- [Security policy](SECURITY.md), [contributing](CONTRIBUTING.md), [roadmap](ROADMAP.md), [changelog](CHANGELOG.md)
 - [Implementation plan](docs/IMPLEMENTATION_PLAN.md): the phase-by-phase build, with decisions recorded
 
 ## 🧰 Tech
@@ -221,4 +257,4 @@ Go with the standard library `net/http`, Postgres 16 via `pgx` with raw SQL, and
 
 ## 📄 License
 
-MIT, see [LICENSE](LICENSE).
+SCIMage is released under the [MIT License](LICENSE). You are free to use, modify, and distribute it, including in commercial products. The one condition is attribution: keep the copyright line (`Copyright (c) 2026 Megha Mahna`) and the license notice in any copy or substantial portion. If you build on SCIMage, a link back to this repository is appreciated.
