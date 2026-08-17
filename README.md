@@ -1,8 +1,6 @@
 <div align="center">
 
-# 🛡️ SCIMage
-
-**SCIM Audit & Governance Engine**
+<img src="docs/assets/scimage_banner.png" alt="SCIMage: SCIM Audit and Governance Engine" width="820">
 
 ### A SCIM 2.0 provisioning server with signed change delivery and an AI-advisory audit trail
 
