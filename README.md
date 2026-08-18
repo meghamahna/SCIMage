@@ -22,9 +22,7 @@ SCIMage is a focused SCIM 2.0 server written in Go. It implements the core `/Use
 - [Change delivery](#-change-delivery)
 - [Security practices](#-security-practices)
 - [ARIA, the advisory audit reviewer](#-aria-the-advisory-audit-reviewer)
-- [Getting started](#-getting-started): the ordered, start-to-finish path
-  - [Quickstart via the UI](#-quickstart-via-the-ui)
-  - [Quickstart via the CLI](#-quickstart-via-the-cli)
+- [Getting started](#-getting-started): clone to a running server, via the UI or the CLI
 - [Deploy with Docker](#-deploy-with-docker)
 - [Running tests](#-running-tests)
 - [Roadmap](#-roadmap)
@@ -145,61 +143,14 @@ A quiet window prints a deterministic "nothing tripped the thresholds" line and 
 
 ## 🚀 Getting started
 
-Two quick paths from a fresh clone, depending on whether you'd rather click or type. Both assume the [prerequisites](#step-by-step) below and that you're in the repo root. Every admin task works from either side; the full command map is in [Configuration → Console UI or CLI](docs/CONFIGURATION.md#-console-ui-or-cli).
-
-### ⚡ Quickstart via the UI
-
-Bring up the stack, mint a console credential, and start the server with the admin UI enabled. Once you're in the console you create tenants and tokens by clicking.
-
-```bash
-# clone, configure, and turn the console UI on
-git clone https://github.com/meghamahna/SCIMage.git && cd SCIMage
-cp .env.example .env
-echo 'CONSOLE_ADDR=127.0.0.1:8090' >> .env
-
-# start Postgres and apply migrations
-make up
-
-# mint a console credential (shown once: copy the scimage_console_... line)
-make console-token LABEL="my laptop"
-
-# start the server: SCIM API on :8080, console UI on :8090
-make run
-```
-
-Then open `http://127.0.0.1:8090/console` and paste the token as the password (leave the username blank). That's the working UI. 🎉 The interactive API reference is live alongside it at `http://localhost:8080/docs`.
-
-### ⚡ Quickstart via the CLI
-
-Same result without the browser: a running SCIM API serving one tenant, provisioned and driven entirely from the shell.
-
-```bash
-# clone, configure, bring up Postgres + migrations
-git clone https://github.com/meghamahna/SCIMage.git && cd SCIMage
-cp .env.example .env
-make up
-
-# create a tenant, then issue it a token (both shown once)
-make tenant NAME="Acme Corp"                    # note the printed TENANT ID
-make token TENANT=<tenant-id> LABEL="Okta prod" # copy the scimage_... token
-
-# start the server
-make run
-```
-
-With the server up, POST your first user with `curl` (see [step 6](#step-by-step) below), and manage everything through `scimage-admin` or the `make` targets.
-
-### Step by step
-
-A fresh clone to a running server with one tenant provisioned, in order. Every step assumes you're in the repo root.
+From a fresh clone to a running server with a provisioned tenant. Steps 1 and 2 are the same either way; at step 3 you pick the ops console (click) or the CLI (type). Both drive the same audited code paths, so you can switch or use both later. Every command assumes you're in the repo root.
 
 **Prerequisites:** Go (the version in [`go.mod`](go.mod)), Docker with Compose (for Postgres), GNU Make, and `jq`. [Local development](docs/LOCAL-DEVELOPMENT.md) has versions and platform notes.
 
 **1. Clone and configure.**
 
 ```bash
-git clone https://github.com/meghamahna/SCIMage.git
-cd SCIMage
+git clone https://github.com/meghamahna/SCIMage.git && cd SCIMage
 cp .env.example .env      # .env is gitignored; fill in real values
 make hooks-install        # once per clone: enables the secret-scan / gofmt / vet / test pre-commit hook
 ```
@@ -210,39 +161,33 @@ make hooks-install        # once per clone: enables the secret-scan / gofmt / ve
 make up
 ```
 
-Migrations run through `golang-migrate`; `make migrate` uses a host `migrate` binary when one is present and the official container otherwise.
+**3. Provision a tenant and token, via the UI *or* the CLI.**
 
-**3. Run the server.** The SCIM API listens on `:8080`.
+*Option A, the ops console (UI).* Enable the loopback admin UI, mint a sign-in credential, and start the server.
 
 ```bash
-make run
+echo 'CONSOLE_ADDR=127.0.0.1:8090' >> .env   # opt-in; loopback-bound
+make console-token LABEL="my laptop"          # sign-in credential, shown once
+make run                                       # SCIM API :8080, console UI :8090
 ```
 
-**4. Verify it's up.**
+Open `http://127.0.0.1:8090/console`, sign in with the token as the password (leave the username blank), and create a tenant and its token by clicking. 🎉
+
+*Option B, the CLI.* Create the tenant and token from the shell, then start the server.
 
 ```bash
-curl localhost:8080/healthz   # {"status":"ok"} (process is live)
-curl localhost:8080/readyz    # 200 once Postgres is reachable
+make tenant NAME="Acme Corp"                     # prints the TENANT ID and SCIM base URL
+make token TENANT=<tenant-id> LABEL="Okta prod"  # prints the token, shown once
+make run                                          # SCIM API :8080
 ```
 
-**5. Create a tenant and issue a token.** A deployment starts with zero of each; both are minted through `cmd/scimage-admin`, which talks to Postgres directly, off the network. There is no `SCIM_TOKEN` to set.
+Either way, `CREATED BY` defaults to `$USER`, and every tenant and token action is recorded in `admin_audit_log` (`make audit-list`). The full CLI, rotation, and the console-vs-CLI command map are in [Configuration](docs/CONFIGURATION.md#-console-ui-or-cli).
+
+**4. Make your first request** with the tenant id and token from step 3:
 
 ```bash
-make tenant NAME="Acme Corp"
-# TENANT ID      tenant_9f2a1b3c...
-# SCIM BASE URL  <SCIM_BASE_URL>/scim/v2/tenant_9f2a1b3c...
+curl localhost:8080/healthz   # {"status":"ok"} once the server is up
 
-make token TENANT=tenant_9f2a1b3c... LABEL="Okta prod"
-# ...
-# Shown once, not stored anywhere. Save it now:
-# scimage_...
-```
-
-`CREATED BY` defaults to `$USER`. Every tenant created and every token issued or revoked is recorded in `admin_audit_log` (`make audit-list`). Rotation, expiry, and the full CLI are in [Configuration → Tenants and tokens](docs/CONFIGURATION.md#-tenants-and-tokens).
-
-**6. Make a request** with the tenant id and token from step 5:
-
-```bash
 curl -X POST "http://localhost:8080/scim/v2/$TENANT_ID/Users" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/scim+json" \
@@ -254,19 +199,9 @@ curl -X POST "http://localhost:8080/scim/v2/$TENANT_ID/Users" \
   }'
 ```
 
-**7. Connect an identity provider.** In production, the base URL and token from step 5 are what you paste into the customer's Okta or Entra app as its SCIM Base URL and Bearer token: [Connecting Okta](docs/OKTA.md), [Entra ID](docs/MS-ENTRA.md).
+**5. Connect an identity provider.** In production, the base URL and token from step 3 are what you paste into the customer's Okta or Entra app as its SCIM Base URL and Bearer token: [Connecting Okta](docs/OKTA.md), [Entra ID](docs/MS-ENTRA.md).
 
-**8. (Optional) Open the ops console.** A loopback admin UI with the same reach as `scimage-admin`: view and mutate tenants, tokens and attributes, and read the audit trails and ARIA's report.
-
-```bash
-echo 'CONSOLE_ADDR=127.0.0.1:8090' >> .env          # opt-in; loopback-bound
-go run ./cmd/scimage-admin console-token issue -label "my laptop"
-make run                                             # restart; console now on :8090
-```
-
-Open `http://127.0.0.1:8090/console` and supply the shown-once token as the HTTP Basic password (what a browser's login dialog prompts for) or a `Bearer` header. See [Configuration → Ops console](docs/CONFIGURATION.md#-ops-console).
-
-**9. Browse the API reference.** Interactive Swagger UI, served from the SCIM server with no auth and no CDN, at `http://localhost:8080/docs`.
+**6. Browse the API reference.** Interactive Swagger UI, served with no auth and no CDN, at `http://localhost:8080/docs`.
 
 For prerequisites in depth and the full set of `make` targets, see [Local development](docs/LOCAL-DEVELOPMENT.md).
 
