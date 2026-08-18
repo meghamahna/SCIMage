@@ -1,0 +1,41 @@
+{{define "tenants" -}}
+<section class="panel">
+  <header>
+    <h2>Tenants</h2>
+    <p>Every customer the server provisions for. Each has its own isolated users, groups, tokens, and audit trail.</p>
+  </header>
+
+  <div class="card">
+    <h3>New tenant</h3>
+    <p class="hint">Creating a tenant records who did it in the admin audit log, in the same transaction.</p>
+    <form method="post" action="/console/tenants" class="field-row">
+      <input type="hidden" name="csrf" value="{{.CSRF}}" />
+      <div class="field">
+        <label for="tenant-name">Display name</label>
+        <input id="tenant-name" name="name" placeholder="e.g. Acme Corp" required />
+      </div>
+      <button type="submit" class="primary">Create tenant</button>
+    </form>
+  </div>
+
+  <div class="table-wrap" style="margin-top:20px">
+    <table>
+      <thead>
+        <tr><th>ID</th><th>Name</th><th>Created by</th><th>Created</th></tr>
+      </thead>
+      <tbody>
+        {{range .Data.Tenants}}
+        <tr>
+          <td class="mono">{{.ID}}</td>
+          <td class="t-name">{{.Name}}</td>
+          <td>{{dash .CreatedBy}}</td>
+          <td class="mono num">{{rfc3339 .CreatedAt}}</td>
+        </tr>
+        {{else}}
+        <tr><td colspan="4" class="empty">No tenants yet. Create one above.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{- end}}

@@ -1,0 +1,48 @@
+{{define "audit" -}}
+<section class="panel">
+  <header>
+    <h2>Audit log</h2>
+    <p>Every mutating SCIM call for this tenant — creates, replaces, deactivations, deletes, and refusals — newest first. Written in the same transaction as the change it records.</p>
+  </header>
+
+  <form method="get" action="/console/audit" class="toolbar">
+    <label for="tenant">Tenant</label>
+    <select id="tenant" name="tenant" onchange="this.form.submit()">
+      <option value="">— select a tenant —</option>
+      {{range .Data.Tenants}}
+      <option value="{{.ID}}" {{if eq .ID $.Data.SelectedTenant}}selected{{end}}>{{.Name}}</option>
+      {{end}}
+    </select>
+  </form>
+
+  {{if .Data.SelectedTenant}}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>At</th><th>Actor</th><th>Resource</th><th>Action</th><th>Result</th><th>Target</th><th>Detail</th></tr>
+      </thead>
+      <tbody>
+        {{range .Data.Entries}}
+        <tr>
+          <td class="mono num">{{rfc3339 .At}}</td>
+          <td class="mono">{{dash .Actor.ActorToken}}</td>
+          <td>{{.ResourceType}}</td>
+          <td>{{.Action}}</td>
+          <td>
+            {{if eq .Result "denied"}}<span class="pill bad">denied</span>
+            {{else}}<span class="pill good">success</span>{{end}}
+          </td>
+          <td class="mono">{{dash .TargetID}}</td>
+          <td class="muted">{{dash .Detail}}</td>
+        </tr>
+        {{else}}
+        <tr><td colspan="7" class="empty">No audit entries for this tenant yet.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <p class="muted">Select a tenant to view its SCIM audit log.</p>
+  {{end}}
+</section>
+{{- end}}

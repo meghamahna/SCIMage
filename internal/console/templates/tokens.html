@@ -1,0 +1,87 @@
+{{define "tokens" -}}
+<section class="panel">
+  <header>
+    <h2>Tokens</h2>
+    <p>SCIM API credentials, one tenant at a time. The secret is shown once at issue and never again — only its metadata is stored.</p>
+  </header>
+
+  <form method="get" action="/console/tokens" class="toolbar">
+    <label for="tenant">Tenant</label>
+    <select id="tenant" name="tenant" onchange="this.form.submit()">
+      <option value="">— select a tenant —</option>
+      {{range .Data.Tenants}}
+      <option value="{{.ID}}" {{if eq .ID $.Data.SelectedTenant}}selected{{end}}>{{.Name}}</option>
+      {{end}}
+    </select>
+  </form>
+
+  {{if .Data.SelectedTenant}}
+  {{if .Data.Reveal}}
+  <div class="reveal">
+    <div class="label">Save this now — it is shown once</div>
+    <div class="secret"><code>{{.Data.Reveal}}</code></div>
+    <p>This is the only time the full token appears. Store it in your secrets manager before leaving this page.</p>
+  </div>
+  {{end}}
+
+  <div class="card">
+    <h3>Issue a token</h3>
+    <p class="hint">Records who issued it in the admin audit log, in the same transaction as the insert.</p>
+    <form method="post" action="/console/tokens/issue" class="field-row">
+      <input type="hidden" name="csrf" value="{{.CSRF}}" />
+      <input type="hidden" name="tenant" value="{{.Data.SelectedTenant}}" />
+      <div class="field">
+        <label for="label">Label</label>
+        <input id="label" name="label" placeholder="e.g. Okta production" required />
+      </div>
+      <div class="field">
+        <label for="expires">Expires</label>
+        <select id="expires" name="expires">
+          <option value="">Never</option>
+          <option value="30d">30 days</option>
+          <option value="90d">90 days</option>
+          <option value="365d">365 days</option>
+        </select>
+      </div>
+      <button type="submit" class="primary">Issue token</button>
+    </form>
+  </div>
+
+  <div class="table-wrap" style="margin-top:20px">
+    <table>
+      <thead>
+        <tr><th>Key ID</th><th>Label</th><th>Status</th><th>Created</th><th>Last used</th><th>Expires</th><th></th></tr>
+      </thead>
+      <tbody>
+        {{range .Data.Tokens}}
+        <tr>
+          <td class="mono">{{.KeyID}}</td>
+          <td>{{.Label}}</td>
+          <td><span class="pill {{.StatusClass}}">{{.Status}}</span></td>
+          <td class="mono num">{{rfc3339 .CreatedAt}}</td>
+          <td class="mono num">{{rfc3339p .LastUsedAt}}</td>
+          <td class="mono num">{{rfc3339p .ExpiresAt}}</td>
+          <td>
+            {{if .Revoked}}
+            <button class="danger" disabled>Revoked</button>
+            {{else}}
+            <form method="post" action="/console/tokens/revoke" class="form-inline" onsubmit="return confirm('Revoke {{.KeyID}}? This cannot be undone.')">
+              <input type="hidden" name="csrf" value="{{$.CSRF}}" />
+              <input type="hidden" name="tenant" value="{{$.Data.SelectedTenant}}" />
+              <input type="hidden" name="key_id" value="{{.KeyID}}" />
+              <button type="submit" class="danger">Revoke</button>
+            </form>
+            {{end}}
+          </td>
+        </tr>
+        {{else}}
+        <tr><td colspan="7" class="empty">No tokens for this tenant yet.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <p class="muted">Select a tenant to view and issue its tokens.</p>
+  {{end}}
+</section>
+{{- end}}

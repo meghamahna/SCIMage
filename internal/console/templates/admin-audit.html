@@ -1,0 +1,30 @@
+{{define "admin-audit" -}}
+<section class="panel">
+  <header>
+    <h2>Admin audit</h2>
+    <p>Every privileged action across the deployment — tenant and token lifecycle, attribute registry, and console credentials — newest first. System-scope actions (console tokens) show no tenant.</p>
+  </header>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>At</th><th>Tenant</th><th>Actor</th><th>Action</th><th>Target</th><th>Detail</th></tr>
+      </thead>
+      <tbody>
+        {{range .Data.Entries}}
+        <tr>
+          <td class="mono num">{{rfc3339 .At}}</td>
+          <td class="mono">{{if .TenantID}}{{.TenantID}}{{else}}<span class="pill info">system</span>{{end}}</td>
+          <td>{{dash .Actor}}</td>
+          <td>{{.Action}}</td>
+          <td class="mono">{{dash .TargetID}}</td>
+          <td class="muted">{{dash .Detail}}</td>
+        </tr>
+        {{else}}
+        <tr><td colspan="6" class="empty">No admin actions recorded yet.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{- end}}

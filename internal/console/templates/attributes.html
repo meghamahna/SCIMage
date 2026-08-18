@@ -1,0 +1,60 @@
+{{define "attributes" -}}
+<section class="panel">
+  <header>
+    <h2>Attributes</h2>
+    <p>The extra SCIM attribute names this tenant captures into extended storage rather than drop. The server acts on the registry only when extended attributes are enabled.</p>
+  </header>
+
+  <form method="get" action="/console/attributes" class="toolbar">
+    <label for="tenant">Tenant</label>
+    <select id="tenant" name="tenant" onchange="this.form.submit()">
+      <option value="">— select a tenant —</option>
+      {{range .Data.Tenants}}
+      <option value="{{.ID}}" {{if eq .ID $.Data.SelectedTenant}}selected{{end}}>{{.Name}}</option>
+      {{end}}
+    </select>
+  </form>
+
+  {{if .Data.SelectedTenant}}
+  <div class="card">
+    <h3>Register an attribute</h3>
+    <p class="hint">Core attributes the server already models are reserved and can't be shadowed.</p>
+    <form method="post" action="/console/attributes/register" class="field-row">
+      <input type="hidden" name="csrf" value="{{.CSRF}}" />
+      <input type="hidden" name="tenant" value="{{.Data.SelectedTenant}}" />
+      <div class="field">
+        <label for="attr-name">Name</label>
+        <input id="attr-name" name="name" placeholder="e.g. costCenter" required />
+      </div>
+      <div class="field">
+        <label for="attr-type">Type</label>
+        <select id="attr-type" name="type">
+          <option value="string">string</option>
+          <option value="boolean">boolean</option>
+          <option value="complex">complex</option>
+        </select>
+      </div>
+      <button type="submit" class="primary">Register</button>
+    </form>
+
+    <div class="attr-list">
+      {{range .Data.Attributes}}
+      <span class="attr-chip">
+        {{.Name}} <span class="kind">{{.Type}}</span>
+        <form method="post" action="/console/attributes/unregister" class="form-inline" onsubmit="return confirm('Unregister {{.Name}}?')">
+          <input type="hidden" name="csrf" value="{{$.CSRF}}" />
+          <input type="hidden" name="tenant" value="{{$.Data.SelectedTenant}}" />
+          <input type="hidden" name="name" value="{{.Name}}" />
+          <button type="submit" title="Unregister">×</button>
+        </form>
+      </span>
+      {{else}}
+      <span class="muted">No attributes registered for this tenant.</span>
+      {{end}}
+    </div>
+  </div>
+  {{else}}
+  <p class="muted">Select a tenant to view and register its attributes.</p>
+  {{end}}
+</section>
+{{- end}}

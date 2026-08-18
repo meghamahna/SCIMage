@@ -1,0 +1,40 @@
+{{define "layout" -}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>{{.Title}} · SCIMage Console</title>
+  <link rel="stylesheet" href="/console/static/console.css" />
+</head>
+<body>
+<div class="app">
+  <nav class="nav">
+    <div class="brand">
+      <img class="brand-logo" src="/console/static/scimage_logo.png" alt="SCIMage" />
+      <div class="brand-tag">Ops Console</div>
+      <div class="env-badge">{{dash .EnvLabel}}</div>
+    </div>
+    <ul class="navlist">
+      <li><a href="/console/tenants" class="{{if eq .Active "tenants"}}active{{end}}">Tenants</a></li>
+      <li><a href="/console/tokens" class="{{if eq .Active "tokens"}}active{{end}}">Tokens</a></li>
+      <li><a href="/console/attributes" class="{{if eq .Active "attributes"}}active{{end}}">Attributes</a></li>
+      <li><a href="/console/audit" class="{{if eq .Active "audit"}}active{{end}}">Audit log</a></li>
+      <li><a href="/console/admin-audit" class="{{if eq .Active "admin-audit"}}active{{end}}">Admin audit</a></li>
+      <li><a href="/console/aria" class="{{if eq .Active "aria"}}active{{end}}">ARIA</a></li>
+    </ul>
+    <div class="whoami">
+      <span>Signed in as</span>
+      <strong>{{dash .Identity.Label}}</strong>
+      <code>{{.Identity.KeyID}}</code>
+    </div>
+  </nav>
+  <main>
+    {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+    {{.Body}}
+  </main>
+</div>
+</body>
+</html>
+{{- end}}

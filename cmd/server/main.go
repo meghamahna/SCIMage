@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/meghamahna/SCIMage/internal/console"
 	"github.com/meghamahna/SCIMage/internal/logging"
 	"github.com/meghamahna/SCIMage/internal/scim"
 	"github.com/meghamahna/SCIMage/internal/store"
@@ -19,6 +20,26 @@ import (
 
 // How long in-flight requests get to finish once a signal arrives.
 const shutdownGrace = 15 * time.Second
+
+// consoleServer builds the ops-console listener, or nil when CONSOLE_ADDR is
+// unset. The console is opt-in: a full-mutation admin surface stays off unless
+// an operator turns it on, and 127.0.0.1:8090 is the recommended value so it
+// binds loopback only. ReadHeaderTimeout matches the SCIM server's.
+func consoleServer(s *store.Store) (*http.Server, error) {
+	addr := os.Getenv("CONSOLE_ADDR")
+	if addr == "" {
+		return nil, nil
+	}
+	c, err := console.NewServer(s, os.Getenv("SCIMAGE_ENV"))
+	if err != nil {
+		return nil, err
+	}
+	return &http.Server{
+		Addr:              addr,
+		Handler:           c.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+	}, nil
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -96,16 +117,34 @@ func run() error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	errs := make(chan error, 1)
-	go func() {
-		slog.Info("listening", "addr", addr)
-		errs <- srv.ListenAndServe()
-	}()
+	// The console is a second listener, separate from the internet-facing SCIM
+	// port so the privileged admin surface never shares a socket with tenant
+	// traffic. It is opt-in: only started when CONSOLE_ADDR is set, and the
+	// recommended value binds loopback (127.0.0.1:8090) so it isn't reachable
+	// off-host without an explicit tunnel.
+	consoleSrv, err := consoleServer(s)
+	if err != nil {
+		return err
+	}
+
+	servers := []*http.Server{srv}
+	if consoleSrv != nil {
+		servers = append(servers, consoleSrv)
+	}
+
+	// One error channel per listener, so a failed bind on either is observed.
+	errs := make(chan error, len(servers))
+	for _, hs := range servers {
+		go func(hs *http.Server) {
+			slog.Info("listening", "addr", hs.Addr)
+			errs <- hs.ListenAndServe()
+		}(hs)
+	}
 
 	var serveErr error
 	select {
 	case serveErr = <-errs:
-		// The listener never came up — a taken port, say. There is nothing to
+		// A listener never came up — a taken port, say. There is nothing to
 		// drain, but the dispatcher is already running and still has to be
 		// stopped below.
 	case <-ctx.Done():
@@ -115,8 +154,10 @@ func run() error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 		defer cancel()
 
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			slog.Error("graceful shutdown", "error", err)
+		for _, hs := range servers {
+			if err := hs.Shutdown(shutdownCtx); err != nil {
+				slog.Error("graceful shutdown", "addr", hs.Addr, "error", err)
+			}
 		}
 		serveErr = <-errs
 	}

@@ -1,0 +1,47 @@
+{{define "aria" -}}
+<section class="panel">
+  <header>
+    <h2>ARIA</h2>
+    <p>Audit Risk Intelligence Advisor. The deterministic read of a recent audit window — the same signals the <code>aria</code> CLI narrates. Advisory only: ARIA reports patterns, it never decides anything.</p>
+  </header>
+
+  <form method="get" action="/console/aria" class="toolbar">
+    <label for="tenant">Tenant</label>
+    <select id="tenant" name="tenant" onchange="this.form.submit()">
+      <option value="">All tenants</option>
+      {{range .Data.Tenants}}
+      <option value="{{.ID}}" {{if eq .ID $.Data.SelectedTenant}}selected{{end}}>{{.Name}}</option>
+      {{end}}
+    </select>
+    <label for="since">Window</label>
+    <select id="since" name="since" onchange="this.form.submit()">
+      {{range .Data.Windows}}
+      <option value="{{.Value}}" {{if eq .Value $.Data.SelectedSince}}selected{{end}}>{{.Label}}</option>
+      {{end}}
+    </select>
+  </form>
+
+  <div class="stat-row">
+    <div class="stat"><div class="k">Entries reviewed</div><div class="v">{{.Data.Total}}</div></div>
+    <div class="stat"><div class="k">Distinct callers</div><div class="v">{{.Data.Callers}}</div></div>
+    <div class="stat"><div class="k">Flags</div><div class="v">{{len .Data.Flags}}</div></div>
+  </div>
+
+  {{if .Data.Truncated}}
+  <div class="flag info"><div class="top"><span class="title">Window truncated</span></div>
+    <div class="detail">The read hit its cap, so older entries in this window may be missing. Narrow the window for a complete review.</div></div>
+  {{end}}
+
+  {{range .Data.Flags}}
+  <div class="flag notable">
+    <div class="top"><span class="pill warn">{{.Kind}}</span><span class="title">{{.Title}}</span></div>
+    <div class="detail">{{.Detail}}</div>
+  </div>
+  {{else}}
+  <div class="flag info">
+    <div class="top"><span class="title">Nothing flagged</span></div>
+    <div class="detail">No pattern in this window tripped a threshold. That's the common case — it means the window looks ordinary, not that nothing happened.</div>
+  </div>
+  {{end}}
+</section>
+{{- end}}
