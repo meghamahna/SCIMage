@@ -21,7 +21,7 @@ SCIMage is a focused SCIM 2.0 server written in Go. It implements the core `/Use
 - [How it's built](#-how-its-built)
 - [Change delivery](#-change-delivery)
 - [Security practices](#-security-practices)
-- [ARIA: the AI advisory audit reviewer](#-aria-the-advisory-audit-reviewer)
+- [ARIA: The AI advisory audit reviewer](#-aria-the-advisory-audit-reviewer)
 - [Getting started](#-getting-started)
 - [Deploy with Docker](#-deploy-with-docker)
 - [Running tests](#-running-tests)
@@ -126,9 +126,9 @@ See [Threat model](docs/THREAT-MODEL.md) for the full threat-by-threat reasoning
 
 Operational logs are structured JSON on stdout and in a dated file under `LOG_DIR`. The audit trail is separate and lives in the `audit_log` table, so a change and its record commit together.
 
-## 🤖 ARIA, the advisory audit reviewer
+## 🤖 ARIA: The AI advisory audit reviewer
 
-`aria` (ARIA, the **A**udit **R**isk **I**ntelligence **A**dvisor) reads the audit trail and prints a plain-English briefing a reviewer can read in under a minute: clustered deactivations, changes landing off-hours, callers spiking in volume or racking up denials. The name is deliberate: it advises, it never decides.
+`aria` (**A**udit **R**isk **I**ntelligence **A**dvisor) reads the audit trail and prints a plain-English briefing a reviewer can read in under a minute: clustered deactivations, changes landing off-hours, callers spiking in volume or racking up denials. The name is deliberate: it advises, it never decides.
 
 Deterministic Go computes every signal (the thresholds live in `internal/aria` as constants: five deactivations inside ten minutes, activity outside business hours), the LLM only narrates them, and the code gives it no path into the store or the auth layer. ARIA advises; the human decides.
 
@@ -142,8 +142,6 @@ make aria TENANT=tenant_9f2a... SINCE=7d   # one tenant, last week
 A quiet window prints a deterministic "nothing tripped the thresholds" line and skips the model, so a clean review runs without a key. See [Configuration](docs/CONFIGURATION.md#-audit-review-aria).
 
 ## 🚀 Getting started
-
-From a fresh clone to a running server with a provisioned tenant. Steps 1 and 2 are the same either way; at step 3 you pick the ops console (click) or the CLI (type). Both drive the same audited code paths, so you can switch or use both later. Every command assumes you're in the repo root.
 
 **Prerequisites:** Go (the version in [`go.mod`](go.mod)), Docker with Compose (for Postgres), GNU Make, and `jq`. [Local development](docs/LOCAL-DEVELOPMENT.md) has versions and platform notes.
 
