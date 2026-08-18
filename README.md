@@ -21,8 +21,8 @@ SCIMage is a focused SCIM 2.0 server written in Go. It implements the core `/Use
 - [How it's built](#-how-its-built)
 - [Change delivery](#-change-delivery)
 - [Security practices](#-security-practices)
-- [ARIA, the advisory audit reviewer](#-aria-the-advisory-audit-reviewer)
-- [Getting started](#-getting-started): clone to a running server, via the UI or the CLI
+- [ARIA: the AI advisory audit reviewer](#-aria-the-advisory-audit-reviewer)
+- [Getting started](#-getting-started)
 - [Deploy with Docker](#-deploy-with-docker)
 - [Running tests](#-running-tests)
 - [Roadmap](#-roadmap)
@@ -128,7 +128,7 @@ Operational logs are structured JSON on stdout and in a dated file under `LOG_DI
 
 ## 🤖 ARIA, the advisory audit reviewer
 
-`aria` reads the audit trail and prints a plain-English briefing a reviewer can read in under a minute: clustered deactivations, changes landing off-hours, callers spiking in volume or racking up denials.
+`aria` (ARIA, the **A**udit **R**isk **I**ntelligence **A**dvisor) reads the audit trail and prints a plain-English briefing a reviewer can read in under a minute: clustered deactivations, changes landing off-hours, callers spiking in volume or racking up denials. The name is deliberate: it advises, it never decides.
 
 Deterministic Go computes every signal (the thresholds live in `internal/aria` as constants: five deactivations inside ten minutes, activity outside business hours), the LLM only narrates them, and the code gives it no path into the store or the auth layer. ARIA advises; the human decides.
 
