@@ -2,10 +2,9 @@
 
 ## What this is
 A SCIM 2.0 server in Go implementing the `/Users` and `/Groups`
-resources per RFC 7644, backed by Postgres in Docker. This is a
-portfolio project built to demonstrate real backend engineering skill
-for a Go/identity role. Correctness, testing, and security practices
-all matter more than feature breadth.
+resources per RFC 7644, backed by Postgres in Docker. This is a real,
+self-hosted SCIM provisioning product. Correctness, testing, and security
+practices all matter more than feature breadth.
 
 Full build plan lives in `docs/IMPLEMENTATION_PLAN.md`. Work through it in
 phase order. When a phase is complete, check its boxes off in that
@@ -40,6 +39,9 @@ file before moving to the next phase.
 /internal/scim        HTTP handlers, SCIM models, auth, rate limiting
 /internal/store       Postgres-backed store, audit log and outbox, raw SQL
 /internal/webhook     signing and the outbound delivery dispatcher
+/internal/aria        audit-signal detection and LLM narration (Phase 12)
+/internal/console     ops console: second listener, auth, CSRF, templates (Phase 14)
+/internal/apidocs     embedded OpenAPI spec and Swagger UI (Phase 14)
 /internal/logging     structured logging setup
 /migrations           SQL migration files
 /scripts              env loading, migrations, secret scanning

@@ -5,7 +5,7 @@ threats that cross them, and the mitigations already in the code. It also states
 the assumptions the design makes about its deployment and the risks it
 deliberately leaves to the operator.
 
-It is a working threat model for a portfolio-grade server, not a formal
+It is a working threat model for a self-hosted server, not a formal
 certification. The mechanisms named here are implemented and covered by tests;
 [ARCHITECTURE.md](ARCHITECTURE.md) has the detail, and [SECURITY.md](../SECURITY.md)
 has the reporting process.

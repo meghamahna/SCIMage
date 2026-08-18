@@ -3,21 +3,21 @@
 How SCIMage is put together, and why. The [README](../README.md) covers what it
 does; this covers the mechanics behind it.
 
-- [Request path](#request-path)
-- [Storage model](#storage-model)
-- [Multi-tenancy](#multi-tenancy)
-- [The UserStore and GroupStore interfaces](#the-userstore-and-groupstore-interfaces)
-- [Extensible attributes](#extensible-attributes)
-- [Change delivery](#change-delivery)
+- [Request path](#-request-path)
+- [Storage model](#-storage-model)
+- [Multi-tenancy](#-multi-tenancy)
+- [The UserStore and GroupStore interfaces](#-the-userstore-and-groupstore-interfaces)
+- [Extensible attributes](#-extensible-attributes)
+- [Change delivery](#-change-delivery)
   - [The outbox](#the-outbox)
   - [Claiming and leases](#claiming-and-leases)
   - [Retry and dead-letter](#retry-and-dead-letter)
   - [Retention](#retention)
   - [Signing](#signing)
   - [Event semantics](#event-semantics)
-- [Audit review (ARIA)](#audit-review-aria)
-- [Logging](#logging)
-- [Shutdown](#shutdown)
+- [Audit review (ARIA)](#-audit-review-aria)
+- [Logging](#-logging)
+- [Shutdown](#-shutdown)
 
 ## 🛣️ Request path
 

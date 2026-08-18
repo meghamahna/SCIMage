@@ -8,9 +8,8 @@ production-grade security practices and an AI-assisted audit layer.
 
 ## Why Postgres
 
-Running real Postgres in Docker demonstrates schema design, migrations,
-and query correctness: the concrete backend skills this project is
-built to show.
+Running real Postgres in Docker keeps schema design, migrations, and query
+correctness explicit, with raw SQL rather than an ORM hiding them.
 
 ## Stack
 
@@ -28,6 +27,9 @@ built to show.
 /internal/scim        HTTP handlers, SCIM models, auth, rate limiting
 /internal/store       Postgres-backed store, audit log and outbox, raw SQL
 /internal/webhook     signing and the outbound delivery dispatcher
+/internal/aria        audit-signal detection and LLM narration (Phase 12)
+/internal/console     ops console: second listener, auth, CSRF, templates (Phase 14)
+/internal/apidocs     embedded OpenAPI spec and Swagger UI (Phase 14)
 /internal/logging     structured logging setup
 /migrations           SQL migration files
 /scripts              env loading, migrations, secret scanning
@@ -138,7 +140,7 @@ These landed alongside the code they cover, so each phase shipped verified.
       real store
 - [x] HTTP handler tests via `httptest` (landed with Phase 4)
 - [x] Duplicate-`userName` conflict test, including the case-variant
-      collision, a good talking point on constraint handling
+      collision, exercising the case-insensitive uniqueness constraint
 - [x] Deterministic under repeated runs. Both packages write to the same
       `users` table and `go test` parallelises across packages, so the
       store's row-count assertions raced against the handler tests
@@ -314,9 +316,9 @@ carry them.
 
 This tool reads the audit log and produces a plain-English summary for a human
 reviewer. It surfaces signal, while every authorization and provisioning
-decision stays in deterministic code, AI purely advisory, which is the design
-choice worth explaining in an interview. The name reflects that: it advises
-on activity, the code decides.
+decision stays in deterministic code, AI purely advisory, which is the core
+design choice. The name reflects that: it advises on activity, the code
+decides.
 
 - [x] CLI (`cmd/aria`) that reads the `audit_log` table, over a time
       window (`-since`) and optionally across every tenant. A new
@@ -374,8 +376,9 @@ portal) considered and declined for this project.
       inside the mutation's own transaction
 - [x] `scimage-admin console-token issue/list/revoke`, shown-once plaintext
       like `token issue` already does
-- [x] `internal/console`: a second `http.Server` on `CONSOLE_ADDR` (default
-      `127.0.0.1:8090`, loopback by default, opt-in), separate from the
+- [x] `internal/console`: a second `http.Server` on `CONSOLE_ADDR`
+      (recommended `127.0.0.1:8090`, loopback; opt-in, so an unset
+      `CONSOLE_ADDR` means the console never starts), separate from the
       internet-facing SCIM port
 - [x] Auth via the issued console token (HTTP Basic or Bearer,
       `crypto/subtle.ConstantTimeCompare`), not a static shared secret

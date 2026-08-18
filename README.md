@@ -42,13 +42,13 @@ Most SCIM servers are a thin CRUD layer bolted onto an app. SCIMage treats the p
 - **Extend by config:** register any extra or custom attribute per tenant and it round-trips, keeping the core minimal and honest.
 - **Self-hosted and transparent:** plain Go + Postgres + raw SQL, no framework and no lock-in; you own the data and the audit trail.
 
-**Best fit:** a SaaS that needs to *receive* enterprise provisioning with a defensible security-and-audit story, wants to self-host, and values correctness over feature breadth. It's portfolio-grade; a published registry image and a tagged `v1.0.0` release are the remaining release steps.
+**Best fit:** a SaaS that needs to *receive* enterprise provisioning with a defensible security-and-audit story, wants to self-host, and values correctness over feature breadth. A published registry image and a tagged `v1.0.0` release are the remaining release steps.
 
 ## 💡 Why I built this
 
 I spent years building JML (joiner mover leaver) automation on the identity provider side, configuring Okta Workflows to push user provisioning into 60+ SaaS applications. That gave me a solid understanding of the SCIM spec from the client's point of view.
 
-This project is the other half: the server that receives those SCIM calls and applies them, which is the side most SaaS products build and maintain themselves. It demonstrates both ends of the handshake.
+SCIMage is the other half: the server that receives those SCIM calls and applies them, which is the side most SaaS products build and maintain themselves. Having worked the client side, I built the receiving end I wanted to integrate against.
 
 ## ⚙️ What it does
 

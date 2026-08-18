@@ -18,8 +18,8 @@ You can expect an acknowledgement within a few days. Once a fix is available it
 will land with a note in [CHANGELOG.md](CHANGELOG.md), and the advisory will
 credit the reporter unless you ask otherwise.
 
-Because this is a portfolio project, there is no bug bounty. Reports are still
-very welcome.
+There is no bug bounty at this time, but reports are very welcome and taken
+seriously.
 
 ## Supported versions
 

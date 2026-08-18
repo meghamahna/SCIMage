@@ -26,9 +26,8 @@ doesn't tell you enough to judge correctness.
 
 ## Non-negotiables: block-level findings if violated
 
-These come from `CLAUDE.md` and are the actual reason this project
-exists as a portfolio piece; treat every violation as a must-fix, not
-a nitpick:
+These come from `CLAUDE.md` and are load-bearing security guarantees of
+this product; treat every violation as a must-fix, not a nitpick:
 
 - Bearer token comparisons use `crypto/subtle.ConstantTimeCompare`,
   never `==` or `strings.Compare`.

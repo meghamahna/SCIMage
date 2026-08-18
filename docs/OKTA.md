@@ -90,8 +90,9 @@ The discovery document is honest about the edges, so Okta won't offer these:
 - **Import (read) from SCIMage** isn't a supported flow: this is a push-only
   provisioning target.
 - **Bulk, sorting and ETags** are not supported.
-- **Filtering** is limited to `userName eq` and `externalId eq`, which is what
-  Okta uses to reconcile before a create. Other filters return `invalidFilter`.
+- **Filtering** is limited to equality: `userName eq` / `externalId eq` for
+  users, and `displayName eq` / `externalId eq` for groups, which is what Okta
+  uses to reconcile before a create. Other filters return `invalidFilter`.
 
 ## Troubleshooting
 
