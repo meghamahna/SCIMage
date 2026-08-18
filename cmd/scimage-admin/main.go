@@ -47,6 +47,8 @@ func run(args []string) error {
 		return tenantCmd(ctx, s, args[1], args[2:])
 	case "token":
 		return tokenCmd(ctx, s, args[1], args[2:])
+	case "console-token":
+		return consoleTokenCmd(ctx, s, args[1], args[2:])
 	case "attribute":
 		return attributeCmd(ctx, s, args[1], args[2:])
 	case "audit":
@@ -63,6 +65,9 @@ func usageError() error {
   scimage-admin token issue -tenant <tenantID> -label "Okta prod" [-expires 90d] [-created-by "who"]
   scimage-admin token list -tenant <tenantID>
   scimage-admin token revoke <keyID>
+  scimage-admin console-token issue -label "ops laptop" [-expires 90d] [-created-by "who"]
+  scimage-admin console-token list
+  scimage-admin console-token revoke <keyID>
   scimage-admin attribute register -tenant <tenantID> -name displayName [-type string] [-created-by "who"]
   scimage-admin attribute list -tenant <tenantID>
   scimage-admin attribute unregister -tenant <tenantID> -name displayName
@@ -203,6 +208,83 @@ func tokenCmd(ctx context.Context, s *store.Store, action string, args []string)
 			return errors.New("usage: scimage-admin token revoke <keyID>")
 		}
 		if err := s.RevokeToken(ctx, args[0], defaultActor()); err != nil {
+			return err
+		}
+		fmt.Printf("Revoked %s\n", args[0])
+		return nil
+
+	default:
+		return usageError()
+	}
+}
+
+// consoleTokenCmd mints and revokes the ops console's credential. Unlike
+// tokenCmd it takes no -tenant: a console token authenticates the operator who
+// runs SCIMage, who works across every tenant, so it belongs to none. The
+// shown-once handling is identical — the plaintext exists only in this output.
+func consoleTokenCmd(ctx context.Context, s *store.Store, action string, args []string) error {
+	switch action {
+	case "issue":
+		fs := flag.NewFlagSet("console-token issue", flag.ContinueOnError)
+		label := fs.String("label", "", "what this token is for, e.g. \"ops laptop\"")
+		expires := fs.String("expires", "", `optional lifetime, e.g. "90d" or a Go duration like "720h"`)
+		createdBy := fs.String("created-by", "", "who's issuing this, for the admin audit trail (defaults to $USER)")
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		if strings.TrimSpace(*label) == "" {
+			return errors.New("console-token issue: -label is required")
+		}
+		if strings.TrimSpace(*createdBy) == "" {
+			*createdBy = defaultActor()
+		}
+
+		expiresAt, err := parseExpiry(*expires)
+		if err != nil {
+			return fmt.Errorf("console-token issue: %w", err)
+		}
+
+		plaintext, tok, err := s.IssueConsoleToken(ctx, *label, *createdBy, expiresAt)
+		if err != nil {
+			return err
+		}
+
+		tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+		fmt.Fprintf(tw, "TOKEN ID\t%s\n", tok.KeyID)
+		fmt.Fprintf(tw, "LABEL\t%s\n", tok.Label)
+		fmt.Fprintf(tw, "CREATED BY\t%s\n", tok.CreatedBy)
+		if err := tw.Flush(); err != nil {
+			return err
+		}
+
+		fmt.Println("\nShown once, not stored anywhere. Save it now:")
+		fmt.Println(plaintext)
+		return nil
+
+	case "list":
+		if err := (flag.NewFlagSet("console-token list", flag.ContinueOnError)).Parse(args); err != nil {
+			return err
+		}
+
+		tokens, err := s.ListConsoleTokens(ctx)
+		if err != nil {
+			return err
+		}
+
+		tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+		fmt.Fprintln(tw, "KEY ID\tLABEL\tCREATED BY\tCREATED\tLAST USED\tEXPIRES\tREVOKED")
+		for _, t := range tokens {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				t.KeyID, t.Label, emptyDash(t.CreatedBy), t.CreatedAt.Format(time.RFC3339),
+				formatTimePtr(t.LastUsedAt), formatTimePtr(t.ExpiresAt), formatTimePtr(t.RevokedAt))
+		}
+		return tw.Flush()
+
+	case "revoke":
+		if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
+			return errors.New("usage: scimage-admin console-token revoke <keyID>")
+		}
+		if err := s.RevokeConsoleToken(ctx, args[0], defaultActor()); err != nil {
 			return err
 		}
 		fmt.Printf("Revoked %s\n", args[0])
