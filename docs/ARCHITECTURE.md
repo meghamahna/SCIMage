@@ -281,7 +281,7 @@ error body stays writable, and the delivery keeps moving.
 Every mutation queues a row, so a delivered one would sit in the outbox forever
 without a sweep. The dispatcher prunes delivered rows older than
 `SCIM_WEBHOOK_RETENTION_DAYS` (default 30) on a slow, hourly cadence, separate
-from the poll. Pruning is housekeeping, not the hot path. Setting the value to
+from the poll. Setting the value to
 `0` disables the sweep and keeps delivered rows indefinitely.
 
 Only delivered rows are touched. A pending row is still in flight, and a
@@ -383,7 +383,7 @@ from the environment and sends it only in the request's `Authorization` header,
 and a window with no findings prints a deterministic line and skips the model,
 so a clean review runs without a key.
 
-The boundary is the whole point. ARIA prints its briefing for a human, and the
+ARIA prints its briefing for a human, and the
 code routes it only there, clear of the store and the auth path. The human
 decides, and the model only advises on activity. Wiring an LLM into a
 provisioning or authorization decision would break that guarantee, so the
@@ -396,9 +396,9 @@ and to a dated file under `LOG_DIR`. One file per day keeps each file bounded fo
 a long-running process; in a container, set `LOG_DIR=` empty and let the runtime
 collect stdout.
 
-`SCIM_LOG_REQUESTS=1` adds full request bodies, which is how a client's actual
-behaviour gets diagnosed. Those entries carry user attributes, so the directory
-is created `0700`, files `0600`, and `logs/` is gitignored.
+`SCIM_LOG_REQUESTS=1` adds full request bodies for diagnosing a client's
+behaviour; because those entries carry user attributes, the log path is
+permission-tightened. See [Configuration](CONFIGURATION.md#-logging).
 
 These are operational logs. The audit trail is separate and lives in Postgres, so
 a change and its record share a commit.

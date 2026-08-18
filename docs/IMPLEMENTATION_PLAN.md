@@ -275,7 +275,7 @@ three gaps the checklist above didn't ask for:
 - [x] `token issue`'s `created_by` was always the hardcoded string
       `"scimage-admin"`, and `tenant create` had no `created_by` at all.
       Both now default to `$USER`/`$USERNAME`, overridable with
-      `-created-by`, so provenance is a real operator, not a constant
+      `-created-by`, so the trail records the operator who ran the command
 - [x] Creating a tenant, issuing a token and revoking one weren't
       themselves audited, only the SCIM API mutations were. A new
       `admin_audit_log` table, written in the same transaction as each
@@ -436,10 +436,9 @@ IDs, hashes, timestamps).
 
 **Decisions.** The console is a second `http.Server` in the same process, not
 a separate binary: it shares the store, the connection pool, and the
-graceful-shutdown path already built for the SCIM listener, and — the point
-that matters most — it mutates only through the exact `store.*` functions the
-CLI calls, so the audit-log-in-transaction guarantee is inherited rather than
-re-implemented. A separate binary would have duplicated all of that and still
+graceful-shutdown path already built for the SCIM listener, and it mutates only
+through the exact `store.*` functions the CLI calls, so the
+audit-log-in-transaction guarantee is inherited rather than re-implemented. A separate binary would have duplicated all of that and still
 needed its own database wiring. Keeping it a *distinct listener* on its own
 port, though, means the privileged admin surface never shares a socket with
 internet-facing tenant traffic. It is opt-in: it starts only when

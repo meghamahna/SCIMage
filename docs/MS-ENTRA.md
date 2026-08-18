@@ -63,8 +63,8 @@ Two ways to handle the extras:
     -name "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User"
   ```
 
-  Start the server with `SCIM_EXTENDED_ATTRIBUTES=1`; registered attributes then
-  appear in `/Schemas` and round-trip through a JSONB pass-through. See
+  `SCIM_EXTENDED_ATTRIBUTES=1` must be set on the server; registering and
+  `/Schemas` advertising are covered in
   [CONFIGURATION.md](CONFIGURATION.md#-extensible-attributes).
 
 > **Interop note.** Entra sometimes sends `emails[].primary` as the string

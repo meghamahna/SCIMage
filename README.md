@@ -34,19 +34,16 @@ SCIMage is a focused SCIM 2.0 server written in Go. It implements the core `/Use
 
 ## ✨ Why SCIMage
 
-Most SCIM servers are a thin CRUD layer bolted onto an app. SCIMage treats the parts that actually matter once real customers are provisioning into you as first-class:
+SCIMage is a SCIM 2.0 server for the receiving side of enterprise provisioning. Beyond the core endpoints, two choices shape it:
 
-- **Security is structural:** tenant isolation, hashed and rotatable tokens, and an audit entry written in the *same transaction* as every change, enforced in code and tested against real Postgres.
-- **A tamper-evident audit trail:** every mutation *and every refusal* is recorded with before/after state, so every change leaves a record.
-- **Changes actually reach your app:** signed, retried webhooks with a dead-letter queue turn provisioning into events the rest of your system can act on.
 - **Extend by config:** register any extra or custom attribute per tenant and it round-trips, keeping the core minimal and honest.
 - **Self-hosted and transparent:** plain Go + Postgres + raw SQL, no framework and no lock-in; you own the data and the audit trail.
 
-**Best fit:** a SaaS that needs to *receive* enterprise provisioning with a defensible security-and-audit story, wants to self-host, and values correctness over feature breadth. A published registry image and a tagged `v1.0.0` release are the remaining release steps.
+**Best fit:** a SaaS that needs to *receive* enterprise provisioning with a defensible security-and-audit story, wants to self-host, and values correctness over feature breadth.
 
 ## 💡 The problem it solves
 
-Enterprise buyers expect to run your SaaS from their own identity provider: a new hire gets access automatically, and, the part that actually matters for security, a departing employee loses it the moment HR disables them in Okta or Entra. That handshake is SCIM, and the work lands on the *service provider* side, the application receiving the calls. It is easy to underbuild. A team ships a thin `/Users` endpoint, skips `/Groups`, keeps no audit trail, and reuses one shared token across every customer. Then a security review asks "who deprovisioned this account, and when?" and there is no answer, or a customer's data leaks across a tenant boundary that was never really there.
+Enterprise buyers expect to run your SaaS from their own identity provider: a new hire gets access automatically, and a departing employee loses it the moment HR disables them in Okta or Entra. That handshake is SCIM, and the work lands on the *service provider* side, the application receiving the calls. That end is easy to underbuild: skip `/Groups`, keep no audit trail, share one token across customers, and a security review asking who deprovisioned an account has no answer.
 
 SCIMage is that receiving end, built to hold up:
 
@@ -113,31 +110,19 @@ flowchart LR
     ARIA -->|"briefing"| HUMAN["Reviewer"]
 ```
 
-Everything lives in **one Postgres database**. A mutation writes its row, audit entry and outbound event in one transaction, so a change always carries its record and its notification, and every query is scoped by `tenant_id`. ARIA is the one advisory branch, reading `audit_log` off to the side, clear of the store and the auth path.
+Everything lives in **one Postgres database**, with every query scoped by `tenant_id` and each mutation writing its row, audit entry and outbound event in one transaction. ARIA is the one advisory branch, reading `audit_log` off to the side, clear of the store and the auth path.
 
 [Architecture](docs/ARCHITECTURE.md) covers the request path, storage model, multi-tenancy and the `UserStore`/`GroupStore` interface contract in full.
 
 ## 📤 Change delivery
 
-Provisioning pays off once the change reaches the system that needs it. Every mutation queues a signed webhook, at-least-once with retries and a dead-letter queue, so a user created by an identity provider lands in your application directly.
+Every mutation queues a signed webhook, at-least-once with retries and a dead-letter queue, so a user created by an identity provider lands in your application directly.
 
 Set `SCIM_WEBHOOK_URL` to turn it on. [Architecture](docs/ARCHITECTURE.md#-change-delivery) covers the outbox, claim leases, retry rules, the signing scheme and the event payload; `webhook.Verify` is exported for Go receivers.
 
 ## 🔒 Security practices
 
-These are load-bearing, and each one is covered by tests:
-
-- **Issued, tenant-scoped tokens**, compared with `crypto/subtle.ConstantTimeCompare` against a stored hash.
-- **Auth applied by the router itself**, so it covers the whole surface structurally.
-- **Cross-tenant isolation is structural**, not just convention.
-- **Audit logging in the same transaction as the change**, including refusals.
-- **Privileged CLI actions are audited too**, naming a real operator.
-- **Tenant names are unique, case-insensitively.**
-- **Schema validation before the database**, with attribute lengths bounded.
-- **Signed outbound webhooks**, HMAC-SHA256, verified with `hmac.Equal`.
-- **Rate limiting per caller**, a token bucket returning `429`.
-- **Secrets from the environment**, never hardcoded or logged.
-- **Secret and dependency scanning in CI.** Git hooks block staged diffs that look like credentials; `govulncheck` runs against every dependency.
+Each control is load-bearing and covered by tests: issued, tenant-scoped tokens compared with `crypto/subtle.ConstantTimeCompare` against a stored hash; auth applied by the router itself, so it covers the whole surface; cross-tenant isolation scoped on `tenant_id` in every query; audit logging in the same transaction as the change, refusals included; and privileged CLI actions audited to a named operator. Schema validation bounds attribute lengths before the database, outbound webhooks are signed with HMAC-SHA256 and verified with `hmac.Equal`, callers are rate-limited to a `429`, and secrets come from the environment, never hardcoded or logged. CI scans for both leaked credentials and vulnerable dependencies.
 
 See [Threat model](docs/THREAT-MODEL.md) for the full threat-by-threat reasoning behind each of these, and [Configuration](docs/CONFIGURATION.md) for every environment variable.
 
@@ -147,7 +132,7 @@ Operational logs are structured JSON on stdout and in a dated file under `LOG_DI
 
 `aria` reads the audit trail and prints a plain-English briefing a reviewer can read in under a minute: clustered deactivations, changes landing off-hours, callers spiking in volume or racking up denials.
 
-The design is the point. **Deterministic Go computes every signal**, and the LLM only narrates the facts Go already found. What counts as a signal lives in `internal/aria` as constants (five deactivations inside ten minutes, activity outside business hours), so it stays auditable code. ARIA reads the audit log and prints a briefing; the human decides. Its output goes only to that human, and by design the code gives it no path into the store or the auth layer. ARIA advises on activity; the code decides.
+Deterministic Go computes every signal (the thresholds live in `internal/aria` as constants: five deactivations inside ten minutes, activity outside business hours), the LLM only narrates them, and the code gives it no path into the store or the auth layer. ARIA advises; the human decides.
 
 ARIA works with **any OpenAI-compatible chat-completions endpoint** (Anthropic's compat endpoint, OpenAI, OpenRouter, a local Ollama or vLLM). Point it there with `ARIA_LLM_BASE_URL`, `ARIA_LLM_API_KEY` and `ARIA_LLM_MODEL`.
 
@@ -313,13 +298,13 @@ Store and audit tests run against a real Postgres instance via `docker-compose`,
 
 ## 🗺️ Roadmap
 
-Phases 1 through 14 are complete: schema, endpoints, auth, audit, hardening, identity-provider interoperability, change delivery, multi-tenancy with issued API tokens, the `/Groups` resource with membership and per-tenant extensible attributes, ARIA the advisory audit reviewer, release engineering, and the operator tooling: the opt-in ops console and the interactive OpenAPI/Swagger reference. A published registry image and a tagged `v1.0.0` release are the remaining steps.
+Phases 1 through 14 are complete. A published registry image and a tagged `v1.0.0` release are the remaining steps.
 
-[ROADMAP.md](ROADMAP.md) tracks what's deliberately left for later, and [CHANGELOG.md](CHANGELOG.md) records what's landed. The [implementation plan](docs/IMPLEMENTATION_PLAN.md) has the phase-by-phase detail, with the decisions and trade-offs recorded as they were made.
+[ROADMAP.md](ROADMAP.md) tracks what's deliberately left for later, [CHANGELOG.md](CHANGELOG.md) records what's landed, and the [implementation plan](docs/IMPLEMENTATION_PLAN.md) has the phase-by-phase detail with the decisions recorded as they were made.
 
 ## 📚 Documentation
 
-**Start here:** [Getting started](#-getting-started) is the ordered, start-to-finish path, from a clone through a provisioned tenant, the ops console, and the API reference. The rest of the docs are the deep-dives it links into, roughly in the order you'd reach for them:
+**Start here:** [Getting started](#-getting-started) takes you from a clone through a provisioned tenant, the ops console, and the API reference. The rest of the docs are the deep-dives it links into, roughly in the order you'd reach for them:
 
 - [Local development](docs/LOCAL-DEVELOPMENT.md): prerequisites, every `make` target, and a hands-on runbook
 - [Configuration](docs/CONFIGURATION.md): the authoritative reference for every environment variable, plus the `scimage-admin` CLI (tenants, tokens, the ops console) and token rotation
@@ -331,7 +316,7 @@ Phases 1 through 14 are complete: schema, endpoints, auth, audit, hardening, ide
 
 ## 🧰 Tech
 
-Go with the standard library `net/http`, Postgres 16 via `pgx` with raw SQL, and `golang-migrate` for schema migrations. Few layers between the code and what runs.
+Go with the standard library `net/http`, Postgres 16 via `pgx` with raw SQL, and `golang-migrate` for schema migrations.
 
 ## 📄 License
 

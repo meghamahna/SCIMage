@@ -203,11 +203,9 @@ directory is `0700`, files are `0600`, and `logs/` is gitignored.
 
 ## 🔍 Audit trail
 
-Every create, replace, deactivate and delete (for both `/Users` and
-`/Groups`) writes a row to `audit_log` in the same transaction as the
-change; every tenant/token admin action writes a row to `admin_audit_log`
-the same way (see the table above for reading it back via `scimage-admin
-audit list`). To query `audit_log` directly:
+Every mutating call writes to `audit_log`; every tenant/token admin action
+writes to `admin_audit_log`, read back via `scimage-admin audit list` (see the
+table above). To query `audit_log` directly:
 
 ```bash
 docker compose exec postgres psql -U scimage -d scimage -c \
@@ -219,9 +217,6 @@ docker compose exec postgres psql -U scimage -d scimage -c \
 ARIA reads that audit trail and prints a short, plain-English briefing of
 activity worth a human's glance: deactivations clustered in a short window,
 changes landing off-hours, and callers spiking in volume or denials.
-Deterministic Go computes the signals, and an LLM only phrases them. The
-briefing goes to you, and the code keeps it there, clear of the store and the
-auth path.
 
 **One-time setup.** Point ARIA at any OpenAI-compatible chat-completions
 endpoint by adding three variables to `.env`. With a Claude API key:
