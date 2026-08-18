@@ -424,11 +424,11 @@ IDs, hashes, timestamps).
 
 #### 14b: OpenAPI spec and Swagger UI
 
-- [x] Hand-written `docs/openapi.yaml` covering `/Users`, `/Groups`, and the
+- [x] Hand-written `internal/apidocs/openapi.yaml` covering `/Users`, `/Groups`, and the
       RFC 7644 discovery endpoints, documenting the `Bool` type's
       Entra-stringified-boolean quirk explicitly rather than relying on
       codegen to infer it
-- [x] Vendored Swagger UI static assets, embedded (`docs/embed.go`) and
+- [x] Vendored Swagger UI static assets, embedded (`internal/apidocs/embed.go`) and
       served unauthenticated at `/docs`, no CDN dependency
 
 **Decisions.** The console is a second `http.Server` in the same process, not

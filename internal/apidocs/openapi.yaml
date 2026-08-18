@@ -58,14 +58,17 @@ paths:
       summary: List and filter users
       description: |
         Returns a paged `ListResponse`. Supports `startIndex`/`count` paging
-        and a `filter` on `userName` (the `eq` operator), the subset an
-        identity provider uses to reconcile.
+        and a `filter` on `userName` or `externalId` (the `eq` operator only),
+        the subset an identity provider uses to reconcile. Any other attribute
+        or operator is rejected rather than silently ignored, since a filter
+        that returns the wrong set is worse than one that errors.
       parameters:
         - $ref: "#/components/parameters/StartIndex"
         - $ref: "#/components/parameters/Count"
         - name: filter
           in: query
           required: false
+          description: 'Only `attribute eq "value"` on `userName` or `externalId`.'
           schema: { type: string }
           example: userName eq "bjensen@example.com"
       responses:
@@ -179,6 +182,7 @@ paths:
         - name: filter
           in: query
           required: false
+          description: 'Only `attribute eq "value"` on `displayName` or `externalId`.'
           schema: { type: string }
           example: displayName eq "Engineering"
       responses:

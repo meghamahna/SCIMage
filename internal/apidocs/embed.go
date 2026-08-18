@@ -1,12 +1,15 @@
-// Package docs serves the hand-written OpenAPI spec and a vendored Swagger UI
-// at /docs. Both are embedded in the binary, so the interactive API reference
-// works on a deployment with no outbound network — no CDN, no runtime fetch.
+// Package apidocs serves the hand-written OpenAPI spec and a vendored Swagger
+// UI at /docs. Both are embedded in the binary, so the interactive API
+// reference works on a deployment with no outbound network — no CDN, no
+// runtime fetch. The spec and assets live under this package rather than under
+// docs/ because go:embed can only reach files at or below its own directory,
+// and docs/ is otherwise prose.
 //
 // It is served unauthenticated, unlike the console: the spec describes a
 // public protocol (SCIM 2.0) and carries no tenant data or secrets, so an
 // integrator can read it before they have a token. The endpoints it documents
 // still require one.
-package docs
+package apidocs
 
 import (
 	"embed"
@@ -25,7 +28,7 @@ var uiFS embed.FS
 // leading slash (".../docs/openapi.yaml" -> "/openapi.yaml") and the inner
 // mux matches it instead of issuing a clean-path redirect:
 //
-//	root.Handle("/docs/", http.StripPrefix("/docs", docs.Handler()))
+//	root.Handle("/docs/", http.StripPrefix("/docs", apidocs.Handler()))
 //	root.Handle("/docs", http.RedirectHandler("/docs/", http.StatusMovedPermanently))
 //
 // The UI page fetches ./openapi.yaml relative to itself, so the spec is
@@ -39,7 +42,7 @@ func Handler() http.Handler {
 	}
 
 	mux := http.NewServeMux()
-	// The spec is embedded at its repo path (docs/openapi.yaml); serve it at
+	// The spec is embedded from this package's own openapi.yaml; serve it at
 	// the flat name the UI expects.
 	mux.HandleFunc("GET /openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
 		b, err := specFS.ReadFile("openapi.yaml")
