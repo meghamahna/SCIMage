@@ -445,13 +445,13 @@ and `127.0.0.1:8090` is the documented value, binding loopback so it isn't
 reachable off-host without a deliberate tunnel. The credential is accepted
 over HTTP Basic as well as `Bearer` because Basic is what a browser's own
 login dialog speaks: an operator opens `/console`, pastes the token into the
-password field, and the browser remembers it — no extension or
+password field, and the browser remembers it, with no extension or
 header-injecting bookmarklet needed. `Bearer` still works for `curl` and
 scripts; both compare the secret with `crypto/subtle.ConstantTimeCompare`. The
-OpenAPI spec is hand-written rather than generated because the one detail most
-worth documenting — that the server accepts Entra's stringified booleans
-(`"true"`) on `active` and `emails[].primary`, not just real JSON booleans —
-is exactly the deliberate leniency a generator infers away from the Go types.
+OpenAPI spec is hand-written rather than generated because of the one detail
+most worth documenting: the server accepts Entra's stringified booleans
+(`"true"`) on `active` and `emails[].primary`, not just real JSON booleans.
+That is exactly the deliberate leniency a generator infers away from the Go types.
 A hand-written spec states it outright. Finally, `/docs` is unauthenticated
 while `/console` is not, because the two expose opposite things: `/docs`
 describes a public protocol (SCIM 2.0) and carries no tenant data or secrets,

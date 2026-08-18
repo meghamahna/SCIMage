@@ -22,7 +22,7 @@ SCIMage is a focused SCIM 2.0 server written in Go. It implements the core `/Use
 - [Change delivery](#-change-delivery)
 - [Security practices](#-security-practices)
 - [ARIA, the advisory audit reviewer](#-aria-the-advisory-audit-reviewer)
-- [Getting started](#-getting-started) — the ordered, start-to-finish path
+- [Getting started](#-getting-started): the ordered, start-to-finish path
 - [Deploy with Docker](#-deploy-with-docker)
 - [Running tests](#-running-tests)
 - [Roadmap](#-roadmap)
@@ -71,7 +71,7 @@ The discovery endpoints `/ServiceProviderConfig`, `/ResourceTypes` and `/Schemas
 
 Two unauthenticated operational probes sit outside the tenant path, for an orchestrator or load balancer: `GET /healthz` is process liveness (always `200` while the process serves, with no database dependency, so a transient DB blip never triggers a restart loop), and `GET /readyz` is readiness (`200` when Postgres is reachable, `503` when it isn't, so a failing instance is pulled from rotation).
 
-An interactive API reference (Swagger UI) is served, unauthenticated, at `GET /docs`. An optional **ops console** — a loopback admin UI for whoever runs the deployment — is available at `/console` when `CONSOLE_ADDR` is set; both are covered in [Getting started](#-getting-started).
+An interactive API reference (Swagger UI) is served, unauthenticated, at `GET /docs`. An optional **ops console** (a loopback admin UI for whoever runs the deployment) is available at `/console` when `CONSOLE_ADDR` is set; both are covered in [Getting started](#-getting-started).
 
 `GET .../Users` supports `filter=userName eq "…"` and `filter=externalId eq "…"`; `GET .../Groups` supports `filter=displayName eq "…"` and `filter=externalId eq "…"`. These are the lookups a provider uses to decide whether a resource already exists. Other expressions answer `400` with `scimType: invalidFilter`, telling the client plainly where the supported set ends.
 
@@ -153,7 +153,7 @@ A quiet window prints a deterministic "nothing tripped the thresholds" line and 
 
 ## 🚀 Getting started
 
-A fresh clone to a running server with one tenant provisioned — in order. Every step assumes you're in the repo root.
+A fresh clone to a running server with one tenant provisioned, in order. Every step assumes you're in the repo root.
 
 **Prerequisites:** Go (the version in [`go.mod`](go.mod)), Docker with Compose (for Postgres), GNU Make, and `jq`. [Local development](docs/LOCAL-DEVELOPMENT.md) has versions and platform notes.
 
@@ -174,7 +174,7 @@ make up
 
 Migrations run through `golang-migrate`; `make migrate` uses a host `migrate` binary when one is present and the official container otherwise.
 
-**3. Run the server** — the SCIM API on `:8080`.
+**3. Run the server.** The SCIM API listens on `:8080`.
 
 ```bash
 make run
@@ -183,7 +183,7 @@ make run
 **4. Verify it's up.**
 
 ```bash
-curl localhost:8080/healthz   # {"status":"ok"} — process is live
+curl localhost:8080/healthz   # {"status":"ok"} (process is live)
 curl localhost:8080/readyz    # 200 once Postgres is reachable
 ```
 
@@ -218,7 +218,7 @@ curl -X POST "http://localhost:8080/scim/v2/$TENANT_ID/Users" \
 
 **7. Connect an identity provider.** In production, the base URL and token from step 5 are what you paste into the customer's Okta or Entra app as its SCIM Base URL and Bearer token: [Connecting Okta](docs/OKTA.md), [Entra ID](docs/MS-ENTRA.md).
 
-**8. (Optional) Open the ops console** — a loopback admin UI with the same reach as `scimage-admin`: view and mutate tenants, tokens and attributes, and read the audit trails and ARIA's report.
+**8. (Optional) Open the ops console.** A loopback admin UI with the same reach as `scimage-admin`: view and mutate tenants, tokens and attributes, and read the audit trails and ARIA's report.
 
 ```bash
 echo 'CONSOLE_ADDR=127.0.0.1:8090' >> .env          # opt-in; loopback-bound
@@ -228,7 +228,7 @@ make run                                             # restart; console now on :
 
 Open `http://127.0.0.1:8090/console` and supply the shown-once token as the HTTP Basic password (what a browser's login dialog prompts for) or a `Bearer` header. See [Configuration → Ops console](docs/CONFIGURATION.md#ops-console).
 
-**9. Browse the API reference.** Interactive Swagger UI — served from the SCIM server with no auth and no CDN — at `http://localhost:8080/docs`.
+**9. Browse the API reference.** Interactive Swagger UI, served from the SCIM server with no auth and no CDN, at `http://localhost:8080/docs`.
 
 For prerequisites in depth and the full set of `make` targets, see [Local development](docs/LOCAL-DEVELOPMENT.md).
 
@@ -260,13 +260,13 @@ Store and audit tests run against a real Postgres instance via `docker-compose`,
 
 ## 🗺️ Roadmap
 
-Phases 1 through 14 are complete: schema, endpoints, auth, audit, hardening, identity-provider interoperability, change delivery, multi-tenancy with issued API tokens, the `/Groups` resource with membership and per-tenant extensible attributes, ARIA the advisory audit reviewer, release engineering, and the operator tooling — the opt-in ops console and the interactive OpenAPI/Swagger reference. A published registry image and a tagged `v1.0.0` release are the remaining steps.
+Phases 1 through 14 are complete: schema, endpoints, auth, audit, hardening, identity-provider interoperability, change delivery, multi-tenancy with issued API tokens, the `/Groups` resource with membership and per-tenant extensible attributes, ARIA the advisory audit reviewer, release engineering, and the operator tooling: the opt-in ops console and the interactive OpenAPI/Swagger reference. A published registry image and a tagged `v1.0.0` release are the remaining steps.
 
 [ROADMAP.md](ROADMAP.md) tracks what's deliberately left for later, and [CHANGELOG.md](CHANGELOG.md) records what's landed. The [implementation plan](docs/IMPLEMENTATION_PLAN.md) has the phase-by-phase detail, with the decisions and trade-offs recorded as they were made.
 
 ## 📚 Documentation
 
-**Start here:** [Getting started](#-getting-started) is the ordered, start-to-finish path — clone through a provisioned tenant, the ops console, and the API reference. The rest of the docs are the deep-dives it links into, roughly in the order you'd reach for them:
+**Start here:** [Getting started](#-getting-started) is the ordered, start-to-finish path, from a clone through a provisioned tenant, the ops console, and the API reference. The rest of the docs are the deep-dives it links into, roughly in the order you'd reach for them:
 
 - [Local development](docs/LOCAL-DEVELOPMENT.md): prerequisites, every `make` target, and a hands-on runbook
 - [Configuration](docs/CONFIGURATION.md): the authoritative reference for every environment variable, plus the `scimage-admin` CLI (tenants, tokens, the ops console) and token rotation

@@ -162,7 +162,7 @@ to that tenant's directory), and revoke it as soon as exposure is suspected.
 The ops console is an optional web UI for whoever runs the deployment, with the
 same reach as `scimage-admin`: view and mutate tenants, tokens and attributes,
 and read the SCIM audit log, the admin audit log, and ARIA's deterministic
-report. It is for that one operator, not a customer-facing self-service portal —
+report. It is for that one operator, not a customer-facing self-service portal:
 a tenant's own IT staff never log in here.
 
 | Variable | Purpose |
@@ -172,7 +172,7 @@ a tenant's own IT staff never log in here.
 
 The console is a **second listener**, separate from the internet-facing SCIM
 port, and it is **opt-in**: it starts only when `CONSOLE_ADDR` is set. That is
-deliberate for a full-mutation admin surface — off unless you turn it on, and
+deliberate for a full-mutation admin surface: off unless you turn it on, and
 loopback-bound so reaching it off-host takes a deliberate tunnel.
 
 It authenticates with its own credential, separate from the tenant-scoped SCIM
