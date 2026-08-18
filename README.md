@@ -153,6 +153,33 @@ A quiet window prints a deterministic "nothing tripped the thresholds" line and 
 
 ## 🚀 Getting started
 
+### ⚡ Quickstart: from a fresh clone to the console UI
+
+The whole path in one block. It brings up the stack, mints a console credential, and starts the server with the admin UI enabled. Once you're in the console you can create tenants and tokens by clicking; the numbered walkthrough underneath explains every command and the SCIM-first path.
+
+```bash
+# clone, configure, and turn the console UI on
+git clone https://github.com/meghamahna/SCIMage.git && cd SCIMage
+cp .env.example .env
+echo 'CONSOLE_ADDR=127.0.0.1:8090' >> .env
+
+# start Postgres and apply migrations
+make up
+
+# load .env, then mint a console credential (shown once: copy the scimage_console_... line)
+set -a; source .env; set +a
+go run ./cmd/scimage-admin console-token issue -label "my laptop"
+
+# start the server: SCIM API on :8080, console UI on :8090
+make run
+```
+
+Then open `http://127.0.0.1:8090/console` and paste the token as the password (leave the username blank). That's the working UI. 🎉
+
+The interactive API reference is live alongside it at `http://localhost:8080/docs`.
+
+### Step by step
+
 A fresh clone to a running server with one tenant provisioned, in order. Every step assumes you're in the repo root.
 
 **Prerequisites:** Go (the version in [`go.mod`](go.mod)), Docker with Compose (for Postgres), GNU Make, and `jq`. [Local development](docs/LOCAL-DEVELOPMENT.md) has versions and platform notes.
