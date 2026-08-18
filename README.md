@@ -16,7 +16,7 @@
 SCIMage is a focused SCIM 2.0 server written in Go. It implements the core `/Users` and `/Groups` resources from [RFC 7644](https://datatracker.ietf.org/doc/html/rfc7644), backed by real Postgres, with security practices that are load-bearing and covered by tests.
 
 - [Why SCIMage](#-why-scimage)
-- [Why I built this](#-why-i-built-this)
+- [The problem it solves](#-the-problem-it-solves)
 - [What it does](#-what-it-does)
 - [How it's built](#-how-its-built)
 - [Change delivery](#-change-delivery)
@@ -44,11 +44,16 @@ Most SCIM servers are a thin CRUD layer bolted onto an app. SCIMage treats the p
 
 **Best fit:** a SaaS that needs to *receive* enterprise provisioning with a defensible security-and-audit story, wants to self-host, and values correctness over feature breadth. A published registry image and a tagged `v1.0.0` release are the remaining release steps.
 
-## 💡 Why I built this
+## 💡 The problem it solves
 
-I spent years building JML (joiner mover leaver) automation on the identity provider side, configuring Okta Workflows to push user provisioning into 60+ SaaS applications. That gave me a solid understanding of the SCIM spec from the client's point of view.
+Enterprise buyers expect to run your SaaS from their own identity provider: a new hire gets access automatically, and, the part that actually matters for security, a departing employee loses it the moment HR disables them in Okta or Entra. That handshake is SCIM, and the work lands on the *service provider* side, the application receiving the calls. It is easy to underbuild. A team ships a thin `/Users` endpoint, skips `/Groups`, keeps no audit trail, and reuses one shared token across every customer. Then a security review asks "who deprovisioned this account, and when?" and there is no answer, or a customer's data leaks across a tenant boundary that was never really there.
 
-SCIMage is the other half: the server that receives those SCIM calls and applies them, which is the side most SaaS products build and maintain themselves. Having worked the client side, I built the receiving end I wanted to integrate against.
+SCIMage is that receiving end, built to hold up:
+
+- **Win the deal without the build.** RFC 7644 `/Users` and `/Groups`, validated against Microsoft's Entra SCIM validator, so you can say yes to enterprise provisioning without writing and maintaining a spec-compliant server yourself.
+- **Prove it in an audit.** Every change, and every refusal, is written to an audit trail in the same transaction as the change itself, so the record can never drift from what happened. That is the answer a SOC 2 or access review is looking for.
+- **Keep customers apart.** Each tenant has its own path, its own issued and rotatable token, and data isolation enforced in code and tested, not left to convention.
+- **Make provisioning reach your app.** Signed, retried webhooks turn each change into an event the rest of your system can act on, instead of a row that just sits in a table.
 
 ## ⚙️ What it does
 
