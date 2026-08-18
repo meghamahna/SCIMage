@@ -65,7 +65,7 @@ Two ways to handle the extras:
 
   Start the server with `SCIM_EXTENDED_ATTRIBUTES=1`; registered attributes then
   appear in `/Schemas` and round-trip through a JSONB pass-through. See
-  [CONFIGURATION.md](CONFIGURATION.md#extensible-attributes).
+  [CONFIGURATION.md](CONFIGURATION.md#-extensible-attributes).
 
 > **Interop note.** Entra sometimes sends `emails[].primary` as the string
 > `"true"` rather than a JSON boolean. SCIMage accepts either and always returns a

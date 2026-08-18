@@ -1,4 +1,4 @@
-# Threat Model
+# 🛡️ Threat Model
 
 This document walks SCIMage's trust boundaries, the assets on each side, the
 threats that cross them, and the mitigations already in the code. It also states
@@ -10,7 +10,7 @@ certification. The mechanisms named here are implemented and covered by tests;
 [ARCHITECTURE.md](ARCHITECTURE.md) has the detail, and [SECURITY.md](../SECURITY.md)
 has the reporting process.
 
-## Scope
+## 🎯 Scope
 
 In scope: the SCIM HTTP server (`cmd/server`), the admin CLI
 (`cmd/scimage-admin`), the webhook dispatcher, ARIA (`cmd/aria`), and the opt-in
@@ -20,7 +20,7 @@ Out of scope: the security of the identity provider itself, the TLS-terminating
 proxy, the host OS, the Postgres deployment's own hardening, and the webhook
 receiver. Each is an assumption listed at the end.
 
-## Assets
+## 💎 Assets
 
 | Asset | Why it matters |
 | --- | --- |
@@ -31,7 +31,7 @@ receiver. Each is an assumption listed at the end.
 | Audit trail | `audit_log` and `admin_audit_log` are the record of who changed what. Their integrity is the point. |
 | ARIA's LLM API key | A credential for an external service, and the channel audit-derived text travels over. |
 
-## Trust boundaries
+## 🚧 Trust boundaries
 
 ```text
                         ┌──────────────── trusted (private) ────────────────┐
@@ -52,7 +52,7 @@ receiver. Each is an assumption listed at the end.
   opt-in and bound to loopback by default, reaching the same admin surface as B4
   over HTTP instead of the CLI.
 
-## Threats and mitigations
+## 🔒 Threats and mitigations
 
 ### B1: Identity provider to server
 
@@ -161,7 +161,7 @@ receiver. Each is an assumption listed at the end.
   data, so it's not a data-exposure boundary. It sits on the SCIM listener, not
   the console.
 
-## Assumptions and residual risks
+## ⚠️ Assumptions and residual risks
 
 These are the edges the design leaves to the deployment. Each is a deliberate
 boundary, noted here so an operator can close it.

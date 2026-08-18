@@ -1,4 +1,4 @@
-# Architecture
+# 🏗️ Architecture
 
 How SCIMage is put together, and why. The [README](../README.md) covers what it
 does; this covers the mechanics behind it.
@@ -19,7 +19,7 @@ does; this covers the mechanics behind it.
 - [Logging](#logging)
 - [Shutdown](#shutdown)
 
-## Request path
+## 🛣️ Request path
 
 ```text
 Identity provider
@@ -57,7 +57,7 @@ and bound to loopback by default, with its own system-wide credential. It's an
 admin surface, not a SCIM one, so it stays off the provider-facing listener
 entirely. [THREAT-MODEL.md](THREAT-MODEL.md) covers its trust boundary.
 
-## Storage model
+## 🗄️ Storage model
 
 Ten tables, described in `/migrations`:
 
@@ -74,7 +74,7 @@ Ten tables, described in `/migrations`:
 | `tenant_attributes` | The per-tenant extensible-attribute registry: which extra attribute names to capture into `users.extended_attributes`, and the type to declare in `/Schemas` |
 | `webhook_deliveries` | The outbound queue: tenant, payload, status, attempts, lease |
 
-## Multi-tenancy
+## 🏢 Multi-tenancy
 
 One SCIMage process and one Postgres database serve every tenant: the shared
 pool model, not one deployment per customer. A tenant is a row plus a foreign
@@ -143,7 +143,7 @@ Refusals are recorded too (a duplicate `userName` or `displayName`, a missing
 user or group, an invalid group member reference), which makes
 a burst of denials visible to a reviewer.
 
-## The UserStore and GroupStore interfaces
+## 🧩 The UserStore and GroupStore interfaces
 
 The handler depends on `scim.UserStore` and `scim.GroupStore` rather than on
 Postgres directly. The bundled store is the default implementation of both,
@@ -165,7 +165,7 @@ The interface currently lives in `internal/scim`, so supplying an implementation
 means forking rather than importing. Moving the domain types to an importable
 package turns it into a published extension point.
 
-## Extensible attributes
+## 🧬 Extensible attributes
 
 The typed `users` columns are a deliberate, minimal set. Rather than grow them
 to chase every attribute an identity provider might map, the server offers a
@@ -195,7 +195,7 @@ The registered name is a top-level SCIM key, which covers the enterprise
 extension as a whole object but not an individually-addressable sub-attribute
 path, a documented v1 boundary.
 
-## Change delivery
+## 📤 Change delivery
 
 ### The outbox
 
@@ -366,7 +366,7 @@ events for one user can arrive in any order. `occurredAt` carries the database
 clock, and the intended pattern is to apply idempotently and prefer the newest
 `occurredAt` per user.
 
-## Audit review (ARIA)
+## 🤖 Audit review (ARIA)
 
 `cmd/aria` (ARIA, the Audit Risk Intelligence Advisor) is the one AI-assisted
 component, and it is deliberately a leaf. It reads `audit_log` through
@@ -390,7 +390,7 @@ decides, and the model only advises on activity. Wiring an LLM into a
 provisioning or authorization decision would break that guarantee, so the
 `code-reviewer` gate treats it as a critical finding.
 
-## Logging
+## 📜 Logging
 
 Operational logs are structured JSON with RFC 3339 timestamps, written to stdout
 and to a dated file under `LOG_DIR`. One file per day keeps each file bounded for
@@ -404,7 +404,7 @@ is created `0700`, files `0600`, and `logs/` is gitignored.
 These are operational logs. The audit trail is separate and lives in Postgres, so
 a change and its record share a commit.
 
-## Shutdown
+## 🛑 Shutdown
 
 `SIGINT`/`SIGTERM` drains the HTTP listener first, then stops the dispatcher, so
 a request still in flight can queue its event. Anything left queued, or abandoned

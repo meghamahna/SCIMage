@@ -1,6 +1,6 @@
-# Local Development Setup
+# 🛠️ Local development
 
-## Prerequisites
+## 🧰 Prerequisites
 
 - [Go](https://go.dev/dl/) 1.26+
 - [Docker](https://www.docker.com/products/docker-desktop/) with
@@ -22,7 +22,7 @@ docker info >/dev/null 2>&1 && echo "daemon: RUNNING" || echo "daemon: NOT RUNNI
 > **Windows:** the `Makefile` targets and `.githooks/pre-commit` are
 > bash scripts; use WSL2, not native PowerShell/cmd.
 
-## Clone and configure
+## 📥 Clone and configure
 
 ```bash
 git clone https://github.com/meghamahna/SCIMage.git
@@ -35,7 +35,7 @@ cp .env.example .env
 `make hooks-install` sets a local git config, so it has to be run again on
 every fresh clone.
 
-## Make commands
+## ⚙️ Make commands
 
 Run `make` with no arguments to see this same list generated from the
 Makefile itself. `SERVICE=` and other variables are passed as `make up
@@ -69,28 +69,34 @@ SERVICE=postgres`, not `--service=postgres`.
 | `make aria [TENANT=<id>] [SINCE=24h]` | Runs ARIA, the advisory audit reviewer | Optional `TZ=` for the off-hours check; needs the `ARIA_LLM_*` variables only when a window has findings |
 | `make hooks-install` | Activates the real git pre-commit hook | One-time per clone; doesn't travel with the repo |
 
-## Ops console and API reference
+## 🖥️ Launch the UI (ops console + API docs)
 
-The ops console is an opt-in admin web UI with the same reach as the CLI above:
-view and mutate tenants, tokens and attributes, and read the audit trails and
-ARIA's report. It starts on its own listener only when `CONSOLE_ADDR` is set
-(`127.0.0.1:8090` recommended, loopback), and authenticates with a system-wide
-credential rather than a tenant's SCIM token. Issue one with `scimage-admin`:
+Two browser-facing surfaces ship with the server:
+
+- 🔐 **Ops console** at `/console`: an opt-in admin UI with the same reach as the CLI above. View and mutate tenants, tokens and attributes, and read the audit trails and ARIA's report.
+- 📖 **API reference** at `/docs`: interactive Swagger UI, served unauthenticated (it describes the public protocol and carries no tenant data).
+
+The console stays off until you turn it on. Three steps to launch it:
 
 ```bash
+# 1. enable the console listener (loopback, opt-in), then reload .env
+echo 'CONSOLE_ADDR=127.0.0.1:8090' >> .env
 set -a; source .env; set +a
 
-go run ./cmd/scimage-admin console-token issue -label "local console"  # shown once
-go run ./cmd/scimage-admin console-token list                          # metadata only
-go run ./cmd/scimage-admin console-token revoke -key <keyID>           # immediate, idempotent
+# 2. mint a console credential (system-wide, not a tenant token); shown once
+go run ./cmd/scimage-admin console-token issue -label "local console"
+
+# 3. (re)start the server
+make run
 ```
 
-With `CONSOLE_ADDR` set, the console is at `/console` on that address; sign in
-with the token as the password. The interactive API reference (OpenAPI plus
-Swagger UI) is served unauthenticated at `/docs` on the SCIM listener, since it
-describes the public protocol and carries no tenant data.
+Now open `http://127.0.0.1:8090/console` and sign in with the token as the
+password (or send it as a `Bearer` header). Manage credentials with
+`console-token list` (metadata only) and `console-token revoke <keyID>`
+(immediate, idempotent). The API reference needs no setup: it's live at
+`http://localhost:8080/docs` whenever the server runs.
 
-## Supported attributes
+## 🧩 Supported attributes
 
 What `POST`/`PUT`/`PATCH /Users` actually accept and return. The `/Schemas`
 endpoint always reflects this table exactly, since both come from the same
@@ -126,7 +132,7 @@ reasoning:
 /Users/{id}` does, because the Group schema has no `active` attribute to
 deactivate into.
 
-## Migrations
+## 🗄️ Migrations
 
 Schema migrations live in [`migrations/`](../migrations/) and are managed
 with [golang-migrate](https://github.com/golang-migrate/migrate). Use
@@ -149,7 +155,7 @@ Write the `down` half alongside it, and test the round trip
 (`make migrate && make migrate-down && make migrate`) before committing, so
 the migration is safe to reverse in a deployment.
 
-## View it
+## 🚀 Send your first request
 
 The server listens on `:8080` (override with `SCIM_ADDR`). There's no token
 to put in `.env`. Create a tenant and issue it a token first:
@@ -178,7 +184,7 @@ Set `SCIM_BASE_URL` when running behind a proxy, so `Location` and
 `meta.location` use your external URL and scheme. Left unset, they derive
 from the request's `Host` header, which suits local development.
 
-## Logs
+## 📜 Logs
 
 Structured JSON goes to stdout and to `logs/scimage-<date>.log`. Seeing what an
 identity provider actually sends is the fastest way to diagnose an integration:
@@ -193,7 +199,7 @@ tail -f logs/scimage-$(date -u +%F).log | jq 'select(.msg == "request")'
 Those entries include request bodies and therefore user attributes, so the
 directory is `0700`, files are `0600`, and `logs/` is gitignored.
 
-## Audit trail
+## 🔍 Audit trail
 
 Every create, replace, deactivate and delete (for both `/Users` and
 `/Groups`) writes a row to `audit_log` in the same transaction as the
@@ -206,7 +212,7 @@ docker compose exec postgres psql -U scimage -d scimage -c \
   "SELECT at, resource_type, actor_token, action, result, target_id FROM audit_log ORDER BY at DESC LIMIT 10;"
 ```
 
-## Audit review (ARIA)
+## 🤖 Audit review (ARIA)
 
 ARIA reads that audit trail and prints a short, plain-English briefing of
 activity worth a human's glance: deactivations clustered in a short window,
@@ -239,10 +245,10 @@ make aria SINCE=48h TZ=America/Vancouver   # custom window and off-hours timezon
 defaults to `24h`. A quiet window prints a deterministic "nothing tripped the
 thresholds" line and skips the model, so a clean review runs even with no key
 configured. ARIA calls the LLM only when a window has something to summarize.
-[Configuration](CONFIGURATION.md#audit-review-aria) lists every variable and
+[Configuration](CONFIGURATION.md#-audit-review-aria) lists every variable and
 flag.
 
-## Run tests
+## ✅ Run tests
 
 ```bash
 make up      # the integration tests use a real Postgres
@@ -253,7 +259,7 @@ The store tests run against the real database and clean up
 after themselves. They skip when no database is configured, so a plain
 `go test ./...` still works.
 
-## Troubleshooting
+## 🩺 Troubleshooting
 
 **`password authentication failed for user "scimage"`** after editing
 `POSTGRES_PASSWORD` in `.env`. Postgres applies that variable when it

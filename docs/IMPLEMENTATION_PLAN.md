@@ -231,7 +231,7 @@ rows queued behind a slow attempt aren't delivered twice. A `4xx` other than
 `3xx` is reported rather than followed, so a signed payload stays on its intended
 host. Events name the user's transition, so `DELETE` and `PATCH active:false`
 both emit `user.deactivated`. The full retry and signing detail lives in
-[ARCHITECTURE.md](ARCHITECTURE.md#change-delivery).
+[ARCHITECTURE.md](ARCHITECTURE.md#-change-delivery).
 
 ### Phase 10: Multi-tenancy and issued API tokens
 
@@ -240,7 +240,7 @@ and ARIA's per-caller volume signal something to distinguish.
 
 **Addressing and token format.** One host, tenant in the path, one token
 format for every customer. Mechanism detail (URL shape, token structure,
-verification order) lives in [Architecture](ARCHITECTURE.md#multi-tenancy).
+verification order) lives in [Architecture](ARCHITECTURE.md#-multi-tenancy).
 
 - [x] Migration: `tenants` and `scim_tokens`; `users` gains `tenant_id`;
       uniqueness becomes `(tenant_id, lower(user_name))`, so the same

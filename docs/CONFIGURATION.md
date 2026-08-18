@@ -1,4 +1,4 @@
-# Configuration
+# ⚙️ Configuration
 
 Every setting comes from an environment variable. Copy `.env.example` to `.env`
 and fill it in; `.env` is gitignored, and `make` targets load it for you.
@@ -6,7 +6,7 @@ and fill it in; `.env` is gitignored, and `make` targets load it for you.
 Generate secrets with `openssl rand -hex 32`. The server requires at least 16
 characters for `SCIM_WEBHOOK_SECRET`.
 
-## Core
+## 🧱 Core
 
 | Variable | Purpose |
 | --- | --- |
@@ -17,7 +17,7 @@ characters for `SCIM_WEBHOOK_SECRET`.
 `SCIM_BASE_URL` matters behind a TLS-terminating proxy: the request arrives as
 plain HTTP there, so links derived from the `Host` header would advertise `http`.
 
-## Rate limiting
+## 🚦 Rate limiting
 
 | Variable | Purpose |
 | --- | --- |
@@ -27,7 +27,7 @@ plain HTTP there, so links derived from the `Host` header would advertise `http`
 Sized for provisioning traffic: an identity provider pushing a bulk import sends
 bursts, then goes quiet for hours. Set `SCIM_RATE_LIMIT=0` to opt out.
 
-## Change delivery
+## 📤 Change delivery
 
 | Variable | Purpose |
 | --- | --- |
@@ -49,7 +49,7 @@ Six attempts on the default doubling backoff spans roughly five minutes of
 receiver downtime. See [ARCHITECTURE.md](ARCHITECTURE.md#retry-and-dead-letter)
 for what retries and what parks immediately.
 
-## Logging
+## 📜 Logging
 
 | Variable | Purpose |
 | --- | --- |
@@ -62,7 +62,7 @@ behaviour gets diagnosed. Those entries carry user attributes, so the directory
 is created `0700` and files `0600`. In a container, set `LOG_DIR=` empty and let
 the runtime collect stdout.
 
-## Extensible attributes
+## 🧬 Extensible attributes
 
 | Variable | Purpose |
 | --- | --- |
@@ -98,7 +98,7 @@ a top-level custom attribute. Core attributes (`userName`, `emails`, `active`,
 allowed to shadow one. Unregistering stops future capture and advertising; it
 doesn't touch values already stored.
 
-## Database
+## 🗄️ Database
 
 Used when `DATABASE_URL` is absent, and by `docker-compose.yml`.
 
@@ -109,7 +109,7 @@ Used when `DATABASE_URL` is absent, and by `docker-compose.yml`.
 | `POSTGRES_DB` | Database name. |
 | `POSTGRES_PORT` | Host port for the container. Defaults to 5432. |
 
-## Tenants and tokens
+## 🔑 Tenants and tokens
 
 There is no bearer-token environment variable: authentication is issued,
 tenant by tenant, through `cmd/scimage-admin`, which connects to Postgres
@@ -157,7 +157,7 @@ irreversible: a new token has to be issued if one is needed again.
 Treat every issued token as a privileged credential (it authorizes changes
 to that tenant's directory), and revoke it as soon as exposure is suspected.
 
-## Ops console
+## 🖥️ Ops console
 
 The ops console is an optional web UI for whoever runs the deployment, with the
 same reach as `scimage-admin`: view and mutate tenants, tokens and attributes,
@@ -193,7 +193,7 @@ prompts for) or an `Authorization: Bearer` header. Every mutating action reuses
 the same `scimage-admin` code paths, so it is audit-logged in the same
 transaction as the change, and carries a stateless CSRF token.
 
-## Audit review (ARIA)
+## 🤖 Audit review (ARIA)
 
 `cmd/aria` (ARIA, the Audit Risk Intelligence Advisor) reads the `audit_log` and
 prints a plain-English briefing of activity worth a human's attention. It

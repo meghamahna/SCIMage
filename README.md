@@ -79,7 +79,7 @@ Responses use `application/scim+json`, and errors use the SCIM Error schema with
 
 `userName` uniqueness is enforced case-insensitively, matching the spec's `caseExact=false` characteristic, so `bjensen` and `BJensen` are one identity.
 
-**Validated against [Microsoft's Entra ID SCIM validator](https://scimvalidator.microsoft.com/).** Core CRUD, filtering, and PATCH all pass. The `User` schema is deliberately reduced to a minimal set of typed columns. `displayName`, `title`, `preferredLanguage`, `name.formatted`/`name.middleName`, the enterprise extension and typed multi-valued emails aren't modeled that way. When a provider needs them, an operator registers the extra attributes per tenant (`scimage-admin attribute register`, gated by `SCIM_EXTENDED_ATTRIBUTES`) and the server captures and returns them through a JSONB pass-through, which keeps the core minimal while still round-tripping whatever Okta or Entra maps. See [Configuration](docs/CONFIGURATION.md#extensible-attributes).
+**Validated against [Microsoft's Entra ID SCIM validator](https://scimvalidator.microsoft.com/).** Core CRUD, filtering, and PATCH all pass. The `User` schema is deliberately reduced to a minimal set of typed columns. `displayName`, `title`, `preferredLanguage`, `name.formatted`/`name.middleName`, the enterprise extension and typed multi-valued emails aren't modeled that way. When a provider needs them, an operator registers the extra attributes per tenant (`scimage-admin attribute register`, gated by `SCIM_EXTENDED_ATTRIBUTES`) and the server captures and returns them through a JSONB pass-through, which keeps the core minimal while still round-tripping whatever Okta or Entra maps. See [Configuration](docs/CONFIGURATION.md#-extensible-attributes).
 
 ## 🏗️ How it's built
 
@@ -114,7 +114,7 @@ Everything lives in **one Postgres database**. A mutation writes its row, audit 
 
 Provisioning pays off once the change reaches the system that needs it. Every mutation queues a signed webhook, at-least-once with retries and a dead-letter queue, so a user created by an identity provider lands in your application directly.
 
-Set `SCIM_WEBHOOK_URL` to turn it on. [Architecture](docs/ARCHITECTURE.md#change-delivery) covers the outbox, claim leases, retry rules, the signing scheme and the event payload; `webhook.Verify` is exported for Go receivers.
+Set `SCIM_WEBHOOK_URL` to turn it on. [Architecture](docs/ARCHITECTURE.md#-change-delivery) covers the outbox, claim leases, retry rules, the signing scheme and the event payload; `webhook.Verify` is exported for Go receivers.
 
 ## 🔒 Security practices
 
@@ -149,7 +149,7 @@ make aria                                  # last 24h, every tenant
 make aria TENANT=tenant_9f2a... SINCE=7d   # one tenant, last week
 ```
 
-A quiet window prints a deterministic "nothing tripped the thresholds" line and skips the model, so a clean review runs without a key. See [Configuration](docs/CONFIGURATION.md#audit-review-aria).
+A quiet window prints a deterministic "nothing tripped the thresholds" line and skips the model, so a clean review runs without a key. See [Configuration](docs/CONFIGURATION.md#-audit-review-aria).
 
 ## 🚀 Getting started
 
@@ -200,7 +200,7 @@ make token TENANT=tenant_9f2a1b3c... LABEL="Okta prod"
 # scimage_...
 ```
 
-`CREATED BY` defaults to `$USER`. Every tenant created and every token issued or revoked is recorded in `admin_audit_log` (`make audit-list`). Rotation, expiry, and the full CLI are in [Configuration → Tenants and tokens](docs/CONFIGURATION.md#tenants-and-tokens).
+`CREATED BY` defaults to `$USER`. Every tenant created and every token issued or revoked is recorded in `admin_audit_log` (`make audit-list`). Rotation, expiry, and the full CLI are in [Configuration → Tenants and tokens](docs/CONFIGURATION.md#-tenants-and-tokens).
 
 **6. Make a request** with the tenant id and token from step 5:
 
@@ -226,7 +226,7 @@ go run ./cmd/scimage-admin console-token issue -label "my laptop"
 make run                                             # restart; console now on :8090
 ```
 
-Open `http://127.0.0.1:8090/console` and supply the shown-once token as the HTTP Basic password (what a browser's login dialog prompts for) or a `Bearer` header. See [Configuration → Ops console](docs/CONFIGURATION.md#ops-console).
+Open `http://127.0.0.1:8090/console` and supply the shown-once token as the HTTP Basic password (what a browser's login dialog prompts for) or a `Bearer` header. See [Configuration → Ops console](docs/CONFIGURATION.md#-ops-console).
 
 **9. Browse the API reference.** Interactive Swagger UI, served from the SCIM server with no auth and no CDN, at `http://localhost:8080/docs`.
 

@@ -70,7 +70,7 @@ scimage-admin attribute register -tenant <tenantID> -name displayName
 
 The server must also be started with `SCIM_EXTENDED_ATTRIBUTES=1`. Registered
 attributes appear in the tenant's `/Schemas` document, so they become mappable in
-Okta. See [CONFIGURATION.md](CONFIGURATION.md#extensible-attributes). An attribute
+Okta. See [CONFIGURATION.md](CONFIGURATION.md#-extensible-attributes). An attribute
 Okta sends that is neither modeled nor registered is accepted and dropped, not an
 error, so an over-broad default mapping won't break provisioning. It just won't
 persist.
