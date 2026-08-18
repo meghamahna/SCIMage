@@ -13,8 +13,8 @@ has the reporting process.
 ## Scope
 
 In scope: the SCIM HTTP server (`cmd/server`), the admin CLI
-(`cmd/scimage-admin`), the webhook dispatcher, and ARIA (`cmd/aria`), plus the
-Postgres schema they share.
+(`cmd/scimage-admin`), the webhook dispatcher, ARIA (`cmd/aria`), and the opt-in
+ops console (`internal/console`), plus the Postgres schema they share.
 
 Out of scope: the security of the identity provider itself, the TLS-terminating
 proxy, the host OS, the Postgres deployment's own hardening, and the webhook
@@ -48,6 +48,9 @@ receiver. Each is an assumption listed at the end.
 - **B3: server → webhook receiver.** Outbound, signed, to one configured host.
 - **B4: operator → admin CLI → Postgres.** Off-network, direct to the database.
 - **B5: ARIA → audit log** (read) and **B5': ARIA → LLM** (outbound).
+- **B6: operator → ops console → Postgres.** A second authenticated listener,
+  opt-in and bound to loopback by default, reaching the same admin surface as B4
+  over HTTP instead of the CLI.
 
 ## Threats and mitigations
 
@@ -132,6 +135,31 @@ receiver. Each is an assumption listed at the end.
   endpoint. The endpoint is operator-chosen and can be a local model, so the
   operator decides whether any data leaves their environment at all. The API key
   comes from the environment like every other secret.
+
+### B6: Operator to ops console
+
+- **Exposing a full-mutation admin surface over HTTP.** The console can view and
+  mutate tenants, tokens and attributes, so it's a bigger surface than the SCIM
+  listener. It's opt-in: it starts only when `CONSOLE_ADDR` is set, and the
+  recommended value binds loopback so it isn't reachable off-host without a
+  deliberate tunnel.
+- **Spoofing an operator / stolen credential.** The console has its own
+  system-wide credential in `console_tokens`, separate from any tenant's SCIM
+  token and stored only as `sha256(secret)`. It's compared with
+  `crypto/subtle.ConstantTimeCompare` and accepted as an HTTP Basic password or a
+  Bearer header. Issue, list and revoke it with `scimage-admin console-token`.
+- **Cross-site request forgery.** Every mutating route carries a stateless signed
+  CSRF token, so a request the operator didn't initiate can't drive a change
+  through their authenticated session.
+- **Repudiation of console actions.** Console mutations reuse the exact audited
+  `store.*` functions the CLI calls, so each one writes its `admin_audit_log`
+  entry in the same transaction as the change, no different from a CLI action.
+  System-scope actions audit with no tenant, which is why migration 000012 made
+  `admin_audit_log.tenant_id` nullable.
+- **The `/docs` endpoint is unauthenticated by design.** It serves only the
+  OpenAPI spec and Swagger UI for the public SCIM protocol and carries no tenant
+  data, so it's not a data-exposure boundary. It sits on the SCIM listener, not
+  the console.
 
 ## Assumptions and residual risks
 

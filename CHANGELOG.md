@@ -8,7 +8,7 @@ release.
 ## [Unreleased]
 
 The work below is the intended `1.0.0` surface, the first tagged release. It
-captures phases 1 through 13 of the [implementation
+captures phases 1 through 14 of the [implementation
 plan](docs/IMPLEMENTATION_PLAN.md), where each phase's decisions and trade-offs
 are recorded as they were made.
 
@@ -53,6 +53,19 @@ are recorded as they were made.
   writes to `0700`/`0600` paths since bodies carry user attributes.
 - **Graceful shutdown**: SIGINT/SIGTERM drains the listener, then stops the
   webhook dispatcher.
+- **Ops console** (`/console`): an opt-in admin web UI that starts on a second
+  listener only when `CONSOLE_ADDR` is set (`127.0.0.1:8090` recommended,
+  loopback). It reaches full parity with the `scimage-admin` CLI: view and mutate
+  tenants, tokens and attributes; read the SCIM audit log, the admin audit log,
+  and ARIA's report. It authenticates with a dedicated system-wide credential
+  issued by `scimage-admin console-token issue` (with `list`/`revoke`), compared
+  in constant time and accepted as an HTTP Basic password or a Bearer header.
+  Every mutating route reuses the same audited `store.*` functions the CLI calls
+  and carries a stateless signed CSRF token.
+- **OpenAPI spec and Swagger UI** (`/docs`): a hand-written OpenAPI 3.0 document
+  and a vendored Swagger UI (no CDN), embedded and served on the SCIM server. It
+  is unauthenticated by design, since it describes the public protocol and
+  carries no tenant data.
 
 ### Security
 

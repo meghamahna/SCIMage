@@ -57,6 +57,11 @@ for what retries and what parks immediately.
 | `LOG_LEVEL` | `debug`, `info`, `warn` or `error`. Defaults to `info`. |
 | `SCIM_LOG_REQUESTS` | Set to `1` to record request bodies. Off by default. |
 
+`SCIM_LOG_REQUESTS=1` records full request bodies, which is how a client's actual
+behaviour gets diagnosed. Those entries carry user attributes, so the directory
+is created `0700` and files `0600`. In a container, set `LOG_DIR=` empty and let
+the runtime collect stdout.
+
 ## Extensible attributes
 
 | Variable | Purpose |
@@ -92,11 +97,6 @@ a top-level custom attribute. Core attributes (`userName`, `emails`, `active`,
 …) can't be registered; they're already modelled, and a captured value is never
 allowed to shadow one. Unregistering stops future capture and advertising; it
 doesn't touch values already stored.
-
-`SCIM_LOG_REQUESTS=1` records full request bodies, which is how a client's actual
-behaviour gets diagnosed. Those entries carry user attributes, so the directory
-is created `0700` and files `0600`. In a container, set `LOG_DIR=` empty and let
-the runtime collect stdout.
 
 ## Database
 
@@ -156,6 +156,42 @@ irreversible: a new token has to be issued if one is needed again.
 
 Treat every issued token as a privileged credential (it authorizes changes
 to that tenant's directory), and revoke it as soon as exposure is suspected.
+
+## Ops console
+
+The ops console is an optional web UI for whoever runs the deployment, with the
+same reach as `scimage-admin`: view and mutate tenants, tokens and attributes,
+and read the SCIM audit log, the admin audit log, and ARIA's deterministic
+report. It is for that one operator, not a customer-facing self-service portal —
+a tenant's own IT staff never log in here.
+
+| Variable | Purpose |
+| --- | --- |
+| `CONSOLE_ADDR` | Listen address for the console. Unset (the default) means the console does not start. The recommended value, `127.0.0.1:8090`, binds loopback so it isn't reachable off-host. |
+| `SCIMAGE_ENV` | Cosmetic label shown in the console's sidebar badge, e.g. `prod` or `staging`. |
+
+The console is a **second listener**, separate from the internet-facing SCIM
+port, and it is **opt-in**: it starts only when `CONSOLE_ADDR` is set. That is
+deliberate for a full-mutation admin surface — off unless you turn it on, and
+loopback-bound so reaching it off-host takes a deliberate tunnel.
+
+It authenticates with its own credential, separate from the tenant-scoped SCIM
+tokens, issued through `scimage-admin`:
+
+```bash
+scimage-admin console-token issue -label "ops laptop" [-expires 90d] [-created-by "who"]
+scimage-admin console-token list
+scimage-admin console-token revoke <keyID>
+```
+
+Like a SCIM token, the console token is shown once at `issue` time, only its
+`sha256` hash is stored, and its issue and revocation are recorded in
+`admin_audit_log`. A console token is system-wide (it isn't scoped to a tenant),
+so those audit rows carry no tenant. Open `http://<CONSOLE_ADDR>/console` and
+supply the token as the HTTP Basic password (what a browser's login dialog
+prompts for) or an `Authorization: Bearer` header. Every mutating action reuses
+the same `scimage-admin` code paths, so it is audit-logged in the same
+transaction as the change, and carries a stateless CSRF token.
 
 ## Audit review (ARIA)
 

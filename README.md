@@ -22,10 +22,8 @@ SCIMage is a focused SCIM 2.0 server written in Go. It implements the core `/Use
 - [Change delivery](#-change-delivery)
 - [Security practices](#-security-practices)
 - [ARIA, the advisory audit reviewer](#-aria-the-advisory-audit-reviewer)
-- [Getting started](#-getting-started)
+- [Getting started](#-getting-started) — the ordered, start-to-finish path
 - [Deploy with Docker](#-deploy-with-docker)
-- [Creating a tenant](#-creating-a-tenant)
-- [Example request](#-example-request)
 - [Running tests](#-running-tests)
 - [Roadmap](#-roadmap)
 - [Documentation](#-documentation)
@@ -42,7 +40,7 @@ Most SCIM servers are a thin CRUD layer bolted onto an app. SCIMage treats the p
 - **Extend by config:** register any extra or custom attribute per tenant and it round-trips, keeping the core minimal and honest.
 - **Self-hosted and transparent:** plain Go + Postgres + raw SQL, no framework and no lock-in; you own the data and the audit trail.
 
-**Best fit:** a SaaS that needs to *receive* enterprise provisioning with a defensible security-and-audit story, wants to self-host, and values correctness over feature breadth. It's portfolio-grade; release engineering (packaging, published images, tagged releases) is still in progress.
+**Best fit:** a SaaS that needs to *receive* enterprise provisioning with a defensible security-and-audit story, wants to self-host, and values correctness over feature breadth. It's portfolio-grade; a published registry image and a tagged `v1.0.0` release are the remaining release steps.
 
 ## 💡 Why I built this
 
@@ -72,6 +70,8 @@ SCIMage is the *service provider* side of SCIM: the endpoint an identity provide
 The discovery endpoints `/ServiceProviderConfig`, `/ResourceTypes` and `/Schemas` (same `/scim/v2/{tenantID}` prefix) declare exactly the attributes this server stores. A client reads them before provisioning.
 
 Two unauthenticated operational probes sit outside the tenant path, for an orchestrator or load balancer: `GET /healthz` is process liveness (always `200` while the process serves, with no database dependency, so a transient DB blip never triggers a restart loop), and `GET /readyz` is readiness (`200` when Postgres is reachable, `503` when it isn't, so a failing instance is pulled from rotation).
+
+An interactive API reference (Swagger UI) is served, unauthenticated, at `GET /docs`. An optional **ops console** — a loopback admin UI for whoever runs the deployment — is available at `/console` when `CONSOLE_ADDR` is set; both are covered in [Getting started](#-getting-started).
 
 `GET .../Users` supports `filter=userName eq "…"` and `filter=externalId eq "…"`; `GET .../Groups` supports `filter=displayName eq "…"` and `filter=externalId eq "…"`. These are the lookups a provider uses to decide whether a resource already exists. Other expressions answer `400` with `scimType: invalidFilter`, telling the client plainly where the supported set ends.
 
@@ -153,21 +153,84 @@ A quiet window prints a deterministic "nothing tripped the thresholds" line and 
 
 ## 🚀 Getting started
 
+A fresh clone to a running server with one tenant provisioned — in order. Every step assumes you're in the repo root.
+
+**Prerequisites:** Go (the version in [`go.mod`](go.mod)), Docker with Compose (for Postgres), GNU Make, and `jq`. [Local development](docs/LOCAL-DEVELOPMENT.md) has versions and platform notes.
+
+**1. Clone and configure.**
+
 ```bash
 git clone https://github.com/meghamahna/SCIMage.git
 cd SCIMage
+cp .env.example .env      # .env is gitignored; fill in real values
+make hooks-install        # once per clone: enables the secret-scan / gofmt / vet / test pre-commit hook
+```
 
-# copy the env template and fill in real values (.env is gitignored)
-cp .env.example .env
+**2. Start Postgres and apply migrations.**
 
-# start Postgres and apply schema migrations
+```bash
 make up
+```
 
-# run the server
+Migrations run through `golang-migrate`; `make migrate` uses a host `migrate` binary when one is present and the official container otherwise.
+
+**3. Run the server** — the SCIM API on `:8080`.
+
+```bash
 make run
 ```
 
-The server starts on `:8080`. Migrations run through `golang-migrate`, and `make migrate` uses a host `migrate` binary when one is present and the official container otherwise. See [Local development](docs/LOCAL-DEVELOPMENT.md) for prerequisites and the full set of targets.
+**4. Verify it's up.**
+
+```bash
+curl localhost:8080/healthz   # {"status":"ok"} — process is live
+curl localhost:8080/readyz    # 200 once Postgres is reachable
+```
+
+**5. Create a tenant and issue a token.** A deployment starts with zero of each; both are minted through `cmd/scimage-admin`, which talks to Postgres directly, off the network. There is no `SCIM_TOKEN` to set.
+
+```bash
+make tenant NAME="Acme Corp"
+# TENANT ID      tenant_9f2a1b3c...
+# SCIM BASE URL  <SCIM_BASE_URL>/scim/v2/tenant_9f2a1b3c...
+
+make token TENANT=tenant_9f2a1b3c... LABEL="Okta prod"
+# ...
+# Shown once, not stored anywhere. Save it now:
+# scimage_...
+```
+
+`CREATED BY` defaults to `$USER`. Every tenant created and every token issued or revoked is recorded in `admin_audit_log` (`make audit-list`). Rotation, expiry, and the full CLI are in [Configuration → Tenants and tokens](docs/CONFIGURATION.md#tenants-and-tokens).
+
+**6. Make a request** with the tenant id and token from step 5:
+
+```bash
+curl -X POST "http://localhost:8080/scim/v2/$TENANT_ID/Users" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/scim+json" \
+  -d '{
+    "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+    "userName": "jdoe",
+    "name": {"givenName": "Jane", "familyName": "Doe"},
+    "emails": [{"value": "jdoe@example.com", "primary": true}]
+  }'
+```
+
+**7. Connect an identity provider.** In production, the base URL and token from step 5 are what you paste into the customer's Okta or Entra app as its SCIM Base URL and Bearer token: [Connecting Okta](docs/OKTA.md), [Entra ID](docs/MS-ENTRA.md).
+
+**8. (Optional) Open the ops console** — a loopback admin UI with the same reach as `scimage-admin`: view and mutate tenants, tokens and attributes, and read the audit trails and ARIA's report.
+
+```bash
+echo 'CONSOLE_ADDR=127.0.0.1:8090' >> .env          # opt-in; loopback-bound
+go run ./cmd/scimage-admin console-token issue -label "my laptop"
+make run                                             # restart; console now on :8090
+```
+
+Open `http://127.0.0.1:8090/console` and supply the shown-once token as the HTTP Basic password (what a browser's login dialog prompts for) or a `Bearer` header. See [Configuration → Ops console](docs/CONFIGURATION.md#ops-console).
+
+**9. Browse the API reference.** Interactive Swagger UI — served from the SCIM server with no auth and no CDN — at `http://localhost:8080/docs`.
+
+For prerequisites in depth and the full set of `make` targets, see [Local development](docs/LOCAL-DEVELOPMENT.md).
 
 ## 🐳 Deploy with Docker
 
@@ -186,46 +249,6 @@ The container runs the server only. It needs a Postgres you already operate, wit
 
 Run it behind a proxy that terminates TLS, and set `SCIM_BASE_URL` to the public HTTPS URL so the links the server returns stay `https`. For an orchestrator, `GET /healthz` is the liveness check and `GET /readyz` is the readiness check. Every setting is an environment variable; see [Configuration](docs/CONFIGURATION.md).
 
-## 🏢 Creating a tenant
-
-There's no `SCIM_TOKEN` to configure. A deployment starts with zero tenants and zero tokens, both issued through `cmd/scimage-admin`, which talks to Postgres directly, off the network:
-
-```bash
-make tenant NAME="Acme Corp"
-# TENANT ID      tenant_9f2a1b3c...
-# NAME           Acme Corp
-# CREATED BY     megha
-# SCIM BASE URL  <SCIM_BASE_URL>/scim/v2/tenant_9f2a1b3c...
-
-make token TENANT=tenant_9f2a1b3c... LABEL="Okta prod"
-# TOKEN ID    ...
-# TENANT      tenant_9f2a1b3c...
-# LABEL       Okta prod
-# CREATED BY  megha
-#
-# Shown once, not stored anywhere. Save it now:
-# scimage_...
-```
-
-`CREATED BY` defaults to `$USER`; pass `-created-by` (or run the underlying `go run ./cmd/scimage-admin ...` form directly) to attribute it to something else, e.g. automation. Every tenant created and every token issued or revoked is recorded in `admin_audit_log`; `go run ./cmd/scimage-admin audit list` reads it back.
-
-That base URL and token are what get pasted into the customer's Okta or Entra app as its SCIM Base URL and Bearer token. `token list` / `token revoke` manage rotation from there; see [Configuration](docs/CONFIGURATION.md#tenants-and-tokens).
-
-## 📬 Example request
-
-```bash
-# $TENANT_ID and $TOKEN are the values scimage-admin printed above.
-curl -X POST "http://localhost:8080/scim/v2/$TENANT_ID/Users" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/scim+json" \
-  -d '{
-    "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
-    "userName": "jdoe",
-    "name": {"givenName": "Jane", "familyName": "Doe"},
-    "emails": [{"value": "jdoe@example.com", "primary": true}]
-  }'
-```
-
 ## ✅ Running tests
 
 ```bash
@@ -237,19 +260,21 @@ Store and audit tests run against a real Postgres instance via `docker-compose`,
 
 ## 🗺️ Roadmap
 
-Phases 1 through 12 are complete: schema, endpoints, auth, audit, hardening, identity-provider interoperability, change delivery, multi-tenancy with issued API tokens, the `/Groups` resource with membership and per-tenant extensible attributes, and ARIA, the advisory audit reviewer. Release-engineering work (packaging, published images, tagged releases) is ongoing.
+Phases 1 through 14 are complete: schema, endpoints, auth, audit, hardening, identity-provider interoperability, change delivery, multi-tenancy with issued API tokens, the `/Groups` resource with membership and per-tenant extensible attributes, ARIA the advisory audit reviewer, release engineering, and the operator tooling — the opt-in ops console and the interactive OpenAPI/Swagger reference. A published registry image and a tagged `v1.0.0` release are the remaining steps.
 
 [ROADMAP.md](ROADMAP.md) tracks what's deliberately left for later, and [CHANGELOG.md](CHANGELOG.md) records what's landed. The [implementation plan](docs/IMPLEMENTATION_PLAN.md) has the phase-by-phase detail, with the decisions and trade-offs recorded as they were made.
 
 ## 📚 Documentation
 
-- [Architecture](docs/ARCHITECTURE.md): request path, storage model, change delivery internals
-- [Configuration](docs/CONFIGURATION.md): every environment variable, and token rotation
-- [Local development](docs/LOCAL-DEVELOPMENT.md): prerequisites and every `make` target
+**Start here:** [Getting started](#-getting-started) is the ordered, start-to-finish path — clone through a provisioned tenant, the ops console, and the API reference. The rest of the docs are the deep-dives it links into, roughly in the order you'd reach for them:
+
+- [Local development](docs/LOCAL-DEVELOPMENT.md): prerequisites, every `make` target, and a hands-on runbook
+- [Configuration](docs/CONFIGURATION.md): the authoritative reference for every environment variable, plus the `scimage-admin` CLI (tenants, tokens, the ops console) and token rotation
 - [Connecting Okta](docs/OKTA.md) and [Entra ID](docs/MS-ENTRA.md): identity-provider setup guides
+- [Architecture](docs/ARCHITECTURE.md): request path, storage model, change delivery internals
 - [Threat model](docs/THREAT-MODEL.md): trust boundaries, threats and mitigations
-- [Security policy](SECURITY.md), [contributing](CONTRIBUTING.md), [roadmap](ROADMAP.md), [changelog](CHANGELOG.md)
 - [Implementation plan](docs/IMPLEMENTATION_PLAN.md): the phase-by-phase build, with decisions recorded
+- [Security policy](SECURITY.md), [contributing](CONTRIBUTING.md), [roadmap](ROADMAP.md), [changelog](CHANGELOG.md)
 
 ## 🧰 Tech
 

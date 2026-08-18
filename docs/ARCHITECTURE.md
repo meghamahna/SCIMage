@@ -48,14 +48,24 @@ router's own path-value matching: `requireToken` wraps the mux and runs before
 the mux has matched anything, which is the only point `net/http`'s own
 `r.PathValue` gets populated.
 
+Two more HTTP surfaces sit alongside this one. `/docs` serves a hand-written
+OpenAPI 3.0 spec and a vendored Swagger UI (`internal/apidocs`) on the SCIM
+listener itself, unauthenticated on purpose: it describes the public protocol
+and carries no tenant data. The ops console (`internal/console`) is separate: it
+runs on its own `http.Server`, opt-in, started only when `CONSOLE_ADDR` is set
+and bound to loopback by default, with its own system-wide credential. It's an
+admin surface, not a SCIM one, so it stays off the provider-facing listener
+entirely. [THREAT-MODEL.md](THREAT-MODEL.md) covers its trust boundary.
+
 ## Storage model
 
-Nine tables, described in `/migrations`:
+Ten tables, described in `/migrations`:
 
 | Table | Holds |
 | --- | --- |
 | `tenants` | One row per customer organization. `id` is an app-generated, prefixed opaque string (`tenant_...`), never a renamable slug: it's pasted into the customer's IdP once and has to stay stable. `name` is unique, case-insensitively, so two customers can't silently share a display name |
 | `scim_tokens` | Issued credentials: `sha256` of the secret half, never the secret; label, timestamps, `revoked_at`/`expires_at` |
+| `console_tokens` | System-wide credentials for the ops console, a sibling of `scim_tokens` but with no `tenant_id`: the console's admin surface spans every tenant, so its credential isn't scoped to one. Same `sha256`-only storage, label, timestamps, `revoked_at`/`expires_at` |
 | `users` | The provisioned directory, scoped by `tenant_id`. Deactivation is a soft delete, so history keeps a subject |
 | `groups` | Groups, scoped by `tenant_id`. Unlike `users`, `DELETE` is a real deletion: the Group schema has no `active` attribute to soft-delete into |
 | `group_members` | The membership join table: `(group_id, user_id)`, with every reference validated against the same tenant before it's inserted |

@@ -1,21 +1,21 @@
 # Roadmap
 
-Phases 1 through 12 are complete, and phase 13 (release engineering) is in
-progress. The [implementation plan](docs/IMPLEMENTATION_PLAN.md) has the
-phase-by-phase detail. This document tracks what's deliberately left for later.
-Each item is a considered deferral, with a note on why it
-waited.
+Phases 1 through 14 are complete, including phase 13 (release engineering) and
+phase 14 (the ops console and the OpenAPI spec with Swagger UI). The
+[implementation plan](docs/IMPLEMENTATION_PLAN.md) has the phase-by-phase detail.
+This document tracks what's deliberately left for later. Each item is a
+considered deferral, with a note on why it waited.
 
 ## Finishing 1.0.0
 
-The remaining release-engineering work before the first tag:
+Two release steps remain before the first tag:
 
-- **A published container image, optionally.** A `Dockerfile` already ships, so
-  anyone can build and run the server (see the README Deploy section). Pushing a
-  prebuilt image to a registry such as GitHub Container Registry (`ghcr.io`) can
-  layer on later; GoReleaser was considered and dropped as unnecessary for a
+- **A published container image.** A `Dockerfile` already ships, so anyone can
+  build and run the server (see the README Deploy section). Pushing a prebuilt
+  image to a registry such as GitHub Container Registry (`ghcr.io`) is the
+  remaining step; GoReleaser was considered and dropped as unnecessary for a
   container-run server.
-- **Tag `v1.0.0`** once the docs below have landed.
+- **Tag `v1.0.0`.**
 
 ## Near-term
 

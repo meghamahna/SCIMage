@@ -69,6 +69,27 @@ SERVICE=postgres`, not `--service=postgres`.
 | `make aria [TENANT=<id>] [SINCE=24h]` | Runs ARIA, the advisory audit reviewer | Optional `TZ=` for the off-hours check; needs the `ARIA_LLM_*` variables only when a window has findings |
 | `make hooks-install` | Activates the real git pre-commit hook | One-time per clone; doesn't travel with the repo |
 
+## Ops console and API reference
+
+The ops console is an opt-in admin web UI with the same reach as the CLI above:
+view and mutate tenants, tokens and attributes, and read the audit trails and
+ARIA's report. It starts on its own listener only when `CONSOLE_ADDR` is set
+(`127.0.0.1:8090` recommended, loopback), and authenticates with a system-wide
+credential rather than a tenant's SCIM token. Issue one with `scimage-admin`:
+
+```bash
+set -a; source .env; set +a
+
+go run ./cmd/scimage-admin console-token issue -label "local console"  # shown once
+go run ./cmd/scimage-admin console-token list                          # metadata only
+go run ./cmd/scimage-admin console-token revoke -key <keyID>           # immediate, idempotent
+```
+
+With `CONSOLE_ADDR` set, the console is at `/console` on that address; sign in
+with the token as the password. The interactive API reference (OpenAPI plus
+Swagger UI) is served unauthenticated at `/docs` on the SCIM listener, since it
+describes the public protocol and carries no tenant data.
+
 ## Supported attributes
 
 What `POST`/`PUT`/`PATCH /Users` actually accept and return. The `/Schemas`
