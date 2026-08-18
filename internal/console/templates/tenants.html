@@ -2,12 +2,12 @@
 <section class="panel">
   <header>
     <h2>Tenants</h2>
-    <p>Every customer the server provisions for. Each has its own isolated users, groups, tokens, and audit trail.</p>
+    <p>Every customer you provision for. Each one keeps its own users, groups, tokens, and audit trail, separate from the rest.</p>
   </header>
 
   <div class="card">
     <h3>New tenant</h3>
-    <p class="hint">Creating a tenant records who did it in the admin audit log, in the same transaction.</p>
+    <p class="hint">Creating a tenant records who did it in the admin audit log.</p>
     <form method="post" action="/console/tenants" class="field-row">
       <input type="hidden" name="csrf" value="{{.CSRF}}" />
       <div class="field">
@@ -18,16 +18,20 @@
     </form>
   </div>
 
+  {{if .Data.BasePlaceholder}}
+  <p class="hint" style="margin-top:16px">Add your SCIM_BASE_URL setting to show a ready-to-copy address in each row below. For now, the host reads <code>&lt;SCIM_BASE_URL&gt;</code> as a placeholder.</p>
+  {{end}}
+
   <div class="table-wrap" style="margin-top:20px">
     <table>
       <thead>
-        <tr><th>ID</th><th>Name</th><th>Created by</th><th>Created</th></tr>
+        <tr><th>Name</th><th>SCIM base URL</th><th>Created by</th><th>Created</th></tr>
       </thead>
       <tbody>
         {{range .Data.Tenants}}
         <tr>
-          <td class="mono">{{.ID}}</td>
-          <td class="t-name">{{.Name}}</td>
+          <td class="t-name">{{.Name}}<div class="mono sub">{{.ID}}</div></td>
+          <td class="mono">{{.BaseURL}}</td>
           <td>{{dash .CreatedBy}}</td>
           <td class="mono num">{{rfc3339 .CreatedAt}}</td>
         </tr>
@@ -37,5 +41,6 @@
       </tbody>
     </table>
   </div>
+  <p class="hint" style="margin-top:12px">The SCIM base URL is the address a customer's identity provider points to. Each token works only for its own tenant, so every customer's sync stays inside their own directory.</p>
 </section>
 {{- end}}

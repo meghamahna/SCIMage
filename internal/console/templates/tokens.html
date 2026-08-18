@@ -2,7 +2,7 @@
 <section class="panel">
   <header>
     <h2>Tokens</h2>
-    <p>SCIM API credentials, one tenant at a time. The secret is shown once at issue and never again — only its metadata is stored.</p>
+    <p>Access credentials for the SCIM API, one tenant at a time. You see the full secret once, when you create it, so copy it somewhere safe right away.</p>
   </header>
 
   <form method="get" action="/console/tokens" class="toolbar">
@@ -18,15 +18,15 @@
   {{if .Data.SelectedTenant}}
   {{if .Data.Reveal}}
   <div class="reveal">
-    <div class="label">Save this now — it is shown once</div>
+    <div class="label">Save this now — you'll see it once</div>
     <div class="secret"><code>{{.Data.Reveal}}</code></div>
-    <p>This is the only time the full token appears. Store it in your secrets manager before leaving this page.</p>
+    <p>Copy the full token into your secrets manager while it's on screen.</p>
   </div>
   {{end}}
 
   <div class="card">
     <h3>Issue a token</h3>
-    <p class="hint">Records who issued it in the admin audit log, in the same transaction as the insert.</p>
+    <p class="hint">Records who issued it in the admin audit log.</p>
     <form method="post" action="/console/tokens/issue" class="field-row">
       <input type="hidden" name="csrf" value="{{.CSRF}}" />
       <input type="hidden" name="tenant" value="{{.Data.SelectedTenant}}" />

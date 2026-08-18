@@ -53,6 +53,8 @@ func run(args []string) error {
 		return attributeCmd(ctx, s, args[1], args[2:])
 	case "audit":
 		return auditCmd(ctx, s, args[1], args[2:])
+	case "webhook":
+		return webhookCmd(ctx, s, args[1], args[2:])
 	default:
 		return usageError()
 	}
@@ -71,7 +73,9 @@ func usageError() error {
   scimage-admin attribute register -tenant <tenantID> -name displayName [-type string] [-created-by "who"]
   scimage-admin attribute list -tenant <tenantID>
   scimage-admin attribute unregister -tenant <tenantID> -name displayName
-  scimage-admin audit list [-tenant <tenantID>]`)
+  scimage-admin audit list [-tenant <tenantID>]
+  scimage-admin webhook replay <deliveryID>
+  scimage-admin webhook replay-all`)
 }
 
 // defaultActor is who ran the command, absent an explicit -created-by. USER
@@ -218,7 +222,7 @@ func tokenCmd(ctx context.Context, s *store.Store, action string, args []string)
 	}
 }
 
-// consoleTokenCmd mints and revokes the ops console's credential. Unlike
+// consoleTokenCmd mints and revokes the admin console's credential. Unlike
 // tokenCmd it takes no -tenant: a console token authenticates the operator who
 // runs SCIMage, who works across every tenant, so it belongs to none. The
 // shown-once handling is identical — the plaintext exists only in this output.
@@ -400,6 +404,59 @@ func auditCmd(ctx context.Context, s *store.Store, action string, args []string)
 				e.At.Format(time.RFC3339), e.TenantID, e.Actor, e.Action, e.TargetID, emptyDash(e.Detail))
 		}
 		return tw.Flush()
+
+	default:
+		return usageError()
+	}
+}
+
+// webhookCmd replays parked (dead-lettered) change-event deliveries. Replay is a
+// mutation — it flips a row back onto the queue and writes an admin_audit entry
+// naming who did it — so it lives here with the other privileged actions, not in
+// the console's read-only webhook status view.
+func webhookCmd(ctx context.Context, s *store.Store, action string, args []string) error {
+	switch action {
+	case "replay":
+		if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
+			return errors.New("usage: scimage-admin webhook replay <deliveryID>")
+		}
+		id, err := strconv.ParseInt(strings.TrimSpace(args[0]), 10, 64)
+		if err != nil {
+			return fmt.Errorf("webhook replay: %q is not a delivery id", args[0])
+		}
+		if err := s.ReplayDeadLetter(ctx, id, defaultActor()); err != nil {
+			return err
+		}
+		fmt.Printf("Requeued delivery %d\n", id)
+		return nil
+
+	case "replay-all":
+		// Drain page by page: each replay flips a row out of the dead-letter set,
+		// so re-querying converges to empty rather than looping on the same page,
+		// and nothing is silently left behind past a single page cap.
+		actor := defaultActor()
+		var n int
+		for {
+			letters, err := s.DeadLetters(ctx, store.MaxPageSize)
+			if err != nil {
+				return err
+			}
+			if len(letters) == 0 {
+				break
+			}
+			for _, d := range letters {
+				if err := s.ReplayDeadLetter(ctx, d.ID, actor); err != nil {
+					return fmt.Errorf("webhook replay-all: delivery %d: %w", d.ID, err)
+				}
+				n++
+			}
+		}
+		if n == 0 {
+			fmt.Println("No parked deliveries to replay.")
+			return nil
+		}
+		fmt.Printf("Requeued %d parked deliveries\n", n)
+		return nil
 
 	default:
 		return usageError()

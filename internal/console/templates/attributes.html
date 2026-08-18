@@ -2,7 +2,7 @@
 <section class="panel">
   <header>
     <h2>Attributes</h2>
-    <p>The extra SCIM attribute names this tenant captures into extended storage rather than drop. The server acts on the registry only when extended attributes are enabled.</p>
+    <p>Extra SCIM fields this tenant syncs beyond the standard set. SCIMage stores and returns them once extended attributes are turned on.</p>
   </header>
 
   <form method="get" action="/console/attributes" class="toolbar">
@@ -18,7 +18,7 @@
   {{if .Data.SelectedTenant}}
   <div class="card">
     <h3>Register an attribute</h3>
-    <p class="hint">Core attributes the server already models are reserved and can't be shadowed.</p>
+    <p class="hint">Add any field beyond the standard set. Built-in SCIM fields are reserved and always take priority.</p>
     <form method="post" action="/console/attributes/register" class="field-row">
       <input type="hidden" name="csrf" value="{{.CSRF}}" />
       <input type="hidden" name="tenant" value="{{.Data.SelectedTenant}}" />

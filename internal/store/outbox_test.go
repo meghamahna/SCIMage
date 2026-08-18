@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -547,6 +548,108 @@ func TestUpdatingAnUnknownDeliveryIsAnError(t *testing.T) {
 	}
 	if err := s.RescheduleDelivery(ctx, missing, "gone", time.Now()); !errors.Is(err, ErrNotFound) {
 		t.Errorf("RescheduleDelivery on a missing row = %v, want ErrNotFound", err)
+	}
+}
+
+// Replay flips a parked delivery back to pending with a fresh retry budget, so a
+// dispatcher picks it up again, and records the operator action in the admin
+// audit log.
+func TestReplayDeadLetterRequeues(t *testing.T) {
+	s := newEventStore(t)
+	ctx := context.Background()
+	tenantID := newTestTenant(t, s)
+
+	created := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
+	queued := deliveriesFor(t, s, created.ID)[0]
+
+	// Exhaust it: one claim (attempts -> 1) then park it.
+	if !claims(t, s, ctx, queued.ID, time.Minute) {
+		t.Fatal("fresh delivery was not claimable")
+	}
+	if err := s.DeadLetterDelivery(ctx, queued.ID, "receiver returned 500"); err != nil {
+		t.Fatalf("DeadLetterDelivery: %v", err)
+	}
+
+	if err := s.ReplayDeadLetter(ctx, queued.ID, "ops-alice"); err != nil {
+		t.Fatalf("ReplayDeadLetter: %v", err)
+	}
+
+	status, attempts, _, lastError := deliveryStatus(t, s, queued.ID)
+	if status != DeliveryPending {
+		t.Errorf("status = %q, want %q", status, DeliveryPending)
+	}
+	if attempts != 0 {
+		t.Errorf("attempts = %d, want 0 (fresh retry budget)", attempts)
+	}
+	if lastError != nil {
+		t.Errorf("last_error = %v, want cleared", lastError)
+	}
+	// Due now, so the dispatcher claims it again.
+	if !claims(t, s, ctx, queued.ID, time.Minute) {
+		t.Error("replayed delivery was not claimable")
+	}
+
+	// The replay is on the admin audit trail, attributed and targeted.
+	entries, err := s.ListAdminAuditEntries(ctx, tenantID, 0)
+	if err != nil {
+		t.Fatalf("ListAdminAuditEntries: %v", err)
+	}
+	var found bool
+	for _, e := range entries {
+		if e.Action == AdminActionWebhookReplay && e.TargetID == strconv.FormatInt(queued.ID, 10) {
+			found = true
+			if e.Actor != "ops-alice" {
+				t.Errorf("replay audit actor = %q, want ops-alice", e.Actor)
+			}
+		}
+	}
+	if !found {
+		t.Error("no webhook.replay entry in the admin audit log")
+	}
+}
+
+// WebhookDeliveryStatus reflects a delivery's lifecycle and reports a missing
+// row as ErrNotFound, which is what lets the console poll a replay to its end.
+func TestWebhookDeliveryStatus(t *testing.T) {
+	s := newEventStore(t)
+	ctx := context.Background()
+	tenantID := newTestTenant(t, s)
+
+	created := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
+	d := deliveriesFor(t, s, created.ID)[0]
+
+	if got, err := s.WebhookDeliveryStatus(ctx, d.ID); err != nil || got != DeliveryPending {
+		t.Fatalf("fresh delivery status = (%q, %v), want (%q, nil)", got, err, DeliveryPending)
+	}
+
+	if err := s.MarkDelivered(ctx, d.ID); err != nil {
+		t.Fatalf("MarkDelivered: %v", err)
+	}
+	if got, _ := s.WebhookDeliveryStatus(ctx, d.ID); got != DeliveryDelivered {
+		t.Errorf("delivered status = %q, want %q", got, DeliveryDelivered)
+	}
+
+	if _, err := s.WebhookDeliveryStatus(ctx, -1); !errors.Is(err, ErrNotFound) {
+		t.Errorf("missing row = %v, want ErrNotFound", err)
+	}
+}
+
+// Replay only touches a genuinely parked row: a missing id or one that isn't
+// dead-lettered is ErrNotFound, so it can't disturb a delivered or in-flight
+// delivery.
+func TestReplayDeadLetterOnlyParkedRows(t *testing.T) {
+	s := newEventStore(t)
+	ctx := context.Background()
+	tenantID := newTestTenant(t, s)
+
+	if err := s.ReplayDeadLetter(ctx, -1, "ops"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("replay of a missing row = %v, want ErrNotFound", err)
+	}
+
+	created := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
+	pending := deliveriesFor(t, s, created.ID)[0]
+	if err := s.ReplayDeadLetter(ctx, pending.ID, "ops"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("replay of a pending (not parked) row = %v, want ErrNotFound", err)
 	}
 }
 

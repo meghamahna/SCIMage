@@ -22,7 +22,7 @@ import (
 // How long in-flight requests get to finish once a signal arrives.
 const shutdownGrace = 15 * time.Second
 
-// consoleServer builds the ops-console listener, or nil when CONSOLE_ADDR is
+// consoleServer builds the admin-console listener, or nil when CONSOLE_ADDR is
 // unset. The console is opt-in: a full-mutation admin surface stays off unless
 // an operator turns it on, and 127.0.0.1:8090 is the recommended value so it
 // binds loopback only. ReadHeaderTimeout matches the SCIM server's.

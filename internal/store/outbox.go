@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -279,6 +280,94 @@ func (s *Store) PurgeDeliveredBefore(ctx context.Context, cutoff time.Time) (int
 		return 0, fmt.Errorf("purge delivered deliveries before %s: %w", cutoff.Format(time.RFC3339), err)
 	}
 	return tag.RowsAffected(), nil
+}
+
+// WebhookSummary is a read-only health snapshot of the delivery queue for the
+// admin console: how many events are waiting, delivered, or parked, and how long
+// the oldest still-waiting one has been queued.
+type WebhookSummary struct {
+	Pending       int
+	Delivered     int
+	DeadLetter    int
+	OldestPending *time.Time // nil when nothing is pending
+}
+
+// WebhookDeliverySummary counts deliveries by status across every tenant. It's
+// deployment-wide because the sink is: one configured receiver drains all
+// tenants' events, so the operator's view of delivery health is global too.
+func (s *Store) WebhookDeliverySummary(ctx context.Context) (WebhookSummary, error) {
+	const q = `SELECT
+	               count(*) FILTER (WHERE status = $1) AS pending,
+	               count(*) FILTER (WHERE status = $2) AS delivered,
+	               count(*) FILTER (WHERE status = $3) AS dead_letter,
+	               min(created_at) FILTER (WHERE status = $1) AS oldest_pending
+	           FROM webhook_deliveries`
+
+	var out WebhookSummary
+	if err := s.pool.QueryRow(ctx, q, DeliveryPending, DeliveryDelivered, DeliveryDeadLetter).
+		Scan(&out.Pending, &out.Delivered, &out.DeadLetter, &out.OldestPending); err != nil {
+		return WebhookSummary{}, fmt.Errorf("webhook delivery summary: %w", err)
+	}
+	return out, nil
+}
+
+// WebhookDeliveryStatus returns one delivery's current status (pending,
+// delivered, or dead_letter), for the console to poll after a replay. A missing
+// row is ErrNotFound — a delivered row is kept until retention prunes it, so
+// within a poll window "not found" means an unknown id, not a delivered one.
+func (s *Store) WebhookDeliveryStatus(ctx context.Context, id int64) (string, error) {
+	const q = `SELECT status FROM webhook_deliveries WHERE id = $1`
+
+	var status string
+	if err := s.pool.QueryRow(ctx, q, id).Scan(&status); err != nil {
+		if isMissingRow(err) {
+			return "", ErrNotFound
+		}
+		return "", fmt.Errorf("webhook delivery status %d: %w", id, err)
+	}
+	return status, nil
+}
+
+// ReplayDeadLetter returns one parked delivery to the queue: it flips a
+// dead-lettered row back to pending, resets its attempt count so it gets a full
+// retry budget again, and makes it due now. It is guarded on status =
+// dead_letter so a delivered or in-flight row can't be disturbed, and it records
+// who replayed what in the admin audit log in the same transaction — replay is
+// an operator action worth a trail like any other mutation here.
+//
+// The HMAC signature is recomputed at send time, not stored, so a replayed
+// delivery, however old, still arrives with a fresh timestamp inside the
+// receiver's freshness window.
+func (s *Store) ReplayDeadLetter(ctx context.Context, id int64, actor string) error {
+	const q = `UPDATE webhook_deliveries
+	           SET status = $2, attempts = 0, next_attempt_at = now(), last_error = NULL
+	           WHERE id = $1 AND status = $3
+	           RETURNING tenant_id, event_type`
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("replay delivery %d: begin: %w", id, err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
+
+	var tenantID, eventType string
+	if err := tx.QueryRow(ctx, q, id, DeliveryPending, DeliveryDeadLetter).Scan(&tenantID, &eventType); err != nil {
+		if isMissingRow(err) {
+			// No row matched: either no such delivery, or it isn't dead-lettered.
+			// Neither is a row this operation may touch, so both are ErrNotFound.
+			return fmt.Errorf("replay delivery %d: %w", id, ErrNotFound)
+		}
+		return fmt.Errorf("replay delivery %d: %w", id, err)
+	}
+
+	if err := insertAdminAudit(ctx, tx, tenantID, actor, AdminActionWebhookReplay, strconv.FormatInt(id, 10), eventType); err != nil {
+		return fmt.Errorf("replay delivery %d: %w", id, err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("replay delivery %d: commit: %w", id, err)
+	}
+	return nil
 }
 
 // DeadLetters returns parked deliveries, newest first, for review and replay.

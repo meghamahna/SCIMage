@@ -141,7 +141,7 @@ func TestConsoleTenantsPageRenders(t *testing.T) {
 	if !strings.Contains(body, name) {
 		t.Error("tenants page does not list the created tenant")
 	}
-	if !strings.Contains(body, "SCIMage Console") {
+	if !strings.Contains(body, "SCIMage Admin Console") {
 		t.Error("layout did not render (missing title)")
 	}
 }
@@ -256,5 +256,142 @@ func TestConsoleAdminAuditRenders(t *testing.T) {
 	rec := authedGet(it.srv, it.auth, "/console/admin-audit")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("admin audit status = %d, want 200", rec.Code)
+	}
+}
+
+func TestConsoleHomePageRenders(t *testing.T) {
+	it := newConsoleIT(t)
+
+	rec := authedGet(it.srv, it.auth, "/console")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("home status = %d, want 200 (should render, not redirect)", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "SCIM base URL") {
+		t.Error("home page did not render its SCIM base URL section")
+	}
+}
+
+func TestConsoleWebhooksPageRenders(t *testing.T) {
+	it := newConsoleIT(t)
+
+	rec := authedGet(it.srv, it.auth, "/console/webhooks")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("webhooks status = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "Parked deliveries") {
+		t.Error("webhooks page did not render the parked-deliveries table")
+	}
+}
+
+func TestConsoleReplayRequiresCSRF(t *testing.T) {
+	it := newConsoleIT(t)
+
+	form := url.Values{"id": {"1"}, "csrf": {"bogus"}}
+	rec := authedPost(it.srv, it.auth, "/console/webhooks/replay", form)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("replay with a bad CSRF token status = %d, want 403", rec.Code)
+	}
+}
+
+// A replay for a delivery that isn't parked (here, one that doesn't exist)
+// reports it cleanly rather than 500-ing — exercising the route, CSRF, handler,
+// and the store's ErrNotFound guard end to end.
+func TestConsoleReplayUnknownDelivery(t *testing.T) {
+	it := newConsoleIT(t)
+
+	form := url.Values{"id": {"999999999"}, "csrf": {it.srv.csrf.token(time.Now())}}
+	rec := authedPost(it.srv, it.auth, "/console/webhooks/replay", form)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("replay of an unknown delivery status = %d, want 404", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "no longer parked") {
+		t.Error("replay of an unknown delivery did not explain itself")
+	}
+}
+
+// The Generate/Refresh button fetches with X-Requested-With and expects just the
+// briefing block back, so it can swap it in place without leaving /console/aria.
+// Scoped to a fresh, empty tenant so there are no findings — which keeps the test
+// off the real LLM (a window with findings would try to narrate).
+func TestConsoleARIANarrateReturnsFragment(t *testing.T) {
+	it := newConsoleIT(t)
+	tn, err := it.store.CreateTenant(context.Background(), fmt.Sprintf("aria-frag-%d", time.Now().UnixNano()), "test-suite")
+	if err != nil {
+		t.Fatalf("CreateTenant: %v", err)
+	}
+	it.cleanupTenant(t, tn.ID)
+
+	form := url.Values{"tenant": {tn.ID}, "since": {"24h"}, "csrf": {it.srv.csrf.token(time.Now())}}
+	req := httptest.NewRequest("POST", "/console/aria/narrate", strings.NewReader(form.Encode()))
+	req.Header.Set("Authorization", it.auth)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-Requested-With", "fetch")
+	rec := do(it.srv, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("narrate fragment status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "AI briefing") {
+		t.Error("fragment response should contain the briefing block")
+	}
+	if strings.Contains(body, "Entries reviewed") {
+		t.Error("fragment response leaked the full page chrome")
+	}
+}
+
+func TestConsoleDeliveryStatusUnknown(t *testing.T) {
+	it := newConsoleIT(t)
+
+	rec := authedGet(it.srv, it.auth, "/console/webhooks/delivery-status?id=999999999")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delivery-status of an unknown id = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"status":"unknown"`) {
+		t.Errorf("body = %q, want an unknown status", rec.Body.String())
+	}
+}
+
+// The Replay button posts with Accept: application/json and expects a JSON
+// verdict it can act on in place, rather than a redirect.
+func TestConsoleReplayJSONUnknown(t *testing.T) {
+	it := newConsoleIT(t)
+
+	form := url.Values{"id": {"999999999"}, "csrf": {it.srv.csrf.token(time.Now())}}
+	req := httptest.NewRequest("POST", "/console/webhooks/replay", strings.NewReader(form.Encode()))
+	req.Header.Set("Authorization", it.auth)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	rec := do(it.srv, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("json replay of an unknown id = %d, want 404", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
+		t.Errorf("content-type = %q, want application/json", ct)
+	}
+	if !strings.Contains(rec.Body.String(), `"ok":false`) {
+		t.Errorf("body = %q, want ok:false", rec.Body.String())
+	}
+}
+
+// A tenant created in the console must show the SCIM base URL an operator hands
+// an identity provider — the path parity the CLI already had.
+func TestConsoleTenantsPageShowsBaseURL(t *testing.T) {
+	it := newConsoleIT(t)
+	name := fmt.Sprintf("console-baseurl-%d", time.Now().UnixNano())
+
+	tn, err := it.store.CreateTenant(context.Background(), name, "test-suite")
+	if err != nil {
+		t.Fatalf("CreateTenant: %v", err)
+	}
+	it.cleanupTenant(t, tn.ID)
+
+	rec := authedGet(it.srv, it.auth, "/console/tenants")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("tenants status = %d, want 200", rec.Code)
+	}
+	if want := "/scim/v2/" + tn.ID; !strings.Contains(rec.Body.String(), want) {
+		t.Errorf("tenants page did not render the SCIM base URL %q", want)
 	}
 }

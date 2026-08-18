@@ -1,9 +1,15 @@
-// Package console is the ops console: a small, loopback-by-default web UI for
-// whoever runs SCIMage. It has full parity with scimage-admin — viewing and
-// mutating tenants, tokens, attributes, and reading the audit trails and
-// ARIA's read — but only for that one operator. It is deliberately not a
-// customer-facing self-service portal: a tenant's own IT staff never log in
-// here.
+// Package console is the admin console: a small, loopback-by-default web UI for
+// whoever runs SCIMage. It covers the day-to-day of scimage-admin — viewing and
+// mutating tenants, tokens, and attributes, reading the audit trails, ARIA's
+// read, and webhook delivery health — but only for that one operator. It is
+// deliberately not a customer-facing self-service portal: a tenant's own IT
+// staff never log in here.
+//
+// One capability stays CLI-only on purpose: issuing and revoking the console's
+// own login tokens (scimage-admin console-token). A console session can't be
+// allowed to mint or revoke the credential that guards the console, and the
+// first token has to come from somewhere before anyone can log in at all, so
+// that lifecycle lives out-of-band in the CLI.
 //
 // Every mutating route reuses the exact store.* functions scimage-admin calls,
 // so the audit-log-in-transaction guarantee is inherited, never
@@ -15,6 +21,8 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/meghamahna/SCIMage/internal/store"
@@ -41,17 +49,24 @@ type Store interface {
 	ListAuditEntries(ctx context.Context, tenantID string, limit int) ([]store.AuditEntry, error)
 	ListAuditEntriesSince(ctx context.Context, tenantID string, since time.Time) ([]store.AuditEntry, error)
 	ListAdminAuditEntries(ctx context.Context, tenantID string, limit int) ([]store.AdminAuditEntry, error)
+
+	WebhookDeliverySummary(ctx context.Context) (store.WebhookSummary, error)
+	DeadLetters(ctx context.Context, limit int) ([]store.Delivery, error)
+	ReplayDeadLetter(ctx context.Context, id int64, actor string) error
+	WebhookDeliveryStatus(ctx context.Context, id int64) (string, error)
 }
 
 // Server holds the console's dependencies. env is the label shown in the
 // sidebar badge — purely cosmetic, so an operator can tell prod from staging
 // at a glance.
 type Server struct {
-	store Store
-	tmpl  *template.Template
-	csrf  *csrfGuard
-	env   string
-	loc   *time.Location // timezone ARIA's off-hours check evaluates against
+	store      Store
+	tmpl       *template.Template
+	csrf       *csrfGuard
+	env        string
+	loc        *time.Location  // timezone ARIA's off-hours check evaluates against
+	scimBase   string          // SCIM_BASE_URL, trimmed; "" falls back to a placeholder
+	narratives *narrativeCache // last LLM briefing per tenant+window
 }
 
 // NewServer parses the templates and mints a fresh CSRF key. A template or key
@@ -69,7 +84,15 @@ func NewServer(s Store, env string) (*Server, error) {
 	if env == "" {
 		env = "local"
 	}
-	return &Server{store: s, tmpl: tmpl, csrf: guard, env: env, loc: ariaLocation()}, nil
+	return &Server{
+		store:      s,
+		tmpl:       tmpl,
+		csrf:       guard,
+		env:        env,
+		loc:        ariaLocation(),
+		scimBase:   strings.TrimSuffix(strings.TrimSpace(os.Getenv("SCIM_BASE_URL")), "/"),
+		narratives: newNarrativeCache(),
+	}, nil
 }
 
 // ariaLocation resolves the timezone ARIA's business-hours check uses, from
@@ -90,10 +113,12 @@ func (srv *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
 	// Read pages.
-	mux.HandleFunc("GET /console", srv.handleIndex)
+	mux.HandleFunc("GET /console", srv.handleHome)
 	mux.HandleFunc("GET /console/tenants", srv.handleTenants)
 	mux.HandleFunc("GET /console/tokens", srv.handleTokens)
 	mux.HandleFunc("GET /console/attributes", srv.handleAttributes)
+	mux.HandleFunc("GET /console/webhooks", srv.handleWebhooks)
+	mux.HandleFunc("GET /console/webhooks/delivery-status", srv.handleDeliveryStatus)
 	mux.HandleFunc("GET /console/audit", srv.handleAudit)
 	mux.HandleFunc("GET /console/admin-audit", srv.handleAdminAudit)
 	mux.HandleFunc("GET /console/aria", srv.handleARIA)
@@ -104,6 +129,8 @@ func (srv *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /console/tokens/revoke", srv.handleRevokeToken)
 	mux.HandleFunc("POST /console/attributes/register", srv.handleRegisterAttribute)
 	mux.HandleFunc("POST /console/attributes/unregister", srv.handleUnregisterAttribute)
+	mux.HandleFunc("POST /console/webhooks/replay", srv.handleReplayDeadLetter)
+	mux.HandleFunc("POST /console/aria/narrate", srv.handleARIANarrate)
 
 	authed := requireConsoleToken(srv.store)(mux)
 

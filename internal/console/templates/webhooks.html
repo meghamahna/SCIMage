@@ -1,0 +1,181 @@
+{{define "webhooks" -}}
+<section class="panel">
+  <header>
+    <h2>Webhooks</h2>
+    <p>When users or groups change, SCIMage sends a signed event to your systems so they can keep up. You set the destination with the <code>SCIM_WEBHOOK_*</code> settings when the server starts. Here you can watch delivery health and resend a parked event.</p>
+  </header>
+
+  {{with .Data.Status}}
+  {{if .Problem}}
+  <div class="error">Webhook configuration problem: {{.Problem}}</div>
+  {{else if .Enabled}}
+  <div class="flag notable">
+    <div class="top"><span class="pill good">Enabled</span><span class="title">{{.Endpoint}}</span></div>
+    <div class="detail">
+      SCIMage tries up to {{.MaxAttempts}} times before parking a delivery. Delivered events are {{if .RetentionDays}}cleared after {{.RetentionDays}} days{{else}}kept indefinitely{{end}}.
+    </div>
+  </div>
+  {{if .Plaintext}}
+  <div class="flag notable">
+    <div class="top"><span class="pill warn">Plaintext</span><span class="title">This endpoint uses http</span></div>
+    <div class="detail">Events include user details, and the signature confirms they came from SCIMage. Use an https endpoint outside local development to keep those details private in transit.</div>
+  </div>
+  {{end}}
+  {{else}}
+  <div class="flag info">
+    <div class="top"><span class="pill info">Disabled</span><span class="title">Webhooks are turned off</span></div>
+    <div class="detail">Set SCIM_WEBHOOK_URL and SCIM_WEBHOOK_SECRET, then restart, to start sending change events to your systems.</div>
+  </div>
+  {{end}}
+  {{end}}
+
+  <div class="stat-row" style="margin-top:22px">
+    <div class="stat"><div class="k">Pending</div><div class="v">{{.Data.Summary.Pending}}</div></div>
+    <div class="stat"><div class="k">Delivered</div><div class="v">{{.Data.Summary.Delivered}}</div></div>
+    <div class="stat"><div class="k">Dead-lettered</div><div class="v">{{.Data.Summary.DeadLetter}}</div></div>
+  </div>
+  {{if .Data.Summary.OldestPending}}
+  <p class="hint">The oldest waiting event was queued at {{rfc3339p .Data.Summary.OldestPending}}. A growing backlog usually means your receiver is unreachable.</p>
+  {{end}}
+
+  <h3 style="margin-top:26px">Parked deliveries</h3>
+  <p class="hint">Events that used up their retries. SCIMage keeps each one so you can fix the receiver and send it again. Replaying puts it back in line for a fresh round of attempts and records who did it in the admin audit log.</p>
+  <div class="table-wrap" style="margin-top:12px" data-webhooks-on="{{if .Data.Status.Enabled}}1{{else}}0{{end}}">
+    <table>
+      <thead>
+        <tr><th>ID</th><th>Tenant</th><th>Event</th><th>Target</th><th>Attempts</th><th></th></tr>
+      </thead>
+      <tbody>
+        {{range .Data.DeadLetters}}
+        <tr data-delivery="{{.ID}}">
+          <td class="mono num">{{.ID}}</td>
+          <td class="mono">{{.TenantID}}</td>
+          <td>{{.EventType}}</td>
+          <td class="mono">{{dash .TargetID}}</td>
+          <td class="mono num">{{.Attempts}}</td>
+          <td class="replay-cell">
+            <form method="post" action="/console/webhooks/replay" class="form-inline replay-form" data-id="{{.ID}}">
+              <input type="hidden" name="csrf" value="{{$.CSRF}}" />
+              <input type="hidden" name="id" value="{{.ID}}" />
+              <button type="submit" class="ghost">Replay</button>
+            </form>
+          </td>
+        </tr>
+        {{else}}
+        <tr><td colspan="6" class="empty">No parked deliveries. Everything has been delivered or is still on its way.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+  // Progressive enhancement: with JavaScript on, Replay happens in place —
+  // requeue, then poll the delivery until it lands or parks again. With it off,
+  // the form still POSTs and the page reloads.
+  (function () {
+    var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+    var wrap = document.querySelector('[data-webhooks-on]');
+    var webhooksOn = wrap && wrap.dataset.webhooksOn === '1';
+
+    function setCell(cell, html) { cell.innerHTML = html; }
+
+    function spinner(label) {
+      return '<span class="replay-status"><span class="spinner" aria-hidden="true"></span>' + label + '</span>';
+    }
+
+    function restoreButton(cell, id, csrf) {
+      setCell(cell,
+        '<form method="post" action="/console/webhooks/replay" class="form-inline replay-form" data-id="' + id + '">' +
+        '<input type="hidden" name="csrf" value="' + csrf + '">' +
+        '<input type="hidden" name="id" value="' + id + '">' +
+        '<button type="submit" class="ghost">Replay</button></form>');
+      wire(cell.querySelector('.replay-form'));
+    }
+
+    function removeRow(row) {
+      row.classList.add('leaving');
+      setTimeout(function () {
+        var tbody = row.parentNode;
+        row.remove();
+        if (tbody && !tbody.querySelector('tr[data-delivery]')) {
+          tbody.innerHTML = '<tr><td colspan="6" class="empty">No parked deliveries. Everything has been delivered or is still on its way.</td></tr>';
+        }
+      }, 400);
+    }
+
+    function delivered(row) {
+      setCell(row.querySelector('.replay-cell'), '<span class="replay-status ok">✓ Delivered</span>');
+      setTimeout(function () { removeRow(row); }, 1000);
+    }
+
+    // The delivery was already requeued elsewhere (a 404 from replay), so it's
+    // no longer parked — clear it without the red failure state.
+    function gone(row) {
+      setCell(row.querySelector('.replay-cell'), '<span class="replay-status muted">Already handled</span>');
+      setTimeout(function () { removeRow(row); }, 1200);
+    }
+
+    // Requeued and waiting: it's back on the queue as pending. This is the
+    // resting state when the receiver is slow or webhooks are turned off — a
+    // neutral note, never a red failure. The hint says why it hasn't delivered.
+    function queued(cell, note) {
+      var html = '<span class="replay-status muted">Queued</span>';
+      if (note) { html += '<div class="replay-note">' + note + '</div>'; }
+      setCell(cell, html);
+    }
+
+    function failed(cell, id, csrf) {
+      setCell(cell, '<span class="replay-status bad">! Failed</span>');
+      setTimeout(function () { restoreButton(cell, id, csrf); }, 2500);
+    }
+
+    async function poll(row, cell, id, csrf, tries) {
+      if (tries > 16) { // ~24s; the dispatcher polls every few seconds
+        queued(cell, 'Waiting for the receiver to accept it.');
+        return;
+      }
+      await sleep(1500);
+      var status = 'pending';
+      try {
+        var res = await fetch('/console/webhooks/delivery-status?id=' + encodeURIComponent(id), { headers: { 'Accept': 'application/json' } });
+        status = (await res.json()).status;
+      } catch (e) { /* transient, keep polling */ }
+      if (status === 'delivered') { delivered(row); return; }
+      if (status === 'dead_letter') { failed(cell, id, csrf); return; }
+      poll(row, cell, id, csrf, tries + 1);
+    }
+
+    async function replay(form) {
+      var row = form.closest('tr');
+      var cell = form.closest('.replay-cell');
+      var id = form.dataset.id;
+      var csrf = form.querySelector('input[name=csrf]').value;
+      setCell(cell, spinner('Replaying…'));
+      try {
+        var res = await fetch(form.action, {
+          method: 'POST',
+          headers: { 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: 'csrf=' + encodeURIComponent(csrf) + '&id=' + encodeURIComponent(id)
+        });
+        if (res.status === 404) { gone(row); return; }
+        if (!res.ok) { failed(cell, id, csrf); return; }
+        // Requeued. With webhooks off there's no dispatcher to deliver it, so it
+        // will sit as pending — show that plainly instead of polling to a red
+        // failure. With webhooks on, watch it land or park again.
+        if (!webhooksOn) { queued(cell, 'Webhooks are off, so nothing is delivering it yet.'); return; }
+        poll(row, cell, id, csrf, 0);
+      } catch (e) {
+        failed(cell, id, csrf);
+      }
+    }
+
+    function wire(form) {
+      if (!form) { return; }
+      form.addEventListener('submit', function (e) { e.preventDefault(); replay(form); });
+    }
+
+    document.querySelectorAll('.replay-form').forEach(wire);
+  })();
+  </script>
+</section>
+{{- end}}

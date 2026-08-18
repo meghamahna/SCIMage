@@ -1,7 +1,9 @@
 package console
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"html/template"
 	"io/fs"
 	"net/http"
@@ -13,6 +15,18 @@ var assetsFS embed.FS
 
 //go:embed templates/*.html
 var templatesFS embed.FS
+
+// cssVersion is a short content hash of console.css, appended to its <link> as
+// ?v=… so a new build serves a fresh URL. Without it the browser holds the
+// cached stylesheet for the full max-age and misses CSS changes.
+var cssVersion = func() string {
+	b, err := assetsFS.ReadFile("assets/console.css")
+	if err != nil {
+		return "0"
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])[:12]
+}()
 
 // parseTemplates loads every page template into one set, sharing the funcs
 // below. Parsed once at startup so a broken template fails fast rather than on
@@ -37,6 +51,11 @@ var templateFuncs = template.FuncMap{
 		}
 		return s
 	},
+	// hms is a compact wall-clock time for the "Last refreshed at" caption,
+	// where the date is implied by the operator watching the page live.
+	"hms": func(t time.Time) string { return t.Format("15:04:05 MST") },
+	// assetver is the cache-busting suffix for the stylesheet link.
+	"assetver": func() string { return cssVersion },
 }
 
 // staticHandler serves the embedded CSS and logo under /static/. These carry

@@ -2,7 +2,7 @@
 <section class="panel">
   <header>
     <h2>Audit log</h2>
-    <p>Every mutating SCIM call for this tenant — creates, replaces, deactivations, deletes, and refusals — newest first. Written in the same transaction as the change it records.</p>
+    <p>Every change to this tenant's directory — creates, updates, deactivations, deletes, and refusals — newest first. Each entry is saved together with the change it records.</p>
   </header>
 
   <form method="get" action="/console/audit" class="toolbar">

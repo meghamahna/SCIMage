@@ -1,4 +1,4 @@
-/* SCIMage ops console — visual design locked to the token table in
+/* SCIMage admin console — visual design locked to the token table in
    docs/IMPLEMENTATION_PLAN.md (Phase 14). Brand is dark-native (see
    docs/assets/scimage_logo.png): dark is the base palette, light is the
    override for viewers whose system prefers it. Do not re-derive these
@@ -335,6 +335,8 @@ tbody tr:last-child td { border-bottom: none; }
 .stat { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 14px 18px; min-width: 150px; }
 .stat .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; }
 .stat .v { font-family: var(--font-mono); font-size: 22px; font-variant-numeric: tabular-nums; margin-top: 4px; }
+.stat .v .status-on { color: var(--good); }
+.stat .v .status-off { color: var(--muted); }
 
 .flag {
   border: 1px solid var(--line);
@@ -349,6 +351,58 @@ tbody tr:last-child td { border-bottom: none; }
 .flag .top { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
 .flag .title { font-weight: 600; font-size: 13.5px; }
 .flag .detail { color: var(--muted); font-size: 12.5px; }
+
+.aria-brief { margin-top: 26px; border-top: 1px solid var(--line); padding-top: 20px; }
+.aria-brief .brief-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.aria-brief h3 { margin: 0; font-size: 14px; }
+.brief-note { font-size: 12.5px; margin: 6px 0 14px; }
+.narrative {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  background: var(--surface);
+  border-radius: 4px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.narrative strong { font-weight: 700; }
+.brief-actions { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+.brief-status { font-size: 12.5px; color: var(--muted); }
+button.busy { opacity: 0.6; pointer-events: none; }
+
+.hint { color: var(--muted); font-size: 12.5px; }
+.sub { color: var(--muted); font-size: 11.5px; margin-top: 3px; }
+.linklist { margin: 8px 0 0; padding-left: 18px; }
+.linklist li { margin: 7px 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+/* ---- Refresh bar (every page): small, top-right of the content ---- */
+.page-refresh { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; margin-bottom: 16px; }
+button.refresh-btn { padding: 3px 9px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
+.refresh-icon { font-size: 13px; line-height: 1; }
+.refresh-at { font-size: 11px; }
+
+/* ---- Replay button states (Webhooks) ---- */
+.replay-status { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; }
+.replay-status.ok { color: var(--good); }
+.replay-status.bad { color: var(--bad); }
+.replay-status.muted { color: var(--muted); font-weight: 400; }
+.replay-note { font-size: 11px; color: var(--muted); font-weight: 400; margin-top: 4px; max-width: 200px; line-height: 1.35; white-space: normal; }
+.spinner {
+  display: inline-block;
+  vertical-align: middle;
+  width: 13px; height: 13px; flex: none;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+.brief-status .spinner { margin-right: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+tr.leaving { opacity: 0; transition: opacity 0.4s ease; }
 
 .form-inline { display: inline; }
 .error {

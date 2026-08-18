@@ -2,6 +2,7 @@ package console
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"log/slog"
@@ -13,14 +14,15 @@ import (
 // page-specific payload; the rest is chrome shared by the layout (nav
 // highlight, who's signed in, the CSRF token, an optional error banner).
 type pageView struct {
-	Title    string
-	Active   string
-	Identity consoleIdentity
-	EnvLabel string
-	CSRF     string
-	Error    string
-	Body     template.HTML
-	Data     any
+	Title      string
+	Active     string
+	Identity   consoleIdentity
+	EnvLabel   string
+	CSRF       string
+	Error      string
+	RenderedAt time.Time // when this page was served, shown in the refresh bar
+	Body       template.HTML
+	Data       any
 }
 
 // render executes the named page template into the shared layout. It's a
@@ -34,6 +36,7 @@ func (srv *Server) render(w http.ResponseWriter, r *http.Request, status int, pa
 	view.Identity = identityFrom(r.Context())
 	view.EnvLabel = srv.env
 	view.CSRF = srv.csrf.token(time.Now())
+	view.RenderedAt = time.Now()
 
 	var body bytes.Buffer
 	if err := srv.tmpl.ExecuteTemplate(&body, page, view); err != nil {
@@ -66,4 +69,22 @@ func (srv *Server) serverError(w http.ResponseWriter, r *http.Request, err error
 // distinguishes a console action from the same store call run at the CLI.
 func actor(r *http.Request) string {
 	return "console:" + identityFrom(r.Context()).KeyID
+}
+
+// writeJSON encodes v as the response body. It's used by the small JSON
+// endpoints the Webhooks page's Replay button talks to (replay and
+// delivery-status), which return data rather than a rendered page.
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		slog.Error("write console json", "error", err)
+	}
+}
+
+// jsonServerError logs like serverError but answers the JSON callers with a
+// JSON body, so a fetch sees a shape it can parse rather than an HTML error page.
+func (srv *Server) jsonServerError(w http.ResponseWriter, r *http.Request, err error) {
+	slog.Error("console handler", "path", r.URL.Path, "error", err)
+	writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "error": "internal server error"})
 }

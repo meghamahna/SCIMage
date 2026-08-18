@@ -15,6 +15,7 @@ const (
 	AdminActionTokenRevoke         = "token.revoke"
 	AdminActionAttributeRegister   = "attribute.register"
 	AdminActionAttributeUnregister = "attribute.unregister"
+	AdminActionWebhookReplay       = "webhook.replay"
 	// console.token.* actions belong to no tenant — a console credential is
 	// system-wide — so they are written with a NULL tenant_id (see the
 	// 000012 migration and insertAdminAudit).

@@ -1,16 +1,24 @@
 package console
 
 import (
+	"bytes"
+	"context"
 	"errors"
+	"fmt"
+	"html/template"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/meghamahna/SCIMage/internal/aria"
 	"github.com/meghamahna/SCIMage/internal/store"
+	"github.com/meghamahna/SCIMage/internal/webhook"
 )
 
 // auditListLimit caps how many rows the audit views pull. The store clamps to
@@ -18,11 +26,43 @@ import (
 // unmanageable table when that cap is large.
 const auditListLimit = 200
 
-func (srv *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, "/console/tenants", http.StatusFound)
+// ---- Home ----
+
+type homeData struct {
+	TenantCount     int
+	BaseURL         string // scim base URL pattern, with a placeholder tenant id
+	BasePlaceholder bool   // SCIM_BASE_URL is unset, so the host is a placeholder
+	Webhook         webhook.Status
+}
+
+// handleHome is the console landing page: what SCIMage is, the SCIM base URL an
+// operator hands an IdP, and a few live signals (tenant count, webhook status)
+// with quick links into each section. It replaces the old bare redirect to the
+// tenants page.
+func (srv *Server) handleHome(w http.ResponseWriter, r *http.Request) {
+	tenants, err := srv.store.ListTenants(r.Context())
+	if err != nil {
+		srv.serverError(w, r, err)
+		return
+	}
+	srv.render(w, r, http.StatusOK, "home", pageView{
+		Title:  "Home",
+		Active: "home",
+		Data: homeData{
+			TenantCount:     len(tenants),
+			BaseURL:         srv.tenantBaseURL("{tenantId}"),
+			BasePlaceholder: srv.scimBase == "",
+			Webhook:         webhook.StatusFromEnv(),
+		},
+	})
 }
 
 // ---- Tenants ----
+
+type tenantRow struct {
+	store.Tenant
+	BaseURL string // the SCIM base URL an IdP points at, derived not stored
+}
 
 func (srv *Server) handleTenants(w http.ResponseWriter, r *http.Request) {
 	srv.showTenants(w, r, http.StatusOK, "")
@@ -34,12 +74,32 @@ func (srv *Server) showTenants(w http.ResponseWriter, r *http.Request, status in
 		srv.serverError(w, r, err)
 		return
 	}
+	rows := make([]tenantRow, len(tenants))
+	for i, t := range tenants {
+		rows[i] = tenantRow{Tenant: t, BaseURL: srv.tenantBaseURL(t.ID)}
+	}
 	srv.render(w, r, status, "tenants", pageView{
 		Title:  "Tenants",
 		Active: "tenants",
 		Error:  errMsg,
-		Data:   struct{ Tenants []store.Tenant }{tenants},
+		Data: struct {
+			Tenants         []tenantRow
+			BasePlaceholder bool
+		}{rows, srv.scimBase == ""},
 	})
+}
+
+// tenantBaseURL mirrors internal/scim.Handler.baseURL and the admin CLI: the
+// URL is never stored, only derived from the deployment's SCIM_BASE_URL plus the
+// tenant id, so it can't go stale if the operator later changes domains. When
+// SCIM_BASE_URL is unset it shows a placeholder, the same as the CLI, so the
+// path shape is still clear.
+func (srv *Server) tenantBaseURL(tenantID string) string {
+	root := srv.scimBase
+	if root == "" {
+		root = "<SCIM_BASE_URL>"
+	}
+	return root + "/scim/v2/" + tenantID
 }
 
 func (srv *Server) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
@@ -298,6 +358,118 @@ func (srv *Server) handleAdminAudit(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ---- Webhooks ----
+
+// deadLetterLimit caps the parked-delivery list on the webhooks page. These are
+// the ones needing a human, so a small recent window is what's useful; the full
+// set is a store query away if it's ever needed.
+const deadLetterLimit = 50
+
+type webhookData struct {
+	Status      webhook.Status
+	Summary     store.WebhookSummary
+	DeadLetters []store.Delivery
+}
+
+// handleWebhooks shows change-event delivery: the configured endpoint
+// (secret-free), queue health, and any parked deliveries. The endpoint itself
+// is configured through SCIM_WEBHOOK_* at startup, not here — the only mutation
+// on this page is replaying a parked delivery (handleReplayDeadLetter).
+func (srv *Server) handleWebhooks(w http.ResponseWriter, r *http.Request) {
+	srv.showWebhooks(w, r, http.StatusOK, "")
+}
+
+func (srv *Server) showWebhooks(w http.ResponseWriter, r *http.Request, status int, errMsg string) {
+	summary, err := srv.store.WebhookDeliverySummary(r.Context())
+	if err != nil {
+		srv.serverError(w, r, err)
+		return
+	}
+	deadLetters, err := srv.store.DeadLetters(r.Context(), deadLetterLimit)
+	if err != nil {
+		srv.serverError(w, r, err)
+		return
+	}
+	srv.render(w, r, status, "webhooks", pageView{
+		Title:  "Webhooks",
+		Active: "webhooks",
+		Error:  errMsg,
+		Data: webhookData{
+			Status:      webhook.StatusFromEnv(),
+			Summary:     summary,
+			DeadLetters: deadLetters,
+		},
+	})
+}
+
+// handleReplayDeadLetter returns one parked delivery to the queue. The store
+// flips it back to pending and records the replay in the admin audit log, in one
+// transaction, attributed to this console credential.
+//
+// It answers JSON when the caller asks for it (the Webhooks page's Replay
+// button, which then polls delivery-status), and otherwise redirects — so the
+// same route works with JavaScript off.
+func (srv *Server) handleReplayDeadLetter(w http.ResponseWriter, r *http.Request) {
+	if !srv.checkCSRF(w, r) {
+		return
+	}
+	wantsJSON := strings.Contains(r.Header.Get("Accept"), "application/json")
+
+	id, err := strconv.ParseInt(strings.TrimSpace(r.FormValue("id")), 10, 64)
+	if err != nil {
+		if wantsJSON {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "invalid delivery id"})
+			return
+		}
+		srv.showWebhooks(w, r, http.StatusBadRequest, "That isn't a valid delivery id.")
+		return
+	}
+
+	if err := srv.store.ReplayDeadLetter(r.Context(), id, actor(r)); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			if wantsJSON {
+				writeJSON(w, http.StatusNotFound, map[string]any{"ok": false, "error": "no longer parked"})
+				return
+			}
+			srv.showWebhooks(w, r, http.StatusNotFound, "That delivery is no longer parked — it may already have been replayed.")
+			return
+		}
+		if wantsJSON {
+			srv.jsonServerError(w, r, err)
+			return
+		}
+		srv.serverError(w, r, err)
+		return
+	}
+
+	if wantsJSON {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
+	http.Redirect(w, r, "/console/webhooks", http.StatusSeeOther)
+}
+
+// handleDeliveryStatus reports one delivery's current status as JSON, so the
+// Replay button can poll a requeued delivery until it lands (delivered) or parks
+// again (dead_letter). Read-only, so no CSRF. A missing row reports "unknown".
+func (srv *Server) handleDeliveryStatus(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(strings.TrimSpace(r.FormValue("id")), 10, 64)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid delivery id"})
+		return
+	}
+	status, err := srv.store.WebhookDeliveryStatus(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeJSON(w, http.StatusOK, map[string]any{"status": "unknown"})
+			return
+		}
+		srv.jsonServerError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": status})
+}
+
 // ---- ARIA ----
 
 type ariaWindow struct {
@@ -327,13 +499,24 @@ type ariaData struct {
 	Callers        int
 	Truncated      bool
 	Flags          []ariaFlagView
+	Narrative      template.HTML // cached LLM briefing, empty until generated
+	NarrativeAt    time.Time
+	NarrativeError string
 }
 
-func (srv *Server) handleARIA(w http.ResponseWriter, r *http.Request) {
+// ariaInputs is the recomputed ARIA read that the GET page and the POST narrate
+// action both start from, so the two agree on the same window and report.
+type ariaInputs struct {
+	tenants  []store.Tenant
+	tenantID string
+	since    string
+	report   aria.Report
+}
+
+func (srv *Server) ariaInputs(r *http.Request) (ariaInputs, error) {
 	tenants, err := srv.store.ListTenants(r.Context())
 	if err != nil {
-		srv.serverError(w, r, err)
-		return
+		return ariaInputs{}, err
 	}
 
 	since := r.FormValue("since")
@@ -346,26 +529,184 @@ func (srv *Server) handleARIA(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	entries, err := srv.store.ListAuditEntriesSince(r.Context(), tenantID, now.Add(-window))
 	if err != nil {
+		return ariaInputs{}, err
+	}
+
+	report := aria.Detect(entries, tenantID, now.Add(-window), now, srv.loc)
+	return ariaInputs{tenants: tenants, tenantID: tenantID, since: since, report: report}, nil
+}
+
+func (srv *Server) handleARIA(w http.ResponseWriter, r *http.Request) {
+	in, err := srv.ariaInputs(r)
+	if err != nil {
+		srv.serverError(w, r, err)
+		return
+	}
+	srv.renderARIA(w, r, http.StatusOK, in, "")
+}
+
+// assembleARIAData builds the view for the ARIA page from a recomputed report,
+// attaching the last cached narrative (if any) and an optional narration error.
+// The stats are always live; a cached briefing carries its own generated-at
+// timestamp so an operator can see how fresh it is.
+func (srv *Server) assembleARIAData(in ariaInputs, narrativeErr string) ariaData {
+	data := ariaData{
+		Tenants:        in.tenants,
+		SelectedTenant: in.tenantID,
+		Windows:        ariaWindows,
+		SelectedSince:  in.since,
+		Total:          in.report.Total,
+		Callers:        in.report.Callers,
+		Truncated:      in.report.Truncated,
+		NarrativeError: narrativeErr,
+	}
+	for _, f := range in.report.Flags {
+		data.Flags = append(data.Flags, toFlagView(f, srv.loc))
+	}
+	if e, ok := srv.narratives.get(narrativeKey(in.tenantID, in.since)); ok {
+		data.Narrative = renderNarrative(e.text)
+		data.NarrativeAt = e.generatedAt
+	}
+	return data
+}
+
+func (srv *Server) renderARIA(w http.ResponseWriter, r *http.Request, status int, in ariaInputs, narrativeErr string) {
+	srv.render(w, r, status, "aria", pageView{Title: "ARIA", Active: "aria", Data: srv.assembleARIAData(in, narrativeErr)})
+}
+
+// renderARIABrief renders just the AI-briefing block, for the fetch that the
+// Generate/Refresh button makes — so the briefing updates in place and the URL
+// stays on /console/aria instead of navigating to /aria/narrate. It's buffered
+// so a template error is a clean 500, not a half-written fragment.
+func (srv *Server) renderARIABrief(w http.ResponseWriter, r *http.Request, in ariaInputs, narrativeErr string) {
+	view := pageView{CSRF: srv.csrf.token(time.Now()), Data: srv.assembleARIAData(in, narrativeErr)}
+	var buf bytes.Buffer
+	if err := srv.tmpl.ExecuteTemplate(&buf, "aria-brief", view); err != nil {
+		srv.serverError(w, r, fmt.Errorf("render aria-brief: %w", err))
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if _, err := buf.WriteTo(w); err != nil {
+		slog.Error("write aria brief", "error", err)
+	}
+}
+
+// respondARIA answers the narrate action either as the briefing fragment (the
+// button's fetch) or a full page re-render (the no-JavaScript form fallback).
+func (srv *Server) respondARIA(w http.ResponseWriter, r *http.Request, fragment bool, in ariaInputs, narrativeErr string) {
+	if fragment {
+		srv.renderARIABrief(w, r, in, narrativeErr)
+		return
+	}
+	srv.renderARIA(w, r, http.StatusOK, in, narrativeErr)
+}
+
+// handleARIANarrate produces the plain-English briefing over the flagged
+// signals. It's advisory only: the narrative is displayed to the operator and
+// never re-enters the store or the auth path, so this endpoint can't influence
+// a provisioning or authorization decision. A hit on the per-tenant+window
+// cache short-circuits the paid LLM call unless force=1 asks for a refresh.
+func (srv *Server) handleARIANarrate(w http.ResponseWriter, r *http.Request) {
+	if !srv.checkCSRF(w, r) {
+		return
+	}
+	// The button fetches with X-Requested-With and gets just the briefing block
+	// back; a plain form POST (no JavaScript) gets the whole page re-rendered.
+	fragment := r.Header.Get("X-Requested-With") != ""
+
+	in, err := srv.ariaInputs(r)
+	if err != nil {
 		srv.serverError(w, r, err)
 		return
 	}
 
-	report := aria.Detect(entries, tenantID, now.Add(-window), now, srv.loc)
-
-	data := ariaData{
-		Tenants:        tenants,
-		SelectedTenant: tenantID,
-		Windows:        ariaWindows,
-		SelectedSince:  since,
-		Total:          report.Total,
-		Callers:        report.Callers,
-		Truncated:      report.Truncated,
-	}
-	for _, f := range report.Flags {
-		data.Flags = append(data.Flags, toFlagView(f, srv.loc))
+	// A quiet window has nothing to narrate; don't spend an LLM call on it.
+	if !in.report.HasFindings() {
+		srv.respondARIA(w, r, fragment, in, "")
+		return
 	}
 
-	srv.render(w, r, http.StatusOK, "aria", pageView{Title: "ARIA", Active: "aria", Data: data})
+	key := narrativeKey(in.tenantID, in.since)
+	if r.PostFormValue("force") != "1" {
+		if _, ok := srv.narratives.get(key); ok {
+			srv.respondARIA(w, r, fragment, in, "")
+			return
+		}
+	}
+
+	text, err := srv.narrate(r.Context(), in.report)
+	if err != nil {
+		// A missing ARIA_LLM_* config or an LLM outage shouldn't 500 the
+		// console — surface it in the page and keep any prior briefing visible.
+		srv.respondARIA(w, r, fragment, in, "Couldn't generate a briefing: "+err.Error())
+		return
+	}
+	srv.narratives.put(key, text)
+	srv.respondARIA(w, r, fragment, in, "")
+}
+
+// narrate runs ARIA's LLM pass over an already-computed report: it reads the
+// LLM config from the environment and asks the model to narrate the findings.
+// The prompt carries only the deterministic facts; the model adds phrasing, not
+// signals.
+func (srv *Server) narrate(ctx context.Context, report aria.Report) (string, error) {
+	cfg, err := aria.ConfigFromEnv()
+	if err != nil {
+		return "", err
+	}
+	system, user := aria.BuildPrompt(report)
+	return aria.NewClient(cfg).Summarize(ctx, system, user)
+}
+
+// boldRE matches the model's **label:** headers. It runs on already-escaped
+// text (see renderNarrative), so its capture can never carry live markup.
+var boldRE = regexp.MustCompile(`\*\*(.+?)\*\*`)
+
+// renderNarrative turns ARIA's Markdown-ish briefing into safe HTML. The text
+// is HTML-escaped first, so the only markup emitted is the <strong> added for
+// the model's bold labels; newlines are kept by white-space:pre-wrap in the
+// stylesheet. The LLM's output is never trusted as raw HTML.
+func renderNarrative(s string) template.HTML {
+	escaped := template.HTMLEscapeString(s)
+	escaped = boldRE.ReplaceAllString(escaped, "<strong>$1</strong>")
+	return template.HTML(escaped)
+}
+
+// narrativeCache holds the last briefing per tenant+window so re-opening the
+// ARIA page or re-clicking Generate doesn't spend a paid LLM call every time.
+// This is a single-operator loopback console, so a process-lifetime in-memory
+// map is enough; a refresh (force=1) bypasses it.
+type narrativeCache struct {
+	mu    sync.Mutex
+	items map[string]narrativeEntry
+}
+
+type narrativeEntry struct {
+	text        string
+	generatedAt time.Time
+}
+
+func newNarrativeCache() *narrativeCache {
+	return &narrativeCache{items: make(map[string]narrativeEntry)}
+}
+
+func (c *narrativeCache) get(key string) (narrativeEntry, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.items[key]
+	return e, ok
+}
+
+func (c *narrativeCache) put(key, text string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.items[key] = narrativeEntry{text: text, generatedAt: time.Now()}
+}
+
+// narrativeKey pairs a tenant filter with a window. The NUL separator can't
+// appear in either value, so distinct pairs can't collide.
+func narrativeKey(tenantID, since string) string {
+	return tenantID + "\x00" + since
 }
 
 // toFlagView renders one deterministic flag into title/detail text. It leans
