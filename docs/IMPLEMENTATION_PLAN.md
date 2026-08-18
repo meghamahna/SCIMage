@@ -367,27 +367,27 @@ portal) considered and declined for this project.
 
 #### 14a: Ops console
 
-- [ ] `console_tokens` table (migration `000012`) and
+- [x] `console_tokens` table (migration `000012`) and
       `internal/store/consoletoken.go`: `IssueConsoleToken`,
       `ListConsoleTokens`, `RevokeConsoleToken`, mirroring `token.go`'s
       existing pattern — same hashing, same atomic `insertAdminAudit` call
       inside the mutation's own transaction
-- [ ] `scimage-admin console-token issue/list/revoke`, shown-once plaintext
+- [x] `scimage-admin console-token issue/list/revoke`, shown-once plaintext
       like `token issue` already does
-- [ ] `internal/console`: a second `http.Server` on `CONSOLE_ADDR` (default
+- [x] `internal/console`: a second `http.Server` on `CONSOLE_ADDR` (default
       `127.0.0.1:8090`, loopback by default, opt-in), separate from the
       internet-facing SCIM port
-- [ ] Auth via the issued console token (HTTP Basic or Bearer,
+- [x] Auth via the issued console token (HTTP Basic or Bearer,
       `crypto/subtle.ConstantTimeCompare`), not a static shared secret
-- [ ] View tenants, tokens (metadata only, never the secret), the SCIM audit
+- [x] View tenants, tokens (metadata only, never the secret), the SCIM audit
       log, the admin audit log, and ARIA summaries
-- [ ] Mutating routes — create tenant, issue/revoke token,
+- [x] Mutating routes — create tenant, issue/revoke token,
       register/unregister attribute — reusing the exact `store.*` functions
       `scimage-admin` calls, so the audit-log-in-transaction guarantee is
       inherited, not re-implemented
-- [ ] Stateless, signed CSRF token (HMAC over a time bucket, no session, no
+- [x] Stateless, signed CSRF token (HMAC over a time bucket, no session, no
       cookie) on every mutating route
-- [ ] Visual design locked to the token table below; build `static.go`'s CSS
+- [x] Visual design locked to the token table below; build `static.go`'s CSS
       and `templates/*.html` from these values, not a re-derived palette
 
 **Console design tokens.** A working interactive mockup exists at
@@ -424,15 +424,36 @@ IDs, hashes, timestamps).
 
 #### 14b: OpenAPI spec and Swagger UI
 
-- [ ] Hand-written `docs/openapi.yaml` covering `/Users`, `/Groups`, and the
+- [x] Hand-written `docs/openapi.yaml` covering `/Users`, `/Groups`, and the
       RFC 7644 discovery endpoints, documenting the `Bool` type's
       Entra-stringified-boolean quirk explicitly rather than relying on
       codegen to infer it
-- [ ] Vendored Swagger UI static assets, embedded (`docs/embed.go`) and
+- [x] Vendored Swagger UI static assets, embedded (`docs/embed.go`) and
       served unauthenticated at `/docs`, no CDN dependency
 
-**Decisions**: why a second listener over a separate binary; why HTTP Basic
-transport for the console credential over a bare `Bearer`-only scheme; why
-the OpenAPI spec is hand-written rather than generated; why `/docs` stays
-unauthenticated while `/console` does not. (To be written up here once both
-land, matching the style of the Phase 10-13 closing paragraphs.)
+**Decisions.** The console is a second `http.Server` in the same process, not
+a separate binary: it shares the store, the connection pool, and the
+graceful-shutdown path already built for the SCIM listener, and — the point
+that matters most — it mutates only through the exact `store.*` functions the
+CLI calls, so the audit-log-in-transaction guarantee is inherited rather than
+re-implemented. A separate binary would have duplicated all of that and still
+needed its own database wiring. Keeping it a *distinct listener* on its own
+port, though, means the privileged admin surface never shares a socket with
+internet-facing tenant traffic. It is opt-in: it starts only when
+`CONSOLE_ADDR` is set (the fail-closed choice for a full-mutation surface),
+and `127.0.0.1:8090` is the documented value, binding loopback so it isn't
+reachable off-host without a deliberate tunnel. The credential is accepted
+over HTTP Basic as well as `Bearer` because Basic is what a browser's own
+login dialog speaks: an operator opens `/console`, pastes the token into the
+password field, and the browser remembers it — no extension or
+header-injecting bookmarklet needed. `Bearer` still works for `curl` and
+scripts; both compare the secret with `crypto/subtle.ConstantTimeCompare`. The
+OpenAPI spec is hand-written rather than generated because the one detail most
+worth documenting — that the server accepts Entra's stringified booleans
+(`"true"`) on `active` and `emails[].primary`, not just real JSON booleans —
+is exactly the deliberate leniency a generator infers away from the Go types.
+A hand-written spec states it outright. Finally, `/docs` is unauthenticated
+while `/console` is not, because the two expose opposite things: `/docs`
+describes a public protocol (SCIM 2.0) and carries no tenant data or secrets,
+so an integrator should be able to read it before they have a token;
+`/console` reads and mutates real tenant state, so it always requires one.
