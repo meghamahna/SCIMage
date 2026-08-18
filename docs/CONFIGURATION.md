@@ -192,6 +192,36 @@ prompts for) or an `Authorization: Bearer` header. Every mutating action reuses
 the same `scimage-admin` code paths, so it is audit-logged in the same
 transaction as the change, and carries a stateless CSRF token.
 
+## 🔀 Console UI or CLI
+
+Every administrative task can be done two ways: click through the ops console,
+or run `scimage-admin` (locally, the `make` targets wrap it). They are
+interchangeable, because the console calls the exact same `store.*` functions
+the CLI does, so either path writes the same `admin_audit_log` row in the same
+transaction.
+
+| Task | In the console UI | On the CLI |
+| --- | --- | --- |
+| Create a tenant | **Tenants → New tenant** | `scimage-admin tenant create -name "Acme Corp"` |
+| List tenants | **Tenants** | `scimage-admin tenant list` |
+| Issue a token | **Tokens → Issue token** | `scimage-admin token issue -tenant <id> -label "Okta prod"` |
+| List / revoke tokens | **Tokens** (Revoke) | `scimage-admin token list -tenant <id>`; `token revoke <keyID>` |
+| Register / remove an attribute | **Attributes** | `scimage-admin attribute register\|unregister -tenant <id> -name <attr>` |
+| Read the SCIM audit log | **Audit log** | direct SQL on `audit_log`, or a webhook consumer |
+| Read the admin audit log | **Admin audit** | `scimage-admin audit list [-tenant <id>]` |
+| ARIA activity briefing | **ARIA** | `aria [-tenant <id>] [-since 7d]` (or `make aria`) |
+| Issue / revoke a **console** credential | not in the UI | `scimage-admin console-token issue\|list\|revoke` |
+
+Two things sit outside this symmetry, by design:
+
+- **A console credential is CLI-only.** It's the key to the UI, so it's minted
+  from the CLI (`console-token issue`); the console can't grant its own way in.
+- **There is no "delete tenant."** A tenant owns a customer's whole directory,
+  so it is created once and kept, never deleted, from either path. Rotate or
+  revoke its tokens instead. Users and groups aren't created here either: an
+  identity provider provisions those over SCIM, and the console shows their
+  audit trail rather than an editor.
+
 ## 🤖 Audit review (ARIA)
 
 `cmd/aria` (ARIA, the Audit Risk Intelligence Advisor) reads the `audit_log` and

@@ -62,6 +62,9 @@ SERVICE=postgres`, not `--service=postgres`.
 | `make token TENANT=<id> LABEL="Okta prod"` | Issues a token for a tenant | Optional `EXPIRES=90d`; token is shown once |
 | `make token-list TENANT=<id>` | Lists a tenant's tokens | Never shows the secret, only metadata |
 | `make token-revoke KEY=<keyID>` | Revokes a token immediately | Irreversible; idempotent on an already-revoked key |
+| `make console-token LABEL="ops laptop"` | Issues an ops-console credential | Optional `EXPIRES=90d`; shown once; used to sign in to `/console` |
+| `make console-token-list` | Lists ops-console credentials | Metadata only, never the secret |
+| `make console-token-revoke KEY=<keyID>` | Revokes an ops-console credential | Immediate; idempotent |
 | `make attr-register TENANT=<id> NAME=displayName` | Registers an extra attribute a tenant should capture | Optional `TYPE=string`; server captures it only with `SCIM_EXTENDED_ATTRIBUTES=1` |
 | `make attr-list TENANT=<id>` | Lists a tenant's registered extra attributes | Requires `TENANT` |
 | `make attr-unregister TENANT=<id> NAME=displayName` | Removes a registered attribute | Stops future capture; doesn't touch stored values |
@@ -79,12 +82,11 @@ Two browser-facing surfaces ship with the server:
 The console stays off until you turn it on. Three steps to launch it:
 
 ```bash
-# 1. enable the console listener (loopback, opt-in), then reload .env
+# 1. enable the console listener (loopback, opt-in)
 echo 'CONSOLE_ADDR=127.0.0.1:8090' >> .env
-set -a; source .env; set +a
 
 # 2. mint a console credential (system-wide, not a tenant token); shown once
-go run ./cmd/scimage-admin console-token issue -label "local console"
+make console-token LABEL="local console"
 
 # 3. (re)start the server
 make run

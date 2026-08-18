@@ -125,6 +125,17 @@ token-list: ## List a tenant's tokens
 token-revoke: ## Revoke a token immediately
 	@scripts/with-env.sh go run ./cmd/scimage-admin token revoke "$(KEY)"
 
+# Usage: make console-token LABEL="ops laptop"  [EXPIRES=90d]
+console-token: ## Issue an ops-console credential (for signing in to /console)
+	@scripts/with-env.sh go run ./cmd/scimage-admin console-token issue -label "$(LABEL)" $(if $(EXPIRES),-expires "$(EXPIRES)")
+
+console-token-list: ## List ops-console credentials
+	@scripts/with-env.sh go run ./cmd/scimage-admin console-token list
+
+# Usage: make console-token-revoke KEY=<keyID>
+console-token-revoke: ## Revoke an ops-console credential
+	@scripts/with-env.sh go run ./cmd/scimage-admin console-token revoke "$(KEY)"
+
 # Usage: make audit-list  |  make audit-list TENANT=tenant_xxx
 audit-list: ## Read the admin-audit trail
 	@scripts/with-env.sh go run ./cmd/scimage-admin audit list $(if $(TENANT),-tenant "$(TENANT)")
