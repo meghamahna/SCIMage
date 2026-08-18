@@ -1,0 +1,538 @@
+openapi: 3.0.3
+
+# Hand-written, not generated. A generator would infer `active` and
+# `emails[].primary` as plain JSON booleans and miss the one interop quirk that
+# matters most in practice: this server also accepts the *stringified* boolean
+# ("true"/"false") that Microsoft Entra sends, because a strict boolean decode
+# would turn every Entra provisioning call into a 400. That behaviour is
+# documented explicitly on the `Bool` schema below — the whole reason this file
+# is maintained by hand.
+info:
+  title: SCIMage — SCIM 2.0 Provisioning API
+  version: "1.0.0"
+  description: |
+    A SCIM 2.0 provisioning server implementing the `/Users` and `/Groups`
+    resources and the RFC 7644 discovery endpoints. Every resource lives under
+    a tenant: the path base is `/scim/v2/{tenantID}`, and a bearer token
+    authenticates as exactly one tenant, so a token issued for tenant A can
+    never read or write tenant B.
+
+    **Media type.** Responses are `application/scim+json` (RFC 7644 §3.1).
+    Requests may use `application/scim+json` or `application/json`.
+
+    **Errors.** Failures return a SCIM Error object whose `status` is a
+    *string*, not a number (RFC 7644 §3.12).
+  license:
+    name: SCIMage
+  contact:
+    name: SCIMage
+
+servers:
+  - url: "{scheme}://{host}/scim/v2/{tenantID}"
+    description: Tenant-scoped SCIM base URL.
+    variables:
+      scheme:
+        default: https
+        enum: [https, http]
+      host:
+        default: scim.example.com
+      tenantID:
+        default: tenant_xxxxxxxx
+        description: The tenant this token was issued for.
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Users
+    description: User provisioning (RFC 7643 §4.1).
+  - name: Groups
+    description: Group provisioning (RFC 7643 §4.2).
+  - name: Discovery
+    description: SCIM service-discovery endpoints (RFC 7644 §4).
+
+paths:
+  /Users:
+    get:
+      tags: [Users]
+      summary: List and filter users
+      description: |
+        Returns a paged `ListResponse`. Supports `startIndex`/`count` paging
+        and a `filter` on `userName` (the `eq` operator), the subset an
+        identity provider uses to reconcile.
+      parameters:
+        - $ref: "#/components/parameters/StartIndex"
+        - $ref: "#/components/parameters/Count"
+        - name: filter
+          in: query
+          required: false
+          schema: { type: string }
+          example: userName eq "bjensen@example.com"
+      responses:
+        "200":
+          description: A page of users.
+          content:
+            application/scim+json:
+              schema: { $ref: "#/components/schemas/ListResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Users]
+      summary: Create a user
+      requestBody:
+        required: true
+        content:
+          application/scim+json:
+            schema: { $ref: "#/components/schemas/User" }
+      responses:
+        "201":
+          description: The created user.
+          headers:
+            Location:
+              schema: { type: string }
+              description: Canonical URL of the new resource.
+          content:
+            application/scim+json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409":
+          description: A user with that `userName` already exists in this tenant.
+          content:
+            application/scim+json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /Users/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ResourceID"
+    get:
+      tags: [Users]
+      summary: Retrieve a user
+      responses:
+        "200":
+          description: The user.
+          content:
+            application/scim+json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [Users]
+      summary: Replace a user
+      description: A full replacement (RFC 7644 §3.5.1). Attributes omitted from the body are cleared.
+      requestBody:
+        required: true
+        content:
+          application/scim+json:
+            schema: { $ref: "#/components/schemas/User" }
+      responses:
+        "200":
+          description: The replaced user.
+          content:
+            application/scim+json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The requested `userName` is taken by another user.
+          content:
+            application/scim+json:
+              schema: { $ref: "#/components/schemas/Error" }
+    patch:
+      tags: [Users]
+      summary: Partially modify a user
+      description: A SCIM PATCH (RFC 7644 §3.5.2) with `add`, `remove`, and `replace` operations.
+      requestBody:
+        required: true
+        content:
+          application/scim+json:
+            schema: { $ref: "#/components/schemas/PatchOp" }
+      responses:
+        "200":
+          description: The modified user.
+          content:
+            application/scim+json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Users]
+      summary: Deactivate a user
+      description: |
+        A DELETE on a user is a **soft delete**: the row is kept and `active`
+        is set to false, so the user still appears in listings and audit
+        history. This is what lets a reactivation restore the same identity.
+      responses:
+        "204": { description: Deactivated. No content. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /Groups:
+    get:
+      tags: [Groups]
+      summary: List and filter groups
+      parameters:
+        - $ref: "#/components/parameters/StartIndex"
+        - $ref: "#/components/parameters/Count"
+        - name: filter
+          in: query
+          required: false
+          schema: { type: string }
+          example: displayName eq "Engineering"
+      responses:
+        "200":
+          description: A page of groups.
+          content:
+            application/scim+json:
+              schema: { $ref: "#/components/schemas/GroupListResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Groups]
+      summary: Create a group
+      requestBody:
+        required: true
+        content:
+          application/scim+json:
+            schema: { $ref: "#/components/schemas/Group" }
+      responses:
+        "201":
+          description: The created group.
+          headers:
+            Location:
+              schema: { type: string }
+          content:
+            application/scim+json:
+              schema: { $ref: "#/components/schemas/Group" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409":
+          description: A group with that `displayName` already exists in this tenant.
+          content:
+            application/scim+json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /Groups/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ResourceID"
+    get:
+      tags: [Groups]
+      summary: Retrieve a group
+      responses:
+        "200":
+          description: The group.
+          content:
+            application/scim+json:
+              schema: { $ref: "#/components/schemas/Group" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [Groups]
+      summary: Replace a group
+      requestBody:
+        required: true
+        content:
+          application/scim+json:
+            schema: { $ref: "#/components/schemas/Group" }
+      responses:
+        "200":
+          description: The replaced group.
+          content:
+            application/scim+json:
+              schema: { $ref: "#/components/schemas/Group" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Groups]
+      summary: Partially modify a group
+      description: A SCIM PATCH (RFC 7644 §3.5.2), used chiefly to add and remove members.
+      requestBody:
+        required: true
+        content:
+          application/scim+json:
+            schema: { $ref: "#/components/schemas/PatchOp" }
+      responses:
+        "200":
+          description: The modified group.
+          content:
+            application/scim+json:
+              schema: { $ref: "#/components/schemas/Group" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Groups]
+      summary: Delete a group
+      description: |
+        Unlike a user, a group has no `active` attribute to soft-delete into,
+        so this is a **real deletion**: the group is removed and its
+        memberships with it. The users themselves are untouched.
+      responses:
+        "204": { description: Deleted. No content. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /ServiceProviderConfig:
+    get:
+      tags: [Discovery]
+      summary: Advertise supported SCIM features
+      description: Which optional SCIM features this server implements (RFC 7644 §5).
+      responses:
+        "200":
+          description: The service provider configuration.
+          content:
+            application/scim+json:
+              schema: { type: object }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /ResourceTypes:
+    get:
+      tags: [Discovery]
+      summary: List resource types
+      description: The resource types this server exposes — User and Group (RFC 7644 §4).
+      responses:
+        "200":
+          description: The resource types.
+          content:
+            application/scim+json:
+              schema: { type: object }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /Schemas:
+    get:
+      tags: [Discovery]
+      summary: List supported schemas
+      description: The attribute schemas this server supports, including any tenant-registered extended attributes (RFC 7644 §4).
+      responses:
+        "200":
+          description: The schemas.
+          content:
+            application/scim+json:
+              schema: { type: object }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        A tenant-scoped token, `scimage_<keyID>_<secret>`, issued with
+        `scimage-admin token issue`. It authenticates as exactly one tenant.
+
+  parameters:
+    ResourceID:
+      name: id
+      in: path
+      required: true
+      description: Server-assigned resource identifier.
+      schema: { type: string }
+    StartIndex:
+      name: startIndex
+      in: query
+      required: false
+      description: 1-based index of the first result to return (RFC 7644 §3.4.2).
+      schema: { type: integer, minimum: 1, default: 1 }
+    Count:
+      name: count
+      in: query
+      required: false
+      description: Maximum results per page. The server clamps oversized values to its page cap.
+      schema: { type: integer, minimum: 0 }
+
+  responses:
+    Unauthorized:
+      description: Missing, malformed, revoked, expired, or wrong-tenant token. The body is a generic SCIM error; the reason is never disclosed.
+      content:
+        application/scim+json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: No such resource in this tenant.
+      content:
+        application/scim+json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Error:
+      description: The request was rejected.
+      content:
+        application/scim+json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Bool:
+      type: boolean
+      description: |
+        A SCIM boolean, with one deliberate leniency. RFC 7643 types `active`
+        and `emails[].primary` as booleans, and this server **returns** real
+        booleans. On input it also accepts the *stringified* forms `"true"` and
+        `"false"` that Microsoft Entra sends, because a strict boolean decode
+        would make every Entra provisioning call a 400. `null` and `""` decode
+        to `false`.
+      example: true
+
+    User:
+      type: object
+      required: [schemas, userName]
+      properties:
+        schemas:
+          type: array
+          items: { type: string }
+          example: ["urn:ietf:params:scim:schemas:core:2.0:User"]
+        id:
+          type: string
+          readOnly: true
+          description: Server-assigned. Ignored on input.
+        externalId:
+          type: string
+          description: The client's own identifier, stored and returned unchanged for reconciliation.
+        userName:
+          type: string
+          description: Unique within the tenant, case-insensitively.
+          example: bjensen@example.com
+        name:
+          $ref: "#/components/schemas/Name"
+        emails:
+          type: array
+          items: { $ref: "#/components/schemas/Email" }
+        active:
+          allOf:
+            - $ref: "#/components/schemas/Bool"
+          description: Defaults to true when omitted. A DELETE sets this false.
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    Name:
+      type: object
+      properties:
+        givenName: { type: string, example: Barbara }
+        familyName: { type: string, example: Jensen }
+
+    Email:
+      type: object
+      required: [value]
+      properties:
+        value: { type: string, example: bjensen@example.com }
+        primary:
+          allOf:
+            - $ref: "#/components/schemas/Bool"
+          description: See `Bool` for the stringified-boolean quirk.
+
+    Meta:
+      type: object
+      readOnly: true
+      properties:
+        resourceType: { type: string, example: User }
+        created: { type: string, format: date-time }
+        lastModified: { type: string, format: date-time }
+        location: { type: string, description: Canonical URL of this resource. }
+
+    Group:
+      type: object
+      required: [schemas, displayName]
+      properties:
+        schemas:
+          type: array
+          items: { type: string }
+          example: ["urn:ietf:params:scim:schemas:core:2.0:Group"]
+        id:
+          type: string
+          readOnly: true
+        externalId:
+          type: string
+          description: The client's own identifier, stored and returned unchanged.
+        displayName:
+          type: string
+          description: Unique within the tenant, case-insensitively.
+          example: Engineering
+        members:
+          type: array
+          items: { $ref: "#/components/schemas/Member" }
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    Member:
+      type: object
+      required: [value]
+      properties:
+        value:
+          type: string
+          description: The `id` of a user in the same tenant. A reference to an unknown or cross-tenant user is rejected, not silently dropped.
+        $ref:
+          type: string
+          description: URI reference to the member resource.
+        display:
+          type: string
+          description: Accepted on input, never populated on output.
+
+    ListResponse:
+      type: object
+      properties:
+        schemas:
+          type: array
+          items: { type: string }
+          example: ["urn:ietf:params:scim:api:messages:2.0:ListResponse"]
+        totalResults: { type: integer, example: 42 }
+        itemsPerPage: { type: integer, example: 20 }
+        startIndex: { type: integer, example: 1 }
+        Resources:
+          type: array
+          items: { $ref: "#/components/schemas/User" }
+
+    GroupListResponse:
+      type: object
+      properties:
+        schemas:
+          type: array
+          items: { type: string }
+          example: ["urn:ietf:params:scim:api:messages:2.0:ListResponse"]
+        totalResults: { type: integer }
+        itemsPerPage: { type: integer }
+        startIndex: { type: integer }
+        Resources:
+          type: array
+          items: { $ref: "#/components/schemas/Group" }
+
+    PatchOp:
+      type: object
+      required: [schemas, Operations]
+      description: A SCIM PATCH request (RFC 7644 §3.5.2).
+      properties:
+        schemas:
+          type: array
+          items: { type: string }
+          example: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"]
+        Operations:
+          type: array
+          items:
+            type: object
+            required: [op]
+            properties:
+              op:
+                type: string
+                enum: [add, remove, replace]
+              path:
+                type: string
+                example: members
+              value:
+                description: Present for add/replace; a value or array of values. Omitted for a bare remove.
+                nullable: true
+
+    Error:
+      type: object
+      description: A SCIM error (RFC 7644 §3.12). `status` is a string, not a number.
+      properties:
+        schemas:
+          type: array
+          items: { type: string }
+          example: ["urn:ietf:params:scim:api:messages:2.0:Error"]
+        status:
+          type: string
+          example: "404"
+        scimType:
+          type: string
+          example: uniqueness
+        detail:
+          type: string
+          example: userName already exists

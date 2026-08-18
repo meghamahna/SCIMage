@@ -12,8 +12,15 @@ diff=$(git diff --cached 2>/dev/null || true)
 [[ -z "$diff" ]] && exit 0
 
 added_lines=$(echo "$diff" | grep -E '^\+' | grep -vE '^\+\+\+' || true)
+# The credential/DSN/bearer checks run against first-party source only. Docs
+# (.md/.mdx/.txt) are skipped because they quote example values, and the
+# vendored Swagger UI bundle (docs/swaggerui/, a pinned third-party minified
+# library — provenance in docs/swaggerui/VERSION) is skipped because its
+# minified code contains field names like clientSecret:"..." that match the
+# credential regex with no real secret behind them. First-party code is still
+# fully scanned; the PEM/AWS-key checks below run against every file regardless.
 added_lines_nodoc=$(echo "$diff" | awk '
-  /^diff --git/ { skip = ($0 ~ /\.(md|mdx|txt)( |$)/) }
+  /^diff --git/ { skip = ($0 ~ /\.(md|mdx|txt)( |$)/ || $0 ~ /docs\/swaggerui\//) }
   /^\+/ && $0 !~ /^\+\+\+/ && !skip { print }
 ')
 

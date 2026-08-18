@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/meghamahna/SCIMage/docs"
 	"github.com/meghamahna/SCIMage/internal/console"
 	"github.com/meghamahna/SCIMage/internal/logging"
 	"github.com/meghamahna/SCIMage/internal/scim"
@@ -109,6 +110,14 @@ func run() error {
 	root := http.NewServeMux()
 	root.Handle("GET /healthz", scim.LivenessHandler())
 	root.Handle("GET /readyz", scim.ReadinessHandler(s))
+
+	// Interactive API docs: unauthenticated on purpose — the spec describes a
+	// public protocol and carries no tenant data, so an integrator reads it
+	// before they have a token. Mounted on the root mux, outside the SCIM
+	// handler's auth, like the health probes.
+	root.Handle("/docs/", http.StripPrefix("/docs", docs.Handler()))
+	root.Handle("/docs", http.RedirectHandler("/docs/", http.StatusMovedPermanently))
+
 	root.Handle("/", scim.NewHandler(s, s, s, s).Routes())
 
 	srv := &http.Server{

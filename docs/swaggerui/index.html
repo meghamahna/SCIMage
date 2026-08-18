@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>SCIMage API — Reference</title>
+    <!-- Vendored, no CDN: served from the same origin as the spec so /docs
+         works on an air-gapped or firewalled deployment. -->
+    <link rel="stylesheet" href="./swagger-ui.css" />
+    <style>
+      body { margin: 0; background: #fafafa; }
+    </style>
+  </head>
+  <body>
+    <div id="swagger-ui"></div>
+    <script src="./swagger-ui-bundle.js"></script>
+    <script>
+      window.onload = function () {
+        window.ui = SwaggerUIBundle({
+          // Relative, so it resolves under whatever prefix /docs is mounted at.
+          url: "./openapi.yaml",
+          dom_id: "#swagger-ui",
+          deepLinking: true,
+          presets: [SwaggerUIBundle.presets.apis],
+          // BaseLayout: no top "explore" URL bar, since the spec is fixed and
+          // the standalone preset (which draws that bar) isn't vendored.
+          layout: "BaseLayout",
+        });
+      };
+    </script>
+  </body>
+</html>

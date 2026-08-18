@@ -1,0 +1,7 @@
+swagger-ui-dist 5.17.14
+https://unpkg.com/swagger-ui-dist@5.17.14/
+
+Vendored, not pulled from a CDN at runtime: swagger-ui.css and
+swagger-ui-bundle.js are served from this repo so /docs works with no
+outbound network. To update, replace both files (and index.html if the
+init API changed) from the same pinned version and bump this file.
