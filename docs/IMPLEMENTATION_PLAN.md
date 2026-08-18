@@ -51,6 +51,7 @@ README.md
 - [Phase 11: Groups and Extended Attributes](#phase-11-groups-and-extended-attributes)
 - [Phase 12: ARIA](#phase-12-aria)
 - [Phase 13: Release engineering](#phase-13-release-engineering)
+- [Phase 14: Operator and integrator tooling](#phase-14-operator-and-integrator-tooling)
 
 ### Phase 1: Infrastructure
 
@@ -353,3 +354,85 @@ on activity, the code decides.
 
 A published registry image and the `v1.0.0` tag are the remaining release steps,
 tracked in `ROADMAP.md`.
+
+### Phase 14: Operator and integrator tooling
+
+Two independent, additive pieces that make the server approachable without a
+full customer-facing admin portal: an ops console for whoever runs SCIMage,
+and interactive API docs for whoever integrates against it. The console has
+full parity with `scimage-admin` (including mutations), but only for that one
+operator — a tenant's own IT staff never log in themselves; that would be a
+materially different, larger feature (a WorkOS/Stytch-style self-service
+portal) considered and declined for this project.
+
+#### 14a: Ops console
+
+- [ ] `console_tokens` table (migration `000012`) and
+      `internal/store/consoletoken.go`: `IssueConsoleToken`,
+      `ListConsoleTokens`, `RevokeConsoleToken`, mirroring `token.go`'s
+      existing pattern — same hashing, same atomic `insertAdminAudit` call
+      inside the mutation's own transaction
+- [ ] `scimage-admin console-token issue/list/revoke`, shown-once plaintext
+      like `token issue` already does
+- [ ] `internal/console`: a second `http.Server` on `CONSOLE_ADDR` (default
+      `127.0.0.1:8090`, loopback by default, opt-in), separate from the
+      internet-facing SCIM port
+- [ ] Auth via the issued console token (HTTP Basic or Bearer,
+      `crypto/subtle.ConstantTimeCompare`), not a static shared secret
+- [ ] View tenants, tokens (metadata only, never the secret), the SCIM audit
+      log, the admin audit log, and ARIA summaries
+- [ ] Mutating routes — create tenant, issue/revoke token,
+      register/unregister attribute — reusing the exact `store.*` functions
+      `scimage-admin` calls, so the audit-log-in-transaction guarantee is
+      inherited, not re-implemented
+- [ ] Stateless, signed CSRF token (HMAC over a time bucket, no session, no
+      cookie) on every mutating route
+- [ ] Visual design locked to the token table below; build `static.go`'s CSS
+      and `templates/*.html` from these values, not a re-derived palette
+
+**Console design tokens.** A working interactive mockup exists at
+`docs/mockups/console-mockup.html` on the machine it was built on, but that
+path is gitignored — a personal working reference, not a committed artifact
+— so this table, not that file, is the binding spec for anyone picking this
+up from a fresh clone. Brand is dark-native (`docs/assets/scimage_logo.png`):
+dark is the base palette, with a light-mode override underneath for viewers
+whose system prefers it.
+
+| Token | Dark (base) | Light (override) |
+| --- | --- | --- |
+| `--paper` | `#081420` | `#F1F6FA` |
+| `--surface` | `#0D1F30` | `#FFFFFF` |
+| `--surface-2` | `#122A3F` | `#E7EEF4` |
+| `--ink` | `#F3F8FB` | `#0B1B2E` |
+| `--muted` | `#8CA3BA` | `#55708A` |
+| `--line` | `#1E3A52` | `#D6E1EC` |
+| `--accent` | `#2FD7C4` | `#0E7C86` |
+| `--accent-2` | `#3B82F6` | `#2563EB` |
+| `--accent-contrast` | `#06211C` | `#FFFFFF` |
+| `--accent-soft` | `#123244` | `#E1F3F1` |
+| `--good` | `#34D399` | `#1A9469` |
+| `--warn` | `#F5A524` | `#9A6B12` |
+| `--bad` | `#F0475C` | `#C13248` |
+
+`--accent`/`--accent-2` are the shield logo's teal-to-blue gradient — used
+for `.primary` buttons and a soft glow behind the sidebar logo, nowhere else.
+Semantic colors (`--good`/`--warn`/`--bad`) stay a separate hue family from
+the accent. Fonts: a literary serif (`"Iowan Old Style", "Palatino
+Linotype", Palatino, Georgia, serif`) for page titles only, system sans for
+UI text, system monospace with `tabular-nums` for every technical value (key
+IDs, hashes, timestamps).
+
+#### 14b: OpenAPI spec and Swagger UI
+
+- [ ] Hand-written `docs/openapi.yaml` covering `/Users`, `/Groups`, and the
+      RFC 7644 discovery endpoints, documenting the `Bool` type's
+      Entra-stringified-boolean quirk explicitly rather than relying on
+      codegen to infer it
+- [ ] Vendored Swagger UI static assets, embedded (`docs/embed.go`) and
+      served unauthenticated at `/docs`, no CDN dependency
+
+**Decisions**: why a second listener over a separate binary; why HTTP Basic
+transport for the console credential over a bare `Bearer`-only scheme; why
+the OpenAPI spec is hand-written rather than generated; why `/docs` stays
+unauthenticated while `/console` does not. (To be written up here once both
+land, matching the style of the Phase 10-13 closing paragraphs.)

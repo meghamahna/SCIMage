@@ -28,6 +28,9 @@ go.work.sum
 /logs/
 *.log
 
+# Design mockups — working references for in-progress phases, not shipped artifacts
+/docs/mockups/
+
 # Editor / OS
 .DS_Store
 .vscode/
