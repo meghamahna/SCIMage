@@ -28,7 +28,7 @@ correctness explicit, with raw SQL rather than an ORM hiding them.
 /internal/store       Postgres-backed store, audit log and outbox, raw SQL
 /internal/webhook     signing and the outbound delivery dispatcher
 /internal/aria        audit-signal detection and LLM narration (Phase 12)
-/internal/console     ops console: second listener, auth, CSRF, templates (Phase 14)
+/internal/console     admin console: second listener, auth, CSRF, templates (Phase 14)
 /internal/apidocs     embedded OpenAPI spec and Swagger UI (Phase 14)
 /internal/logging     structured logging setup
 /migrations           SQL migration files
@@ -360,14 +360,15 @@ tracked in `ROADMAP.md`.
 ### Phase 14: Operator and integrator tooling
 
 Two independent, additive pieces that make the server approachable without a
-full customer-facing admin portal: an ops console for whoever runs SCIMage,
-and interactive API docs for whoever integrates against it. The console has
-full parity with `scimage-admin` (including mutations), but only for that one
+full customer-facing admin portal: an admin console for whoever runs SCIMage,
+and interactive API docs for whoever integrates against it. The console covers
+the day-to-day of `scimage-admin` (including mutations) — issuing its own login
+credential stays CLI-only by design — but only for that one
 operator — a tenant's own IT staff never log in themselves; that would be a
 materially different, larger feature (a WorkOS/Stytch-style self-service
 portal) considered and declined for this project.
 
-#### 14a: Ops console
+#### 14a: Admin console
 
 - [x] `console_tokens` table (migration `000012`) and
       `internal/store/consoletoken.go`: `IssueConsoleToken`,
@@ -392,6 +393,16 @@ portal) considered and declined for this project.
       cookie) on every mutating route
 - [x] Visual design locked to the token table below; build `static.go`'s CSS
       and `templates/*.html` from these values, not a re-derived palette
+- [x] Landing page (`/console`) and each tenant's derived SCIM base URL on the
+      Tenants page, so an operator can copy the endpoint an IdP points at
+- [x] Webhooks page: read-only delivery health (secret-free endpoint, queue
+      counts, parked deliveries) with a per-row **Replay** that requeues a
+      dead-letter and writes a `webhook.replay` admin-audit row; also a
+      `scimage-admin webhook replay <id>` / `replay-all` CLI, sharing one store
+      method
+- [x] ARIA page can generate the LLM briefing on demand (advisory-only,
+      HTML-escaped, cached per tenant+window), reusing `internal/aria`; the
+      server reads `ARIA_LLM_*` when this is used
 
 **Console design tokens.** A working interactive mockup exists at
 `docs/mockups/console-mockup.html` on the machine it was built on, but that

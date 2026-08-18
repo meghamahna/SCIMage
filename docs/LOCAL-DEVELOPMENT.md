@@ -62,9 +62,9 @@ SERVICE=postgres`, not `--service=postgres`.
 | `make token TENANT=<id> LABEL="Okta prod"` | Issues a token for a tenant | Optional `EXPIRES=90d`; token is shown once |
 | `make token-list TENANT=<id>` | Lists a tenant's tokens | Never shows the secret, only metadata |
 | `make token-revoke KEY=<keyID>` | Revokes a token immediately | Irreversible; idempotent on an already-revoked key |
-| `make console-token LABEL="ops laptop"` | Issues an ops-console credential | Optional `EXPIRES=90d`; shown once; used to sign in to `/console` |
-| `make console-token-list` | Lists ops-console credentials | Metadata only, never the secret |
-| `make console-token-revoke KEY=<keyID>` | Revokes an ops-console credential | Immediate; idempotent |
+| `make console-token LABEL="ops laptop"` | Issues an admin-console credential | Optional `EXPIRES=90d`; shown once; used to sign in to `/console` |
+| `make console-token-list` | Lists admin-console credentials | Metadata only, never the secret |
+| `make console-token-revoke KEY=<keyID>` | Revokes an admin-console credential | Immediate; idempotent |
 | `make attr-register TENANT=<id> NAME=displayName` | Registers an extra attribute a tenant should capture | Optional `TYPE=string`; server captures it only with `SCIM_EXTENDED_ATTRIBUTES=1` |
 | `make attr-list TENANT=<id>` | Lists a tenant's registered extra attributes | Requires `TENANT` |
 | `make attr-unregister TENANT=<id> NAME=displayName` | Removes a registered attribute | Stops future capture; doesn't touch stored values |
@@ -72,11 +72,11 @@ SERVICE=postgres`, not `--service=postgres`.
 | `make aria [TENANT=<id>] [SINCE=24h]` | Runs ARIA, the advisory audit reviewer | Optional `TZ=` for the off-hours check; needs the `ARIA_LLM_*` variables only when a window has findings |
 | `make hooks-install` | Activates the real git pre-commit hook | One-time per clone; doesn't travel with the repo |
 
-## 🖥️ Launch the UI (ops console + API docs)
+## 🖥️ Launch the UI (admin console + API docs)
 
 Two browser-facing surfaces ship with the server:
 
-- 🔐 **Ops console** at `/console`: an opt-in admin UI with the same reach as the CLI above. View and mutate tenants, tokens and attributes, and read the audit trails and ARIA's report.
+- 🔐 **Admin console** at `/console`: an opt-in admin UI with essentially the same reach as the CLI above. View and mutate tenants (each with its SCIM base URL), tokens and attributes; watch webhook delivery health and replay a parked event; and read the audit trails and ARIA's report (with an optional AI briefing). Issuing the console's own sign-in credential stays on the CLI.
 - 📖 **API reference** at `/docs`: interactive Swagger UI, served unauthenticated (it describes the public protocol and carries no tenant data).
 
 The console stays off until you turn it on. Three steps to launch it:

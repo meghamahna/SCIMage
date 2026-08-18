@@ -43,6 +43,10 @@ are recorded as they were made.
 - **Retention for delivered webhook rows**: the dispatcher prunes delivered rows
   older than `SCIM_WEBHOOK_RETENTION_DAYS` (default 30, `0` disables) on an hourly
   sweep. Pending and dead-lettered rows are never touched.
+- **Webhook dead-letter replay**: a parked delivery can be requeued with a fresh
+  retry budget from `scimage-admin webhook replay <id>` / `replay-all` or the
+  console's Webhooks page. The requeue is guarded on the row still being parked
+  and writes a `webhook.replay` admin-audit row in its own transaction.
 - **ARIA** (`cmd/aria`): an advisory audit reviewer that computes activity
   signals in Go and asks an LLM only to narrate them, over any OpenAI-compatible
   endpoint. Advisory only, by design.
@@ -53,11 +57,14 @@ are recorded as they were made.
   writes to `0700`/`0600` paths since bodies carry user attributes.
 - **Graceful shutdown**: SIGINT/SIGTERM drains the listener, then stops the
   webhook dispatcher.
-- **Ops console** (`/console`): an opt-in admin web UI that starts on a second
+- **Admin console** (`/console`): an opt-in admin web UI that starts on a second
   listener only when `CONSOLE_ADDR` is set (`127.0.0.1:8090` recommended,
-  loopback). It reaches full parity with the `scimage-admin` CLI: view and mutate
-  tenants, tokens and attributes; read the SCIM audit log, the admin audit log,
-  and ARIA's report. It authenticates with a dedicated system-wide credential
+  loopback). It covers the day-to-day of the `scimage-admin` CLI: a landing page;
+  view and mutate tenants (each with its SCIM base URL), tokens and attributes;
+  watch webhook delivery health and replay parked events; read the SCIM audit
+  log, the admin audit log, and ARIA's report with an optional on-demand AI
+  briefing. Issuing the console's own login credential stays CLI-only, by design.
+  It authenticates with a dedicated system-wide credential
   issued by `scimage-admin console-token issue` (with `list`/`revoke`), compared
   in constant time and accepted as an HTTP Basic password or a Bearer header.
   Every mutating route reuses the same audited `store.*` functions the CLI calls

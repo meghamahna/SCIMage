@@ -73,7 +73,7 @@ The discovery endpoints `/ServiceProviderConfig`, `/ResourceTypes` and `/Schemas
 
 Two unauthenticated operational probes sit outside the tenant path, for an orchestrator or load balancer: `GET /healthz` is process liveness (always `200` while the process serves, with no database dependency, so a transient DB blip never triggers a restart loop), and `GET /readyz` is readiness (`200` when Postgres is reachable, `503` when it isn't, so a failing instance is pulled from rotation).
 
-An interactive API reference (Swagger UI) is served, unauthenticated, at `GET /docs`. An optional **ops console** (a loopback admin UI for whoever runs the deployment) is available at `/console` when `CONSOLE_ADDR` is set; both are covered in [Getting started](#-getting-started).
+An interactive API reference (Swagger UI) is served, unauthenticated, at `GET /docs`. An optional **admin console** (a loopback admin UI for whoever runs the deployment) is available at `/console` when `CONSOLE_ADDR` is set; both are covered in [Getting started](#-getting-started).
 
 `GET .../Users` supports `filter=userName eq "…"` and `filter=externalId eq "…"`; `GET .../Groups` supports `filter=displayName eq "…"` and `filter=externalId eq "…"`. These are the lookups a provider uses to decide whether a resource already exists. Other expressions answer `400` with `scimType: invalidFilter`, telling the client plainly where the supported set ends.
 
@@ -161,7 +161,7 @@ make up
 
 **3. Provision a tenant and token, via the UI *or* the CLI.**
 
-*Option A, the ops console (UI).* Enable the loopback admin UI, mint a sign-in credential, and start the server.
+*Option A, the admin console (UI).* Enable the loopback admin UI, mint a sign-in credential, and start the server.
 
 ```bash
 echo 'CONSOLE_ADDR=127.0.0.1:8090' >> .env   # opt-in; loopback-bound
@@ -237,10 +237,10 @@ Phases 1 through 14 are complete. A published registry image and a tagged `v1.0.
 
 ## 📚 Documentation
 
-**Start here:** [Getting started](#-getting-started) takes you from a clone through a provisioned tenant, the ops console, and the API reference. The rest of the docs are the deep-dives it links into, roughly in the order you'd reach for them:
+**Start here:** [Getting started](#-getting-started) takes you from a clone through a provisioned tenant, the admin console, and the API reference. The rest of the docs are the deep-dives it links into, roughly in the order you'd reach for them:
 
 - [Local development](docs/LOCAL-DEVELOPMENT.md): prerequisites, every `make` target, and a hands-on runbook
-- [Configuration](docs/CONFIGURATION.md): the authoritative reference for every environment variable, plus the `scimage-admin` CLI (tenants, tokens, the ops console) and token rotation
+- [Configuration](docs/CONFIGURATION.md): the authoritative reference for every environment variable, plus the `scimage-admin` CLI (tenants, tokens, the admin console) and token rotation
 - [Connecting Okta](docs/OKTA.md) and [Entra ID](docs/MS-ENTRA.md): identity-provider setup guides
 - [Architecture](docs/ARCHITECTURE.md): request path, storage model, change delivery internals
 - [Threat model](docs/THREAT-MODEL.md): trust boundaries, threats and mitigations

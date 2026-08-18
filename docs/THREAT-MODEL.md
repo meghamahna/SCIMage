@@ -14,7 +14,7 @@ has the reporting process.
 
 In scope: the SCIM HTTP server (`cmd/server`), the admin CLI
 (`cmd/scimage-admin`), the webhook dispatcher, ARIA (`cmd/aria`), and the opt-in
-ops console (`internal/console`), plus the Postgres schema they share.
+admin console (`internal/console`), plus the Postgres schema they share.
 
 Out of scope: the security of the identity provider itself, the TLS-terminating
 proxy, the host OS, the Postgres deployment's own hardening, and the webhook
@@ -48,7 +48,7 @@ receiver. Each is an assumption listed at the end.
 - **B3: server → webhook receiver.** Outbound, signed, to one configured host.
 - **B4: operator → admin CLI → Postgres.** Off-network, direct to the database.
 - **B5: ARIA → audit log** (read) and **B5': ARIA → LLM** (outbound).
-- **B6: operator → ops console → Postgres.** A second authenticated listener,
+- **B6: operator → admin console → Postgres.** A second authenticated listener,
   opt-in and bound to loopback by default, reaching the same admin surface as B4
   over HTTP instead of the CLI.
 
@@ -136,7 +136,7 @@ receiver. Each is an assumption listed at the end.
   operator decides whether any data leaves their environment at all. The API key
   comes from the environment like every other secret.
 
-### B6: Operator to ops console
+### B6: Operator to admin console
 
 - **Exposing a full-mutation admin surface over HTTP.** The console can view and
   mutate tenants, tokens and attributes, so it's a bigger surface than the SCIM

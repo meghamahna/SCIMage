@@ -12,7 +12,7 @@ characters for `SCIM_WEBHOOK_SECRET`.
 | --- | --- |
 | `DATABASE_URL` | Postgres connection string. Assembled from `POSTGRES_*` when absent. |
 | `SCIM_ADDR` | Listen address. Defaults to `:8080`. |
-| `SCIM_BASE_URL` | External base URL, used for `Location`, `meta.location` and the URL `scimage-admin tenant create` prints, behind a proxy. |
+| `SCIM_BASE_URL` | External base URL, used for `Location`, `meta.location`, and the SCIM base URL that `scimage-admin tenant create` and the console's Tenants page show, behind a proxy. |
 
 `SCIM_BASE_URL` matters behind a TLS-terminating proxy: the request arrives as
 plain HTTP there, so links derived from the `Host` header would advertise `http`.
@@ -48,6 +48,21 @@ authenticity rather than confidentiality.
 Six attempts on the default doubling backoff spans roughly five minutes of
 receiver downtime. See [ARCHITECTURE.md](ARCHITECTURE.md#retry-and-dead-letter)
 for what retries and what parks immediately.
+
+A parked (dead-lettered) delivery keeps its payload so it can be replayed once
+the receiver is fixed. Replay flips it back onto the queue with a fresh retry
+budget (the signature is re-computed at send time, so an old event still arrives
+inside the receiver's freshness window):
+
+```bash
+scimage-admin webhook replay <deliveryID>   # one parked delivery
+scimage-admin webhook replay-all            # every parked delivery
+```
+
+The console's **Webhooks** page shows the same delivery health (pending,
+delivered, parked) with a per-row **Replay** button. Either path records the
+replay in `admin_audit_log`, attributed to the operator, in the same
+transaction as the requeue.
 
 ## 📜 Logging
 
@@ -152,13 +167,16 @@ irreversible: a new token has to be issued if one is needed again.
 Treat every issued token as a privileged credential (it authorizes changes
 to that tenant's directory), and revoke it as soon as exposure is suspected.
 
-## 🖥️ Ops console
+## 🖥️ Admin console
 
-The ops console is an optional web UI for whoever runs the deployment, with the
-same reach as `scimage-admin`: view and mutate tenants, tokens and attributes,
-and read the SCIM audit log, the admin audit log, and ARIA's deterministic
-report. It is for that one operator, not a customer-facing self-service portal:
-a tenant's own IT staff never log in here.
+The admin console is an optional web UI for whoever runs the deployment, with
+essentially the same reach as `scimage-admin`: a landing page, view and mutate
+tenants (with each tenant's SCIM base URL), tokens and attributes, watch webhook
+delivery health and replay a parked event, and read the SCIM audit log, the
+admin audit log, and ARIA's report (with an optional on-demand AI briefing). It
+is for that one operator, not a customer-facing self-service portal: a tenant's
+own IT staff never log in here. The one thing it can't do is mint its own login
+credential (see below).
 
 | Variable | Purpose |
 | --- | --- |
@@ -189,7 +207,7 @@ transaction as the change, and carries a stateless CSRF token.
 
 ## 🔀 Console UI or CLI
 
-Every administrative task can be done two ways: click through the ops console,
+Every administrative task can be done two ways: click through the admin console,
 or run `scimage-admin` (locally, the `make` targets wrap it). They are
 interchangeable, because the console calls the exact same `store.*` functions
 the CLI does, so either path writes the same `admin_audit_log` row in the same
@@ -204,7 +222,8 @@ transaction.
 | Register / remove an attribute | **Attributes** | `scimage-admin attribute register\|unregister -tenant <id> -name <attr>` |
 | Read the SCIM audit log | **Audit log** | direct SQL on `audit_log`, or a webhook consumer |
 | Read the admin audit log | **Admin audit** | `scimage-admin audit list [-tenant <id>]` |
-| ARIA activity briefing | **ARIA** | `aria [-tenant <id>] [-since 7d]` (or `make aria`) |
+| Watch webhook delivery / replay a parked event | **Webhooks** (Replay) | `scimage-admin webhook replay <id>` or `replay-all` |
+| ARIA activity briefing | **ARIA** (Generate AI briefing) | `aria [-tenant <id>] [-since 7d]` (or `make aria`) |
 | Issue / revoke a **console** credential | not in the UI | `scimage-admin console-token issue\|list\|revoke` |
 
 Two things sit outside this symmetry, by design:
@@ -229,13 +248,21 @@ the human, clear of the store and the auth path.
 | Variable | Purpose |
 | --- | --- |
 | `ARIA_LLM_BASE_URL` | Base URL of an OpenAI-compatible chat-completions API (e.g. `https://api.anthropic.com/v1`). |
-| `ARIA_LLM_API_KEY` | Provider key. `cmd/aria` reads it from the environment and sends it only in the request's `Authorization` header, and only when a window has findings. |
+| `ARIA_LLM_API_KEY` | Provider key. Read from the environment and sent only in the request's `Authorization` header, and only when a window has findings. |
 | `ARIA_LLM_MODEL` | Model id to request, e.g. `claude-sonnet-4-5`. |
 | `ARIA_TIMEZONE` | Optional. IANA zone for the off-hours check. Defaults to the host's local zone. |
 
 ARIA works with any OpenAI-compatible chat-completions API: Anthropic's
 compatibility endpoint, OpenAI, OpenRouter, a local Ollama or vLLM, and so on.
 Set the three `ARIA_LLM_*` variables to whichever you run.
+
+The `cmd/aria` CLI and the console's **ARIA** page produce the same briefing from
+the same signals. The CLI reads `ARIA_LLM_*` in its own process; the console
+narrates on demand when you click **Generate AI briefing**, so if you want that
+button to work, the three variables must be set in the *server's* environment
+too (it caches the last briefing per tenant and window to avoid a call on every
+click). The narration stays advisory either way — it is only ever shown to the
+operator, never fed back into the store or the auth path.
 
 ```bash
 aria [-tenant <tenantID>] [-since 24h] [-timezone America/Vancouver]

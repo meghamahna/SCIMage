@@ -51,7 +51,7 @@ the mux has matched anything, which is the only point `net/http`'s own
 Two more HTTP surfaces sit alongside this one. `/docs` serves a hand-written
 OpenAPI 3.0 spec and a vendored Swagger UI (`internal/apidocs`) on the SCIM
 listener itself, unauthenticated on purpose: it describes the public protocol
-and carries no tenant data. The ops console (`internal/console`) is separate: it
+and carries no tenant data. The admin console (`internal/console`) is separate: it
 runs on its own `http.Server`, opt-in, started only when `CONSOLE_ADDR` is set
 and bound to loopback by default, with its own system-wide credential. It's an
 admin surface, not a SCIM one, so it stays off the provider-facing listener
@@ -65,7 +65,7 @@ Ten tables, described in `/migrations`:
 | --- | --- |
 | `tenants` | One row per customer organization. `id` is an app-generated, prefixed opaque string (`tenant_...`), never a renamable slug: it's pasted into the customer's IdP once and has to stay stable. `name` is unique, case-insensitively, so two customers can't silently share a display name |
 | `scim_tokens` | Issued credentials: `sha256` of the secret half, never the secret; label, timestamps, `revoked_at`/`expires_at` |
-| `console_tokens` | System-wide credentials for the ops console, a sibling of `scim_tokens` but with no `tenant_id`: the console's admin surface spans every tenant, so its credential isn't scoped to one. Same `sha256`-only storage, label, timestamps, `revoked_at`/`expires_at` |
+| `console_tokens` | System-wide credentials for the admin console, a sibling of `scim_tokens` but with no `tenant_id`: the console's admin surface spans every tenant, so its credential isn't scoped to one. Same `sha256`-only storage, label, timestamps, `revoked_at`/`expires_at` |
 | `users` | The provisioned directory, scoped by `tenant_id`. Deactivation is a soft delete, so history keeps a subject |
 | `groups` | Groups, scoped by `tenant_id`. Unlike `users`, `DELETE` is a real deletion: the Group schema has no `active` attribute to soft-delete into |
 | `group_members` | The membership join table: `(group_id, user_id)`, with every reference validated against the same tenant before it's inserted |
@@ -255,18 +255,21 @@ jitter so a batch that failed together returns spread out.
 | Other `4xx` | Dead-letter immediately: the receiver has given its verdict |
 | `3xx` | Dead-letter: redirects stay unfollowed, so a signed payload of user attributes remains on its intended host |
 
-A parked row keeps its payload and last error. Replay is moving it back to
-`pending` with a fresh budget:
+A parked row keeps its payload and last error. Replay moves it back to
+`pending` with a fresh budget, which `scimage-admin webhook replay <id>` (or
+`webhook replay-all`) and the console's **Webhooks** page both do:
 
 ```sql
 UPDATE webhook_deliveries
 SET status = 'pending', attempts = 0, next_attempt_at = now(), last_error = NULL
-WHERE id = $1;
+WHERE id = $1 AND status = 'dead_letter';
 ```
 
 `attempts = 0` matters: leaving the old count would let the row retry once and
-park again immediately. A `webhook replay` subcommand for `cmd/scimage-admin`
-is planned but not yet built.
+park again immediately. The `status = 'dead_letter'` guard keeps replay from
+disturbing a delivered or in-flight row, and the requeue writes a
+`webhook.replay` entry to `admin_audit_log` in the same transaction, so the
+operator action is attributed like any other mutation.
 
 The three outcome writes are each guarded on `status = 'pending'`, so `delivered`
 and `dead_letter` are terminal: a dispatcher whose lease expired mid-send can
