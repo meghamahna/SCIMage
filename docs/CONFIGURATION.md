@@ -37,7 +37,7 @@ bursts, then goes quiet for hours. Set `SCIM_RATE_LIMIT=0` to opt out.
 | `SCIM_WEBHOOK_MAX_ATTEMPTS` | Attempts before a delivery is dead-lettered. Defaults to 6. |
 | `SCIM_WEBHOOK_RETENTION_DAYS` | Days a delivered row is kept before the dispatcher prunes it. Defaults to 30; `0` keeps them forever. Pending and dead-lettered rows are never swept. |
 
-Leaving `SCIM_WEBHOOK_URL` unset keeps change delivery off, and the store skips
+Leaving `SCIM_WEBHOOK_URL` unset keeps change delivery off: the store skips
 queueing events, so the queue stays empty while nothing is draining it.
 
 A URL configured with no secret is a startup error, so every event that goes out
@@ -85,8 +85,7 @@ scimage-admin attribute unregister -tenant <tenantID> -name displayName
 
 Two steps turn it on: set `SCIM_EXTENDED_ATTRIBUTES=1` on the server, and
 register the names you want with the CLI. With the flag unset, or nothing
-registered, a user serialises exactly as it did before. The feature has zero
-effect until both are in place.
+registered, a user serialises exactly as it did before.
 
 A registered name is a **top-level** key of the SCIM resource. That covers
 `displayName`, `phoneNumbers`, `addresses`, custom fields, and the enterprise
@@ -172,8 +171,8 @@ a tenant's own IT staff never log in here.
 
 The console is a **second listener**, separate from the internet-facing SCIM
 port, and it is **opt-in**: it starts only when `CONSOLE_ADDR` is set. That is
-deliberate for a full-mutation admin surface: off unless you turn it on, and
-loopback-bound so reaching it off-host takes a deliberate tunnel.
+deliberate for a full-mutation admin surface: loopback-bound so reaching it
+off-host takes a deliberate tunnel.
 
 It authenticates with its own credential, separate from the tenant-scoped SCIM
 tokens, issued through `scimage-admin`:

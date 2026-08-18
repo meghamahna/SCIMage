@@ -178,7 +178,7 @@ The design keeps the core honest and the addition additive:
 
 - **Off by default.** With `SCIM_EXTENDED_ATTRIBUTES` unset or nothing
   registered, the registry is never consulted and a user serialises exactly as
-  before: one JSONB column that is simply `NULL`.
+  before: one JSONB column that is `NULL`.
 - **Capture and PATCH consult the registry; plain reads don't.** A `GET` merges
   whatever is already stored, so it never depends on a registry lookup. Only
   writes (to know which body keys to keep) and the `/Schemas` document (to
@@ -273,7 +273,7 @@ and `dead_letter` are terminal: a dispatcher whose lease expired mid-send can
 report late without overwriting an outcome another dispatcher already recorded.
 
 `last_error` holds whatever the receiver sent back, so it is bounded in runes and
-stripped of NUL and invalid UTF-8 before it reaches the column, so a malformed
+stripped of NUL and invalid UTF-8 before it reaches the column. A malformed
 error body stays writable, and the delivery keeps moving.
 
 ### Retention
@@ -285,8 +285,7 @@ from the poll. Pruning is housekeeping, not the hot path. Setting the value to
 `0` disables the sweep and keeps delivered rows indefinitely.
 
 Only delivered rows are touched. A pending row is still in flight, and a
-dead-lettered one is kept for a human to inspect and replay, so retention only
-ever deletes deliveries that already succeeded. The sweep is deployment-wide
+dead-lettered one is kept for a human to inspect and replay. The sweep is deployment-wide
 rather than tenant-scoped: one dispatcher runs it for the whole server, and a
 partial index on `(delivered_at) WHERE status = 'delivered'` keeps the periodic
 `DELETE` a range scan rather than a growing full-table scan. A delivered row is
@@ -378,8 +377,8 @@ stays auditable code.
 
 Only then does an LLM take over, and only to narrate: it receives the
 already-computed facts and returns prose. The endpoint is provider-neutral, any
-OpenAI-compatible chat-completions API set with `ARIA_LLM_*`, so ARIA works with
-any vendor and keeps `go.mod` at `pgx` and `golang.org/x/time`. It reads the key
+OpenAI-compatible chat-completions API set with `ARIA_LLM_*`, which keeps
+`go.mod` at `pgx` and `golang.org/x/time`. It reads the key
 from the environment and sends it only in the request's `Authorization` header,
 and a window with no findings prints a deterministic line and skips the model,
 so a clean review runs without a key.
@@ -408,5 +407,5 @@ a change and its record share a commit.
 
 `SIGINT`/`SIGTERM` drains the HTTP listener first, then stops the dispatcher, so
 a request still in flight can queue its event. Anything left queued, or abandoned
-mid-send, keeps its row and goes out when the server returns: its lease simply
+mid-send, keeps its row and goes out when the server returns: its lease
 expires. That is what the outbox is for: shutdown never waits on a receiver.
