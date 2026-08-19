@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"strconv"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -51,9 +53,23 @@ func WithChangeEvents() Option {
 }
 
 // New pings the database so a bad DATABASE_URL fails at startup, not on the
-// first request.
+// first request. Pool size and connection lifetime stay at pgx's own defaults
+// unless DATABASE_MAX_CONNS / DATABASE_MAX_CONN_LIFETIME override them — an
+// explicit ceiling an operator can size to their Postgres instance, rather
+// than a pool that grows with whatever request volume arrives.
 func New(ctx context.Context, databaseURL string, opts ...Option) (*Store, error) {
-	pool, err := pgxpool.New(ctx, databaseURL)
+	cfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse postgres config: %w", err)
+	}
+	if n := envMaxConns(); n > 0 {
+		cfg.MaxConns = n
+	}
+	if d := envMaxConnLifetime(); d > 0 {
+		cfg.MaxConnLifetime = d
+	}
+
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("open postgres pool: %w", err)
 	}
@@ -109,4 +125,25 @@ func DSNFromEnv() (string, error) {
 		RawQuery: "sslmode=disable",
 	}
 	return u.String(), nil
+}
+
+// envMaxConns reads DATABASE_MAX_CONNS. Zero (unset or invalid) leaves pgx's
+// own default in place, rather than this package silently opining on pool
+// size for every caller of New.
+func envMaxConns() int32 {
+	n, err := strconv.ParseInt(os.Getenv("DATABASE_MAX_CONNS"), 10, 32)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return int32(n)
+}
+
+// envMaxConnLifetime reads DATABASE_MAX_CONN_LIFETIME as a Go duration string
+// (e.g. "30m"). Zero (unset or invalid) leaves pgx's own default in place.
+func envMaxConnLifetime() time.Duration {
+	d, err := time.ParseDuration(os.Getenv("DATABASE_MAX_CONN_LIFETIME"))
+	if err != nil || d <= 0 {
+		return 0
+	}
+	return d
 }

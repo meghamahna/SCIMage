@@ -91,9 +91,11 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("/", unknownResource)
 
 	// Throttle inside auth, so each authenticated caller has its own budget.
-	// Request logging wraps the outside, to record what a client actually sent
-	// including the calls auth rejects.
-	return logRequests(requireToken(h.tokens)(h.limiter.throttle(mux)))
+	// The timeout wraps auth too, so a hung token lookup can't hold a
+	// connection (and this goroutine) open forever. Request logging wraps the
+	// outside, to record what a client actually sent including the calls auth
+	// rejects.
+	return logRequests(withTimeout(requestTimeoutFromEnv())(requireToken(h.tokens)(h.limiter.throttle(mux))))
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {

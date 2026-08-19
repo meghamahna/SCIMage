@@ -22,10 +22,21 @@ import (
 // How long in-flight requests get to finish once a signal arrives.
 const shutdownGrace = 15 * time.Second
 
+// Bounds on both listeners against a slow or stalled client tying up a
+// connection indefinitely. WriteTimeout is SCIM-only (see consoleServer): the
+// console's ARIA page can legitimately take up to a minute to answer, since
+// narration waits on an LLM call (internal/aria's own client timeout is 60s).
+const (
+	readHeaderTimeout = 10 * time.Second
+	readTimeout       = 10 * time.Second
+	writeTimeout      = 30 * time.Second
+	idleTimeout       = 120 * time.Second
+)
+
 // consoleServer builds the admin-console listener, or nil when CONSOLE_ADDR is
 // unset. The console is opt-in: a full-mutation admin surface stays off unless
 // an operator turns it on, and 127.0.0.1:8090 is the recommended value so it
-// binds loopback only. ReadHeaderTimeout matches the SCIM server's.
+// binds loopback only.
 func consoleServer(s *store.Store) (*http.Server, error) {
 	addr := os.Getenv("CONSOLE_ADDR")
 	if addr == "" {
@@ -38,7 +49,9 @@ func consoleServer(s *store.Store) (*http.Server, error) {
 	return &http.Server{
 		Addr:              addr,
 		Handler:           c.Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		IdleTimeout:       idleTimeout,
 	}, nil
 }
 
@@ -123,7 +136,10 @@ func run() error {
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           root,
-		ReadHeaderTimeout: 10 * time.Second,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
 	}
 
 	// The console is a second listener, separate from the internet-facing SCIM

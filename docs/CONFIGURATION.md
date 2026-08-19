@@ -11,11 +11,21 @@ characters for `SCIM_WEBHOOK_SECRET`.
 | Variable | Purpose |
 | --- | --- |
 | `DATABASE_URL` | Postgres connection string. Assembled from `POSTGRES_*` when absent. |
+| `DATABASE_MAX_CONNS` | Pool size ceiling. Unset leaves pgx's own default (4). |
+| `DATABASE_MAX_CONN_LIFETIME` | Go duration (e.g. `30m`) after which a pooled connection is recycled. Unset leaves pgx's own default (1h). |
 | `SCIM_ADDR` | Listen address. Defaults to `:8080`. |
 | `SCIM_BASE_URL` | External base URL, used for `Location`, `meta.location`, and the SCIM base URL that `scimage-admin tenant create` and the console's Tenants page show, behind a proxy. |
+| `SCIM_REQUEST_TIMEOUT` | Go duration bounding one request's database work, auth's token lookup included. Defaults to `10s`; a non-positive value disables it. |
 
 `SCIM_BASE_URL` matters behind a TLS-terminating proxy: the request arrives as
 plain HTTP there, so links derived from the `Host` header would advertise `http`.
+`DATABASE_MAX_CONNS` and `SCIM_REQUEST_TIMEOUT` exist so a flood of requests
+(authenticated or not, since the timeout wraps token verification too) costs a
+bounded amount of database work instead of an unbounded one; see
+[THREAT-MODEL.md](THREAT-MODEL.md) for the residual pre-auth-volume risk they
+narrow but don't close. `SCIM_REQUEST_TIMEOUT` is capped in practice by the
+server's own 30s write timeout: setting it above 30s has no effect, since the
+HTTP response gets cut off first.
 
 ## 🚦 Rate limiting
 

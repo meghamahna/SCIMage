@@ -175,9 +175,13 @@ boundary, noted here so an operator can close it.
 - **Pre-authentication request volume.** Token verification does a database lookup
   *before* the per-caller rate limiter applies, so a flood of unauthenticated
   requests still costs a lookup each. A pre-auth limiter was considered and
-  deferred; front the service with one at the proxy if this matters. `/readyz` is
-  likewise unauthenticated and touches the pool on each hit. That is standard for
-  a readiness probe, but a load source to be aware of.
+  deferred; front the service with one at the proxy if this matters.
+  `SCIM_REQUEST_TIMEOUT` (default 10s) and `DATABASE_MAX_CONNS` bound how long
+  each of those lookups can hold a connection and how many can run at once, so
+  a flood degrades into queued, timed-out requests rather than an unbounded
+  pool. That narrows the blast radius; it doesn't throttle the flood itself.
+  `/readyz` is likewise unauthenticated and touches the pool on each hit. That
+  is standard for a readiness probe, but a load source to be aware of.
 - **Concurrent updates to one user.** `PATCH` reads, folds operations, and writes
   back in separate statements, so two concurrent changes to the same user could
   lose one. Provisioning traffic for a single user is serial in practice; making
