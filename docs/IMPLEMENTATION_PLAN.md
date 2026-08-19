@@ -178,6 +178,24 @@ ARIA reads the `audit_log` table directly. One authoritative copy of
 the audit trail is what gives the transactional guarantee its meaning; a
 JSON-lines export for log shipping can layer on top.
 
+**Addendum: database exposure to request volume, found in a pre-release
+audit.** The per-caller rate limiter above only ever throttles a caller once
+`requireToken` has already looked the token up in Postgres, so a flood of
+well-formed-but-wrong bearer tokens reached the database unthrottled, a gap
+already on record in `THREAT-MODEL.md`'s residual risks. Three changes narrow
+it without closing it (a proxy-level limiter still owns actually stopping the
+flood):
+
+- [x] `DATABASE_MAX_CONNS` / `DATABASE_MAX_CONN_LIFETIME` let an operator cap
+      the pool instead of relying on pgx's unconfigured defaults
+- [x] `SCIM_REQUEST_TIMEOUT` (default 10s) wraps the request context outside
+      `requireToken`, so a stuck lookup fails the request instead of holding
+      a connection and a goroutine indefinitely
+- [x] Both `http.Server`s gained `ReadTimeout`/`IdleTimeout`; the SCIM
+      listener alone also gained `WriteTimeout` (30s), since the console's
+      ARIA narration can legitimately run close to a minute, so its write
+      timeout stays unset
+
 ### Phase 8: Identity provider interoperability
 
 What an identity provider exercises during setup. Built against a live client

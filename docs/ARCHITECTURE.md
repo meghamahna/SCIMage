@@ -24,6 +24,10 @@ does; this covers the mechanics behind it.
 ```text
 Identity provider
    ↓  SCIM request to /scim/v2/{tenantID}/..., Bearer token
+Request timeout      bounds everything below at SCIM_REQUEST_TIMEOUT (default
+                     10s), so a stuck auth lookup or query fails the request
+                     instead of holding a connection and a goroutine forever
+   ↓
 Auth middleware      looks up the token by key id, checks revoked/expired,
                      constant-time compares the secret, confirms the token's
                      own tenant matches {tenantID}, applied by Routes() itself
@@ -39,6 +43,14 @@ Store                raw SQL, one transaction per mutation, every query scoped b
 
 The path is deliberately plain. Standard library `net/http` and raw SQL keep the
 behaviour visible in the code, and Postgres is the single source of truth.
+
+The request timeout sits outermost, before auth, on purpose: the token lookup
+`requireToken` performs is itself a database call, and it runs ahead of the
+rate limiter (below), so it's the one query in this path a flood of
+unauthenticated requests can reach unthrottled. Bounding it here means that
+flood costs bounded time and one connection per request, not an open-ended
+hold. `DATABASE_MAX_CONNS` bounds the other side of the same problem: how many
+of those connections can exist at once.
 
 Authentication is applied by `Routes()` rather than per handler, so it covers the
 whole surface structurally, including paths that resolve to nothing, which are

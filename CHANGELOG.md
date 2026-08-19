@@ -37,6 +37,20 @@ and integrator tooling, built on top of the `1.0.0` surface below.
   is unauthenticated by design, since it describes the public protocol and
   carries no tenant data.
 
+### Security
+
+- **Bounded database exposure to request volume**: `DATABASE_MAX_CONNS` /
+  `DATABASE_MAX_CONN_LIFETIME` cap the Postgres pool instead of relying on
+  pgx's unconfigured defaults; `SCIM_REQUEST_TIMEOUT` (default 10s) wraps the
+  request context outside auth, so a stuck token lookup (the one query an
+  unauthenticated flood can already reach, ahead of the per-caller rate
+  limiter) fails the request instead of holding a connection and a goroutine
+  indefinitely; both listeners gained `ReadTimeout`/`IdleTimeout`, and the
+  SCIM listener also `WriteTimeout` (30s, left unset on the console since its
+  ARIA narration can legitimately run close to a minute). Narrows, rather
+  than closes, the pre-auth-volume risk already on record in
+  [THREAT-MODEL.md](docs/THREAT-MODEL.md).
+
 ## [1.0.0] - 2026-08-16
 
 The first tagged release. Captures phases 1 through 13 of the
