@@ -1,7 +1,7 @@
 # Roadmap
 
 Phases 1 through 14 are complete, including phase 13 (release engineering) and
-phase 14 (the ops console and the OpenAPI spec with Swagger UI). The
+phase 14 (the admin console and the OpenAPI spec with Swagger UI). The
 [implementation plan](docs/IMPLEMENTATION_PLAN.md) has the phase-by-phase detail.
 This document tracks what's deliberately left for later. Each item is a
 considered deferral, with a note on why it waited.
@@ -19,9 +19,6 @@ Two release steps remain before the first tag:
 
 ## Near-term
 
-- **`webhook replay` subcommand** for `scimage-admin`. `DeadLetters` already
-  reads the parked queue and replay is a documented SQL update; a CLI wrapper
-  makes it a first-class operation.
 - **Per-endpoint webhook subscriptions.** Today there is one delivery target from
   the environment, shared by every tenant. The delivery row already carries a
   `tenant_id` and would gain a subscription reference when per-endpoint delivery

@@ -8,7 +8,7 @@
   <form method="get" action="/console/tokens" class="toolbar">
     <label for="tenant">Tenant</label>
     <select id="tenant" name="tenant" onchange="this.form.submit()">
-      <option value="">— select a tenant —</option>
+      <option value="">Select a tenant</option>
       {{range .Data.Tenants}}
       <option value="{{.ID}}" {{if eq .ID $.Data.SelectedTenant}}selected{{end}}>{{.Name}}</option>
       {{end}}
@@ -18,7 +18,7 @@
   {{if .Data.SelectedTenant}}
   {{if .Data.Reveal}}
   <div class="reveal">
-    <div class="label">Save this now — you'll see it once</div>
+    <div class="label">Save this now. You'll see it once</div>
     <div class="secret"><code>{{.Data.Reveal}}</code></div>
     <p>Copy the full token into your secrets manager while it's on screen.</p>
   </div>

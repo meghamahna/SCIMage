@@ -77,6 +77,11 @@ type Delivery struct {
 	// Attempts counts this claim, since ClaimDueDeliveries increments before
 	// handing the row over.
 	Attempts int
+
+	// NextAttemptAt is display-only: PendingDeliveries and DeadLetters read it
+	// so the console can show when a queued row is due, not decide anything
+	// with it. ClaimDueDeliveries's own scheduling logic never consults it.
+	NextAttemptAt time.Time
 }
 
 // ChangeEvent is the webhook body. It carries both images for the same reason
@@ -199,7 +204,7 @@ func (s *Store) ClaimDueDeliveries(ctx context.Context, limit int, lease time.Du
 	               LIMIT $1
 	               FOR UPDATE SKIP LOCKED
 	           )
-	           RETURNING id, tenant_id, event_type, target_id, payload, attempts`
+	           RETURNING id, tenant_id, event_type, target_id, payload, attempts, next_attempt_at`
 
 	rows, err := s.pool.Query(ctx, q, limit, lease.Seconds(), DeliveryPending)
 	if err != nil {
@@ -376,7 +381,7 @@ func (s *Store) DeadLetters(ctx context.Context, limit int) ([]Delivery, error) 
 		limit = MaxPageSize
 	}
 
-	const q = `SELECT id, tenant_id, event_type, target_id, payload, attempts
+	const q = `SELECT id, tenant_id, event_type, target_id, payload, attempts, next_attempt_at
 	           FROM webhook_deliveries
 	           WHERE status = $1
 	           ORDER BY created_at DESC, id DESC
@@ -391,6 +396,30 @@ func (s *Store) DeadLetters(ctx context.Context, limit int) ([]Delivery, error) 
 	return scanDeliveries(rows)
 }
 
+// PendingDeliveries returns deliveries still on the queue, soonest-due first,
+// so the console can show a replayed or retrying event as "queued" instead of
+// it vanishing from view between replay and its next outcome (delivered or
+// dead-lettered again).
+func (s *Store) PendingDeliveries(ctx context.Context, limit int) ([]Delivery, error) {
+	if limit <= 0 || limit > MaxPageSize {
+		limit = MaxPageSize
+	}
+
+	const q = `SELECT id, tenant_id, event_type, target_id, payload, attempts, next_attempt_at
+	           FROM webhook_deliveries
+	           WHERE status = $1
+	           ORDER BY next_attempt_at ASC, id
+	           LIMIT $2`
+
+	rows, err := s.pool.Query(ctx, q, DeliveryPending, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list pending deliveries: %w", err)
+	}
+	defer rows.Close()
+
+	return scanDeliveries(rows)
+}
+
 func scanDeliveries(rows pgx.Rows) ([]Delivery, error) {
 	var out []Delivery
 	for rows.Next() {
@@ -398,7 +427,7 @@ func scanDeliveries(rows pgx.Rows) ([]Delivery, error) {
 			d        Delivery
 			targetID *string
 		)
-		if err := rows.Scan(&d.ID, &d.TenantID, &d.EventType, &targetID, &d.Payload, &d.Attempts); err != nil {
+		if err := rows.Scan(&d.ID, &d.TenantID, &d.EventType, &targetID, &d.Payload, &d.Attempts, &d.NextAttemptAt); err != nil {
 			return nil, fmt.Errorf("scan delivery: %w", err)
 		}
 		d.TargetID = deref(targetID)

@@ -173,7 +173,7 @@ The admin console is an optional web UI for whoever runs the deployment, with
 essentially the same reach as `scimage-admin`: a landing page, view and mutate
 tenants (with each tenant's SCIM base URL), tokens and attributes, watch webhook
 delivery health and replay a parked event, and read the SCIM audit log, the
-admin audit log, and ARIA's report (with an optional on-demand AI briefing). It
+admin audit log, and ARIA's report (with an optional on-demand ARIA briefing). It
 is for that one operator, not a customer-facing self-service portal: a tenant's
 own IT staff never log in here. The one thing it can't do is mint its own login
 credential (see below).
@@ -223,7 +223,7 @@ transaction.
 | Read the SCIM audit log | **Audit log** | direct SQL on `audit_log`, or a webhook consumer |
 | Read the admin audit log | **Admin audit** | `scimage-admin audit list [-tenant <id>]` |
 | Watch webhook delivery / replay a parked event | **Webhooks** (Replay) | `scimage-admin webhook replay <id>` or `replay-all` |
-| ARIA activity briefing | **ARIA** (Generate AI briefing) | `aria [-tenant <id>] [-since 7d]` (or `make aria`) |
+| ARIA activity briefing | **ARIA** (Generate briefing) | `aria [-tenant <id>] [-since 7d]` (or `make aria`) |
 | Issue / revoke a **console** credential | not in the UI | `scimage-admin console-token issue\|list\|revoke` |
 
 Two things sit outside this symmetry, by design:
@@ -258,10 +258,10 @@ Set the three `ARIA_LLM_*` variables to whichever you run.
 
 The `cmd/aria` CLI and the console's **ARIA** page produce the same briefing from
 the same signals. The CLI reads `ARIA_LLM_*` in its own process; the console
-narrates on demand when you click **Generate AI briefing**, so if you want that
+narrates on demand when you click **Generate briefing**, so if you want that
 button to work, the three variables must be set in the *server's* environment
 too (it caches the last briefing per tenant and window to avoid a call on every
-click). The narration stays advisory either way — it is only ever shown to the
+click). The narration stays advisory either way: it is only ever shown to the
 operator, never fed back into the store or the auth path.
 
 ```bash

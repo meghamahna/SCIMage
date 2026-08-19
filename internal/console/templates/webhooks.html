@@ -30,29 +30,52 @@
   {{end}}
 
   <div class="stat-row" style="margin-top:22px">
-    <div class="stat"><div class="k">Pending</div><div class="v">{{.Data.Summary.Pending}}</div></div>
-    <div class="stat"><div class="k">Delivered</div><div class="v">{{.Data.Summary.Delivered}}</div></div>
-    <div class="stat"><div class="k">Dead-lettered</div><div class="v">{{.Data.Summary.DeadLetter}}</div></div>
+    <div class="stat"><div class="k">{{template "icon-clock"}} Pending</div><div class="v">{{.Data.Summary.Pending}}</div></div>
+    <div class="stat"><div class="k">{{template "icon-check"}} Delivered</div><div class="v">{{.Data.Summary.Delivered}}</div></div>
+    <div class="stat"><div class="k">{{template "icon-alert"}} Dead-lettered</div><div class="v">{{.Data.Summary.DeadLetter}}</div></div>
   </div>
   {{if .Data.Summary.OldestPending}}
   <p class="hint">The oldest waiting event was queued at {{rfc3339p .Data.Summary.OldestPending}}. A growing backlog usually means your receiver is unreachable.</p>
   {{end}}
 
-  <h3 style="margin-top:26px">Parked deliveries</h3>
-  <p class="hint">Events that used up their retries. SCIMage keeps each one so you can fix the receiver and send it again. Replaying puts it back in line for a fresh round of attempts and records who did it in the admin audit log.</p>
+  <h3 style="margin-top:26px">Parked and queued deliveries</h3>
+  <p class="hint">Parked events used up their retries; SCIMage keeps each one so you can fix the receiver and replay it, which puts it back in line for a fresh round of attempts and records who did it in the admin audit log. Queued events are already back in line, whether from a recent replay or a normal retry, and stay listed here until they land or park again, instead of disappearing mid-flight.</p>
+  {{if not .Data.Status.Enabled}}
+  <p class="hint">Webhooks are off, so Replay is disabled here: there's nothing running to send a requeued delivery. Turn webhooks on, then come back to replay.</p>
+  {{end}}
+  {{if .Data.DeadLetters}}
+  <div class="toolbar" style="margin-top:12px">
+    <button type="button" class="ghost" id="replay-selected" disabled>Replay selected</button>
+    <span class="hint" id="replay-selected-count"></span>
+  </div>
+  {{end}}
   <div class="table-wrap" style="margin-top:12px" data-webhooks-on="{{if .Data.Status.Enabled}}1{{else}}0{{end}}">
     <table>
       <thead>
-        <tr><th>ID</th><th>Tenant</th><th>Event</th><th>Target</th><th>Attempts</th><th></th></tr>
+        <tr><th>{{if .Data.DeadLetters}}<input type="checkbox" id="replay-select-all" aria-label="Select all parked deliveries" />{{end}}</th><th>ID</th><th>Tenant</th><th>Event</th><th>Target</th><th>Attempts</th><th>Status</th><th></th></tr>
       </thead>
       <tbody>
-        {{range .Data.DeadLetters}}
+        {{range .Data.Pending}}
         <tr data-delivery="{{.ID}}">
+          <td></td>
           <td class="mono num">{{.ID}}</td>
           <td class="mono">{{.TenantID}}</td>
           <td>{{.EventType}}</td>
           <td class="mono">{{dash .TargetID}}</td>
           <td class="mono num">{{.Attempts}}</td>
+          <td><span class="pill info" title="Waiting for its next attempt at {{rfc3339 .NextAttemptAt}}.">Queued</span></td>
+          <td class="replay-cell"></td>
+        </tr>
+        {{end}}
+        {{range .Data.DeadLetters}}
+        <tr data-delivery="{{.ID}}">
+          <td><input type="checkbox" class="replay-select" data-id="{{.ID}}" aria-label="Select delivery {{.ID}}" /></td>
+          <td class="mono num">{{.ID}}</td>
+          <td class="mono">{{.TenantID}}</td>
+          <td>{{.EventType}}</td>
+          <td class="mono">{{dash .TargetID}}</td>
+          <td class="mono num">{{.Attempts}}</td>
+          <td class="status-cell"><span class="pill warn">Parked</span></td>
           <td class="replay-cell">
             <form method="post" action="/console/webhooks/replay" class="form-inline replay-form" data-id="{{.ID}}">
               <input type="hidden" name="csrf" value="{{$.CSRF}}" />
@@ -61,16 +84,17 @@
             </form>
           </td>
         </tr>
-        {{else}}
-        <tr><td colspan="6" class="empty">No parked deliveries. Everything has been delivered or is still on its way.</td></tr>
+        {{end}}
+        {{if not (or .Data.DeadLetters .Data.Pending)}}
+        <tr><td colspan="8" class="empty">Nothing parked or queued. Everything has been delivered.</td></tr>
         {{end}}
       </tbody>
     </table>
   </div>
 
   <script>
-  // Progressive enhancement: with JavaScript on, Replay happens in place —
-  // requeue, then poll the delivery until it lands or parks again. With it off,
+  // Progressive enhancement: with JavaScript on, Replay happens in place.
+  // Requeue, then poll the delivery until it lands or parks again. With it off,
   // the form still POSTs and the page reloads.
   (function () {
     var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
@@ -98,9 +122,15 @@
         var tbody = row.parentNode;
         row.remove();
         if (tbody && !tbody.querySelector('tr[data-delivery]')) {
-          tbody.innerHTML = '<tr><td colspan="6" class="empty">No parked deliveries. Everything has been delivered or is still on its way.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="8" class="empty">Nothing parked or queued. Everything has been delivered.</td></tr>';
         }
+        updateSelection();
       }, 400);
+    }
+
+    function setStatus(row, html) {
+      var cell = row.querySelector('.status-cell');
+      if (cell) { setCell(cell, html); }
     }
 
     function delivered(row) {
@@ -109,14 +139,14 @@
     }
 
     // The delivery was already requeued elsewhere (a 404 from replay), so it's
-    // no longer parked — clear it without the red failure state.
+    // no longer parked, so clear it without the red failure state.
     function gone(row) {
       setCell(row.querySelector('.replay-cell'), '<span class="replay-status muted">Already handled</span>');
       setTimeout(function () { removeRow(row); }, 1200);
     }
 
     // Requeued and waiting: it's back on the queue as pending. This is the
-    // resting state when the receiver is slow or webhooks are turned off — a
+    // resting state when the receiver is slow or webhooks are turned off: a
     // neutral note, never a red failure. The hint says why it hasn't delivered.
     function queued(cell, note) {
       var html = '<span class="replay-status muted">Queued</span>';
@@ -126,15 +156,20 @@
 
     function failed(cell, id, csrf) {
       setCell(cell, '<span class="replay-status bad">! Failed</span>');
+      var row = cell.closest('tr');
+      if (row) { setStatus(row, '<span class="pill warn">Parked</span>'); }
       setTimeout(function () { restoreButton(cell, id, csrf); }, 2500);
     }
 
     async function poll(row, cell, id, csrf, tries) {
-      if (tries > 16) { // ~24s; the dispatcher polls every few seconds
-        queued(cell, 'Waiting for the receiver to accept it.');
-        return;
+      // The first ~24s poll quickly (1.5s) to catch the common case fast. Past
+      // that, a slow receiver or a long backoff (retries can span minutes) is
+      // still in progress, not abandoned — keep watching at a gentler pace
+      // instead of freezing on a stale "Queued" that never resolves.
+      if (tries === 16) {
+        queued(cell, 'Still waiting for the receiver to accept it.');
       }
-      await sleep(1500);
+      await sleep(tries < 16 ? 1500 : 8000);
       var status = 'pending';
       try {
         var res = await fetch('/console/webhooks/delivery-status?id=' + encodeURIComponent(id), { headers: { 'Accept': 'application/json' } });
@@ -158,11 +193,16 @@
           body: 'csrf=' + encodeURIComponent(csrf) + '&id=' + encodeURIComponent(id)
         });
         if (res.status === 404) { gone(row); return; }
+        if (res.status === 409) {
+          // Refused, not failed: the server won't requeue a delivery nothing can
+          // send. Buttons are disabled up front when webhooks are off (see
+          // below), so this only fires on a stale tab left open across a config
+          // change — restore the button rather than showing a red failure.
+          restoreButton(cell, id, csrf);
+          return;
+        }
         if (!res.ok) { failed(cell, id, csrf); return; }
-        // Requeued. With webhooks off there's no dispatcher to deliver it, so it
-        // will sit as pending — show that plainly instead of polling to a red
-        // failure. With webhooks on, watch it land or park again.
-        if (!webhooksOn) { queued(cell, 'Webhooks are off, so nothing is delivering it yet.'); return; }
+        setStatus(row, '<span class="pill info">Queued</span>');
         poll(row, cell, id, csrf, 0);
       } catch (e) {
         failed(cell, id, csrf);
@@ -175,6 +215,61 @@
     }
 
     document.querySelectorAll('.replay-form').forEach(wire);
+
+    // With webhooks off, nothing can ever deliver a replayed event: disable
+    // Replay everywhere up front rather than letting an operator trigger a
+    // request the server is just going to refuse (see the 409 handling above).
+    if (!webhooksOn) {
+      document.querySelectorAll('.replay-form button[type=submit]').forEach(function (btn) {
+        btn.disabled = true;
+        btn.title = 'Webhooks are off, so a replay has nothing to send it.';
+      });
+    }
+
+    // Bulk replay: a checkbox per row plus a header "select all", both
+    // driving the same per-row replay() so each delivery still gets its own
+    // spinner, poll, and admin-audit entry — bulk is just "click Replay on
+    // several rows at once", not a separate code path.
+    var selectAll = document.getElementById('replay-select-all');
+    var replaySelectedBtn = document.getElementById('replay-selected');
+    var replaySelectedCount = document.getElementById('replay-selected-count');
+
+    if (!webhooksOn && replaySelectedBtn) {
+      replaySelectedBtn.title = 'Webhooks are off, so a replay has nothing to send it.';
+    }
+
+    function updateSelection() {
+      if (!replaySelectedBtn) { return; }
+      var all = document.querySelectorAll('.replay-select');
+      var checked = document.querySelectorAll('.replay-select:checked');
+      replaySelectedBtn.disabled = !webhooksOn || checked.length === 0;
+      replaySelectedCount.textContent = checked.length ? checked.length + ' selected' : '';
+      if (selectAll) { selectAll.checked = all.length > 0 && checked.length === all.length; }
+    }
+
+    if (selectAll) {
+      selectAll.addEventListener('change', function () {
+        document.querySelectorAll('.replay-select').forEach(function (cb) { cb.checked = selectAll.checked; });
+        updateSelection();
+      });
+    }
+
+    document.querySelectorAll('.replay-select').forEach(function (cb) {
+      cb.addEventListener('change', updateSelection);
+    });
+
+    if (replaySelectedBtn) {
+      replaySelectedBtn.addEventListener('click', function () {
+        var checked = Array.prototype.slice.call(document.querySelectorAll('.replay-select:checked'));
+        checked.forEach(function (cb) {
+          cb.disabled = true;
+          cb.checked = false;
+          var form = cb.closest('tr').querySelector('.replay-form');
+          if (form) { replay(form); }
+        });
+        updateSelection();
+      });
+    }
   })();
   </script>
 </section>

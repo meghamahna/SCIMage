@@ -1,4 +1,4 @@
--- The ops console (Phase 14) needs its own credential, separate from the
+-- The admin console (Phase 14) needs its own credential, separate from the
 -- tenant-scoped scim_tokens the SCIM API authenticates with. A console token
 -- authenticates the one operator who runs SCIMage, and that operator works
 -- across every tenant — the same cross-tenant reach scimage-admin already has

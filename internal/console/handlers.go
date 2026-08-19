@@ -365,10 +365,16 @@ func (srv *Server) handleAdminAudit(w http.ResponseWriter, r *http.Request) {
 // set is a store query away if it's ever needed.
 const deadLetterLimit = 50
 
+// pendingLimit caps the queued-delivery list the same way: enough to show what's
+// currently in flight (including anything just replayed) without the page
+// growing unbounded during a real backlog.
+const pendingLimit = 50
+
 type webhookData struct {
 	Status      webhook.Status
 	Summary     store.WebhookSummary
 	DeadLetters []store.Delivery
+	Pending     []store.Delivery
 }
 
 // handleWebhooks shows change-event delivery: the configured endpoint
@@ -390,6 +396,11 @@ func (srv *Server) showWebhooks(w http.ResponseWriter, r *http.Request, status i
 		srv.serverError(w, r, err)
 		return
 	}
+	pending, err := srv.store.PendingDeliveries(r.Context(), pendingLimit)
+	if err != nil {
+		srv.serverError(w, r, err)
+		return
+	}
 	srv.render(w, r, status, "webhooks", pageView{
 		Title:  "Webhooks",
 		Active: "webhooks",
@@ -398,6 +409,7 @@ func (srv *Server) showWebhooks(w http.ResponseWriter, r *http.Request, status i
 			Status:      webhook.StatusFromEnv(),
 			Summary:     summary,
 			DeadLetters: deadLetters,
+			Pending:     pending,
 		},
 	})
 }
@@ -423,6 +435,32 @@ func (srv *Server) handleReplayDeadLetter(w http.ResponseWriter, r *http.Request
 		}
 		srv.showWebhooks(w, r, http.StatusBadRequest, "That isn't a valid delivery id.")
 		return
+	}
+
+	// Refused rather than requeued: with no dispatcher running, a replayed
+	// delivery would sit as pending with no dispatcher to pick it up. Checked
+	// against the delivery's real status first (not just short-circuited on
+	// "webhooks are off") so an unknown or already-handled id still answers 404,
+	// the same as it would with webhooks on.
+	if !webhook.StatusFromEnv().Enabled {
+		status, err := srv.store.WebhookDeliveryStatus(r.Context(), id)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			if wantsJSON {
+				srv.jsonServerError(w, r, err)
+				return
+			}
+			srv.serverError(w, r, err)
+			return
+		}
+		if status == store.DeliveryDeadLetter {
+			const msg = "Webhooks are turned off, so a replayed delivery would have nothing to send it. Turn them on, then replay."
+			if wantsJSON {
+				writeJSON(w, http.StatusConflict, map[string]any{"ok": false, "error": msg})
+				return
+			}
+			srv.showWebhooks(w, r, http.StatusConflict, msg)
+			return
+		}
 	}
 
 	if err := srv.store.ReplayDeadLetter(r.Context(), id, actor(r)); err != nil {
@@ -502,6 +540,37 @@ type ariaData struct {
 	Narrative      template.HTML // cached LLM briefing, empty until generated
 	NarrativeAt    time.Time
 	NarrativeError string
+	TotalDelta     *deltaView // entries this window vs the previous one; nil when not comparable
+	CallersDelta   *deltaView
+}
+
+// deltaView is a window-over-window change badge: a color class and a short
+// label like "+12% ↑". It is only ever built from real counts of two adjacent
+// windows — never a fabricated trend.
+type deltaView struct {
+	Class string
+	Label string
+}
+
+// computeDelta compares this window's count against the previous window's.
+// It returns nil when there's nothing honest to show (both windows empty).
+func computeDelta(cur, prev int) *deltaView {
+	switch {
+	case prev == 0 && cur == 0:
+		return nil
+	case prev == 0:
+		return &deltaView{Class: "up", Label: "new"}
+	default:
+		pct := float64(cur-prev) / float64(prev) * 100
+		switch {
+		case pct > 0:
+			return &deltaView{Class: "up", Label: fmt.Sprintf("+%.0f%% ↑", pct)}
+		case pct < 0:
+			return &deltaView{Class: "down", Label: fmt.Sprintf("%.0f%% ↓", pct)}
+		default:
+			return &deltaView{Class: "flat", Label: "0%"}
+		}
+	}
 }
 
 // ariaInputs is the recomputed ARIA read that the GET page and the POST narrate
@@ -571,7 +640,39 @@ func (srv *Server) assembleARIAData(in ariaInputs, narrativeErr string) ariaData
 }
 
 func (srv *Server) renderARIA(w http.ResponseWriter, r *http.Request, status int, in ariaInputs, narrativeErr string) {
-	srv.render(w, r, status, "aria", pageView{Title: "ARIA", Active: "aria", Data: srv.assembleARIAData(in, narrativeErr)})
+	data := srv.assembleARIAData(in, narrativeErr)
+	srv.attachARIADeltas(r.Context(), in, &data)
+	srv.render(w, r, status, "aria", pageView{Title: "ARIA", Active: "aria", Data: data})
+}
+
+// attachARIADeltas sets the entries/callers change badges by counting this
+// window against the one immediately before it. The counts are real SQL counts;
+// deltas are cosmetic, so any error just leaves the badges off rather than
+// failing the page. Skipped when the window was truncated, since the displayed
+// count is capped and a comparison would mislead.
+func (srv *Server) attachARIADeltas(ctx context.Context, in ariaInputs, data *ariaData) {
+	if in.report.Truncated {
+		return
+	}
+	curStart, curEnd := in.report.Since, in.report.Now
+	window := curEnd.Sub(curStart)
+	if window <= 0 {
+		return
+	}
+	prevStart := curStart.Add(-window)
+
+	curTotal, curCallers, err := srv.store.AuditWindowStats(ctx, in.tenantID, curStart, curEnd)
+	if err != nil {
+		slog.Error("aria delta: current window", "error", err)
+		return
+	}
+	prevTotal, prevCallers, err := srv.store.AuditWindowStats(ctx, in.tenantID, prevStart, curStart)
+	if err != nil {
+		slog.Error("aria delta: previous window", "error", err)
+		return
+	}
+	data.TotalDelta = computeDelta(curTotal, prevTotal)
+	data.CallersDelta = computeDelta(curCallers, prevCallers)
 }
 
 // renderARIABrief renders just the AI-briefing block, for the fetch that the

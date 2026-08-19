@@ -76,7 +76,7 @@ SERVICE=postgres`, not `--service=postgres`.
 
 Two browser-facing surfaces ship with the server:
 
-- 🔐 **Admin console** at `/console`: an opt-in admin UI with essentially the same reach as the CLI above. View and mutate tenants (each with its SCIM base URL), tokens and attributes; watch webhook delivery health and replay a parked event; and read the audit trails and ARIA's report (with an optional AI briefing). Issuing the console's own sign-in credential stays on the CLI.
+- 🔐 **Admin console** at `/console`: an opt-in admin UI with essentially the same reach as the CLI above. View and mutate tenants (each with its SCIM base URL), tokens and attributes; watch webhook delivery health and replay a parked event; and read the audit trails and ARIA's report (with an optional ARIA briefing). Issuing the console's own sign-in credential stays on the CLI.
 - 📖 **API reference** at `/docs`: interactive Swagger UI, served unauthenticated (it describes the public protocol and carries no tenant data).
 
 The console stays off until you turn it on. Three steps to launch it:

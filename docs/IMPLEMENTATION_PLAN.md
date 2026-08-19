@@ -412,11 +412,14 @@ up from a fresh clone. Brand is dark-native (`docs/assets/scimage_logo.png`):
 dark is the base palette, with a light-mode override underneath for viewers
 whose system prefers it.
 
+The dark ground was deepened toward black (2026-08-18) to match the operator's
+reference aesthetic; the teal accent and the rest of the tokens are unchanged.
+
 | Token | Dark (base) | Light (override) |
 | --- | --- | --- |
-| `--paper` | `#081420` | `#F1F6FA` |
-| `--surface` | `#0D1F30` | `#FFFFFF` |
-| `--surface-2` | `#122A3F` | `#E7EEF4` |
+| `--paper` | `#050C13` | `#F1F6FA` |
+| `--surface` | `#0A1722` | `#FFFFFF` |
+| `--surface-2` | `#0F2130` | `#E7EEF4` |
 | `--ink` | `#F3F8FB` | `#0B1B2E` |
 | `--muted` | `#8CA3BA` | `#55708A` |
 | `--line` | `#1E3A52` | `#D6E1EC` |

@@ -48,10 +48,12 @@ type Store interface {
 
 	ListAuditEntries(ctx context.Context, tenantID string, limit int) ([]store.AuditEntry, error)
 	ListAuditEntriesSince(ctx context.Context, tenantID string, since time.Time) ([]store.AuditEntry, error)
+	AuditWindowStats(ctx context.Context, tenantID string, start, end time.Time) (total, callers int, err error)
 	ListAdminAuditEntries(ctx context.Context, tenantID string, limit int) ([]store.AdminAuditEntry, error)
 
 	WebhookDeliverySummary(ctx context.Context) (store.WebhookSummary, error)
 	DeadLetters(ctx context.Context, limit int) ([]store.Delivery, error)
+	PendingDeliveries(ctx context.Context, limit int) ([]store.Delivery, error)
 	ReplayDeadLetter(ctx context.Context, id int64, actor string) error
 	WebhookDeliveryStatus(ctx context.Context, id int64) (string, error)
 }

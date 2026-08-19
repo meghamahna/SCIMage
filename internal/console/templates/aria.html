@@ -22,9 +22,9 @@
   </form>
 
   <div class="stat-row">
-    <div class="stat"><div class="k">Entries reviewed</div><div class="v">{{.Data.Total}}</div></div>
-    <div class="stat"><div class="k">Distinct callers</div><div class="v">{{.Data.Callers}}</div></div>
-    <div class="stat"><div class="k">Flags</div><div class="v">{{len .Data.Flags}}</div></div>
+    <div class="stat"><div class="k">{{template "icon-list"}} Entries reviewed</div><div class="v">{{.Data.Total}}{{with .Data.TotalDelta}}<span class="delta {{.Class}}">{{.Label}}</span>{{end}}</div></div>
+    <div class="stat"><div class="k">{{template "icon-users"}} Distinct callers</div><div class="v">{{.Data.Callers}}{{with .Data.CallersDelta}}<span class="delta {{.Class}}">{{.Label}}</span>{{end}}</div></div>
+    <div class="stat"><div class="k">{{template "icon-flag"}} Flags</div><div class="v">{{len .Data.Flags}}</div></div>
   </div>
 
   {{if .Data.Truncated}}
@@ -63,6 +63,7 @@
       e.preventDefault();
       var btn = form.querySelector('button[type=submit]');
       var status = form.querySelector('.brief-status');
+      var originalLabel = btn ? btn.textContent : '';
       if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; btn.classList.add('busy'); }
       if (status) { status.hidden = false; }
       try {
@@ -74,7 +75,7 @@
         if (!res.ok) { throw new Error('status ' + res.status); }
         container.innerHTML = await res.text();
       } catch (err) {
-        if (btn) { btn.disabled = false; btn.textContent = 'Generate AI briefing'; btn.classList.remove('busy'); }
+        if (btn) { btn.disabled = false; btn.textContent = originalLabel; btn.classList.remove('busy'); }
         if (status) { status.hidden = true; }
         container.insertAdjacentHTML('afterbegin', '<div class="error">Couldn\'t reach the server just now. Try again.</div>');
       }
@@ -88,7 +89,7 @@
 {{define "aria-brief" -}}
 <div class="aria-brief">
   <div class="brief-head">
-    <h3>AI briefing</h3>
+    <h3>ARIA briefing</h3>
     {{if .Data.NarrativeAt.IsZero}}{{else}}<span class="muted">Generated {{.Data.NarrativeAt | rfc3339}}</span>{{end}}
   </div>
   <p class="brief-note muted">ARIA sums up the flagged patterns above in plain English for you to review. Each briefing uses an AI model, so the last one stays cached until you refresh.</p>
@@ -106,7 +107,7 @@
     <input type="hidden" name="tenant" value="{{.Data.SelectedTenant}}">
     <input type="hidden" name="since" value="{{.Data.SelectedSince}}">
     {{if .Data.NarrativeAt.IsZero}}
-    <button type="submit" class="primary">Generate AI briefing</button>
+    <button type="submit" class="primary">Generate briefing</button>
     {{else}}
     <input type="hidden" name="force" value="1">
     <button type="submit" class="ghost">Refresh briefing</button>

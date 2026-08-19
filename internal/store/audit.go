@@ -179,6 +179,23 @@ func (s *Store) ListAuditEntriesSince(ctx context.Context, tenantID string, sinc
 	return entries, nil
 }
 
+// AuditWindowStats counts audit entries and distinct callers in [start, end),
+// for the console's window-over-window comparison on the ARIA page. It counts in
+// SQL rather than fetching rows, so it isn't bounded by MaxPageSize the way
+// ListAuditEntriesSince is. An empty tenantID counts across every tenant.
+func (s *Store) AuditWindowStats(ctx context.Context, tenantID string, start, end time.Time) (total, callers int, err error) {
+	q := `SELECT count(*), count(DISTINCT actor_token) FROM audit_log WHERE at >= $1 AND at < $2`
+	args := []any{start, end}
+	if tenantID != "" {
+		q += ` AND tenant_id = $3`
+		args = append(args, tenantID)
+	}
+	if err := s.pool.QueryRow(ctx, q, args...).Scan(&total, &callers); err != nil {
+		return 0, 0, fmt.Errorf("audit window stats: %w", err)
+	}
+	return total, callers, nil
+}
+
 func scanAuditEntry(row pgx.Row) (*AuditEntry, error) {
 	var (
 		e                    AuditEntry

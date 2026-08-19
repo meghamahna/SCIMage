@@ -40,7 +40,7 @@ file before moving to the next phase.
 /internal/store       Postgres-backed store, audit log and outbox, raw SQL
 /internal/webhook     signing and the outbound delivery dispatcher
 /internal/aria        audit-signal detection and LLM narration (Phase 12)
-/internal/console     ops console: second listener, auth, CSRF, templates (Phase 14)
+/internal/console     admin console: second listener, auth, CSRF, templates (Phase 14)
 /internal/apidocs     embedded OpenAPI spec and Swagger UI (Phase 14)
 /internal/logging     structured logging setup
 /migrations           SQL migration files

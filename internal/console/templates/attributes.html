@@ -8,7 +8,7 @@
   <form method="get" action="/console/attributes" class="toolbar">
     <label for="tenant">Tenant</label>
     <select id="tenant" name="tenant" onchange="this.form.submit()">
-      <option value="">— select a tenant —</option>
+      <option value="">Select a tenant</option>
       {{range .Data.Tenants}}
       <option value="{{.ID}}" {{if eq .ID $.Data.SelectedTenant}}selected{{end}}>{{.Name}}</option>
       {{end}}

@@ -2,13 +2,13 @@
 <section class="panel">
   <header>
     <h2>SCIM Audit and Governance Engine</h2>
-    <p>SCIMage keeps your apps in step with your identity provider. When someone joins, changes role, or leaves, Okta or Entra tells SCIMage over the SCIM 2.0 standard, and SCIMage creates, updates, and deactivates their accounts for you.</p>
+    <p>SCIMage keeps your apps in step with your identity provider. When someone joins, changes role, or leaves, your identity provider tells SCIMage over the SCIM 2.0 standard, and SCIMage creates, updates, and deactivates their accounts for you.</p>
   </header>
 
   <div class="stat-row">
-    <div class="stat"><div class="k">Tenants</div><div class="v">{{.Data.TenantCount}}</div></div>
-    <div class="stat"><div class="k">Webhooks</div><div class="v">{{if .Data.Webhook.Enabled}}<span class="status-on">Enabled</span>{{else}}<span class="status-off">Disabled</span>{{end}}</div></div>
-    <div class="stat"><div class="k">Environment</div><div class="v">{{dash .EnvLabel}}</div></div>
+    <div class="stat"><div class="k">{{template "icon-users"}} Tenants</div><div class="v">{{.Data.TenantCount}}</div></div>
+    <div class="stat"><div class="k">{{template "icon-webhook"}} Webhooks</div><div class="v">{{if .Data.Webhook.Enabled}}<span class="status-on">Enabled</span>{{else}}<span class="status-off">Disabled</span>{{end}}</div></div>
+    <div class="stat"><div class="k">{{template "icon-server"}} Environment</div><div class="v">{{dash .EnvLabel}}</div></div>
   </div>
 
   <div class="card">
@@ -23,12 +23,13 @@
   <div class="card" style="margin-top:20px">
     <h3>Where things live</h3>
     <ul class="linklist">
-      <li><a href="/console/tenants">Tenants</a> — each customer you provision for, with their own users, groups, tokens, audit trail, and SCIM base URL.</li>
-      <li><a href="/console/tokens">Tokens</a> — create and revoke the access tokens an identity provider signs in with.</li>
-      <li><a href="/console/attributes">Attributes</a> — extra fields a tenant syncs on top of the standard SCIM set.</li>
-      <li><a href="/console/webhooks">Webhooks</a> — the health of the change events SCIMage sends to your systems, with the option to resend one.</li>
-      <li><a href="/console/audit">Audit log</a> — every provisioning change, per tenant. <a href="/console/admin-audit">Admin audit</a> covers what operators do.</li>
-      <li><a href="/console/aria">ARIA</a> — a helper that reviews the audit trail and points out patterns worth your attention. You stay in control of every decision.</li>
+      <li><a href="/console/tenants">Tenants</a>: each customer you provision for, with their own users, groups, tokens, audit trail, and SCIM base URL.</li>
+      <li><a href="/console/tokens">Tokens</a>: create and revoke the access tokens an identity provider signs in with.</li>
+      <li><a href="/console/attributes">Attributes</a>: extra fields a tenant syncs on top of the standard SCIM set.</li>
+      <li><a href="/console/webhooks">Webhooks</a>: the health of the change events SCIMage sends to your systems, with the option to resend one.</li>
+      <li><a href="/console/audit">Audit log</a>: every provisioning change, per tenant.</li>
+      <li><a href="/console/admin-audit">Admin audit</a>: what operators do in this console, separate from provisioning changes.</li>
+      <li><a href="/console/aria">ARIA</a>: a helper that reviews the audit trail and points out patterns worth your attention. You stay in control of every decision.</li>
     </ul>
   </div>
 

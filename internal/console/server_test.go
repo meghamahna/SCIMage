@@ -278,7 +278,7 @@ func TestConsoleWebhooksPageRenders(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("webhooks status = %d, want 200", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "Parked deliveries") {
+	if !strings.Contains(rec.Body.String(), "Parked and queued deliveries") {
 		t.Error("webhooks page did not render the parked-deliveries table")
 	}
 }
@@ -332,7 +332,7 @@ func TestConsoleARIANarrateReturnsFragment(t *testing.T) {
 		t.Fatalf("narrate fragment status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "AI briefing") {
+	if !strings.Contains(body, "ARIA briefing") {
 		t.Error("fragment response should contain the briefing block")
 	}
 	if strings.Contains(body, "Entries reviewed") {

@@ -2,13 +2,13 @@
 <section class="panel">
   <header>
     <h2>Audit log</h2>
-    <p>Every change to this tenant's directory — creates, updates, deactivations, deletes, and refusals — newest first. Each entry is saved together with the change it records.</p>
+    <p>Every change to this tenant's directory, newest first: creates, updates, deactivations, deletes, and refusals. Each entry is saved together with the change it records.</p>
   </header>
 
   <form method="get" action="/console/audit" class="toolbar">
     <label for="tenant">Tenant</label>
     <select id="tenant" name="tenant" onchange="this.form.submit()">
-      <option value="">— select a tenant —</option>
+      <option value="">Select a tenant</option>
       {{range .Data.Tenants}}
       <option value="{{.ID}}" {{if eq .ID $.Data.SelectedTenant}}selected{{end}}>{{.Name}}</option>
       {{end}}

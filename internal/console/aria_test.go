@@ -51,6 +51,25 @@ func TestRenderNarrativeEscapesButBolds(t *testing.T) {
 	}
 }
 
+// computeDelta must never invent a trend: two empty windows yield no badge.
+func TestComputeDelta(t *testing.T) {
+	if d := computeDelta(0, 0); d != nil {
+		t.Errorf("both-empty delta = %+v, want nil (no fabricated trend)", d)
+	}
+	if d := computeDelta(3, 0); d == nil || d.Class != "up" {
+		t.Errorf("first-activity delta = %+v, want an up badge", d)
+	}
+	if d := computeDelta(10, 5); d == nil || d.Class != "up" || d.Label != "+100% ↑" {
+		t.Errorf("doubled delta = %+v, want up +100%%", d)
+	}
+	if d := computeDelta(5, 10); d == nil || d.Class != "down" || d.Label != "-50% ↓" {
+		t.Errorf("halved delta = %+v, want down -50%%", d)
+	}
+	if d := computeDelta(7, 7); d == nil || d.Class != "flat" {
+		t.Errorf("unchanged delta = %+v, want flat", d)
+	}
+}
+
 func TestNarrativeCache(t *testing.T) {
 	c := newNarrativeCache()
 

@@ -31,7 +31,7 @@ func newEventStore(t *testing.T) *Store {
 func deliveriesFor(t *testing.T, s *Store, targetID string) []Delivery {
 	t.Helper()
 
-	const q = `SELECT id, tenant_id, event_type, target_id, payload, attempts
+	const q = `SELECT id, tenant_id, event_type, target_id, payload, attempts, next_attempt_at
 	           FROM webhook_deliveries WHERE target_id = $1 ORDER BY id`
 
 	rows, err := s.pool.Query(context.Background(), q, targetID)
@@ -605,6 +605,33 @@ func TestReplayDeadLetterRequeues(t *testing.T) {
 	}
 	if !found {
 		t.Error("no webhook.replay entry in the admin audit log")
+	}
+}
+
+// AuditWindowStats counts entries and distinct callers in a range, uncapped, for
+// the console's window-over-window delta on the ARIA page.
+func TestAuditWindowStats(t *testing.T) {
+	s := newEventStore(t)
+	ctx := context.Background()
+	tenantID := newTestTenant(t, s)
+
+	start, end := time.Now().Add(-time.Hour), time.Now().Add(time.Hour)
+	if total, callers, err := s.AuditWindowStats(ctx, tenantID, start, end); err != nil || total != 0 || callers != 0 {
+		t.Fatalf("fresh tenant window = (%d, %d, %v), want (0, 0, nil)", total, callers, err)
+	}
+
+	createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
+	createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
+
+	total, callers, err := s.AuditWindowStats(ctx, tenantID, start, end)
+	if err != nil {
+		t.Fatalf("AuditWindowStats: %v", err)
+	}
+	if total < 2 {
+		t.Errorf("after two creates, total = %d, want >= 2", total)
+	}
+	if callers < 1 {
+		t.Errorf("distinct callers = %d, want >= 1", callers)
 	}
 }
 
