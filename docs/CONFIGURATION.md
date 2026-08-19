@@ -182,11 +182,11 @@ to that tenant's directory), and revoke it as soon as exposure is suspected.
 The admin console is an optional web UI for whoever runs the deployment, with
 essentially the same reach as `scimage-admin`: a landing page, view and mutate
 tenants (with each tenant's SCIM base URL), tokens and attributes, watch webhook
-delivery health and replay a parked event, and read the SCIM audit log, the
-admin audit log, and ARIA's report (with an optional on-demand ARIA briefing). It
-is for that one operator, not a customer-facing self-service portal: a tenant's
-own IT staff never log in here. The one thing it can't do is mint its own login
-credential (see below).
+delivery health and replay a parked event, and read the SCIM audit log and the
+admin audit log. When `ARIA_LLM_*` is configured, it also shows ARIA's report
+with an on-demand ARIA Briefing. It is for that one operator, not a
+customer-facing self-service portal: a tenant's own IT staff never log in
+here. The one thing it can't do is mint its own login credential (see below).
 
 | Variable | Purpose |
 | --- | --- |
@@ -230,10 +230,10 @@ transaction.
 | Issue a token | **Tokens → Issue token** | `scimage-admin token issue -tenant <id> -label "Okta prod"` |
 | List / revoke tokens | **Tokens** (Revoke) | `scimage-admin token list -tenant <id>`; `token revoke <keyID>` |
 | Register / remove an attribute | **Attributes** | `scimage-admin attribute register\|unregister -tenant <id> -name <attr>` |
-| Read the SCIM audit log | **Audit log** | direct SQL on `audit_log`, or a webhook consumer |
-| Read the admin audit log | **Admin audit** | `scimage-admin audit list [-tenant <id>]` |
+| Read the SCIM audit log | **Audit Log** | direct SQL on `audit_log`, or a webhook consumer |
+| Read the admin audit log | **Admin Log** | `scimage-admin audit list [-tenant <id>]` |
 | Watch webhook delivery / replay a parked event | **Webhooks** (Replay) | `scimage-admin webhook replay <id>` or `replay-all` |
-| ARIA activity briefing | **ARIA** (Generate briefing) | `aria [-tenant <id>] [-since 7d]` (or `make aria`) |
+| ARIA activity briefing | **ARIA** (Generate briefing), shown only once `ARIA_LLM_*` is set | `aria [-tenant <id>] [-since 7d]` (or `make aria`) |
 | Issue / revoke a **console** credential | not in the UI | `scimage-admin console-token issue\|list\|revoke` |
 
 Two things sit outside this symmetry, by design:
@@ -266,13 +266,16 @@ ARIA works with any OpenAI-compatible chat-completions API: Anthropic's
 compatibility endpoint, OpenAI, OpenRouter, a local Ollama or vLLM, and so on.
 Set the three `ARIA_LLM_*` variables to whichever you run.
 
-The `cmd/aria` CLI and the console's **ARIA** page produce the same briefing from
-the same signals. The CLI reads `ARIA_LLM_*` in its own process; the console
-narrates on demand when you click **Generate briefing**, so if you want that
-button to work, the three variables must be set in the *server's* environment
-too (it caches the last briefing per tenant and window to avoid a call on every
-click). The narration stays advisory either way: it is only ever shown to the
-operator, never fed back into the store or the auth path.
+The `cmd/aria` CLI and the console's **ARIA** page produce the same briefing
+from the same signals. The CLI reads `ARIA_LLM_*` in its own process; the
+console's ARIA nav entry only appears once the three variables are set in
+the *server's* environment too, and narrates on demand when you click
+**Generate briefing** (it caches the last briefing per tenant and window to
+avoid a call on every click). If the LLM call itself fails, the console shows
+a generic "LLM is currently unavailable" message rather than the underlying
+error, which is logged server-side instead. The narration stays advisory
+either way: it is only ever shown to the operator, never fed back into the
+store or the auth path.
 
 ```bash
 aria [-tenant <tenantID>] [-since 24h] [-timezone America/Vancouver]

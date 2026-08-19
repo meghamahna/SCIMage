@@ -400,8 +400,9 @@ portal) considered and declined for this project.
       internet-facing SCIM port
 - [x] Auth via the issued console token (HTTP Basic or Bearer,
       `crypto/subtle.ConstantTimeCompare`), not a static shared secret
-- [x] View tenants, tokens (metadata only, never the secret), the SCIM audit
-      log, the admin audit log, and ARIA summaries
+- [x] View tenants, tokens (metadata only, never the secret), the SCIM
+      Audit Log, the Admin Log, and (when `ARIA_LLM_*` is configured) ARIA
+      summaries
 - [x] Mutating routes (create tenant, issue/revoke token,
       register/unregister attribute) reusing the exact `store.*` functions
       `scimage-admin` calls, so the audit-log-in-transaction guarantee is
@@ -422,7 +423,10 @@ portal) considered and declined for this project.
       delivery would have no dispatcher to pick it up
 - [x] ARIA page can generate the LLM briefing on demand (advisory-only,
       HTML-escaped, cached per tenant+window), reusing `internal/aria`; the
-      server reads `ARIA_LLM_*` when this is used
+      server reads `ARIA_LLM_*` when this is used. The nav entry and home
+      page link only appear once `ARIA_LLM_*` is fully configured, and a
+      failed briefing call shows a generic "LLM unavailable" message instead
+      of surfacing config or upstream error detail
 
 **Console design tokens.** A working interactive mockup exists at
 `docs/mockups/console-mockup.html` on the machine it was built on, but that

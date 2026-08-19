@@ -1,8 +1,8 @@
 {{define "aria" -}}
 <section class="panel">
   <header>
-    <h2>ARIA</h2>
-    <p>Audit Risk Intelligence Advisor. ARIA reviews a recent window of your audit trail and points out patterns worth a closer look, such as clustered deactivations, off-hours changes, or a caller spiking in volume. You decide what to do with them.</p>
+    <h2>ARIA: Audit Risk Intelligence Advisor</h2>
+    <p>ARIA reviews a recent window of your audit trail and points out patterns worth a closer look, such as clustered deactivations, off-hours changes, or a caller spiking in volume. You decide what to do with them.</p>
   </header>
 
   <form method="get" action="/console/aria" class="toolbar">
@@ -89,7 +89,7 @@
 {{define "aria-brief" -}}
 <div class="aria-brief">
   <div class="brief-head">
-    <h3>ARIA briefing</h3>
+    <h3>ARIA Briefing</h3>
     {{if .Data.NarrativeAt.IsZero}}{{else}}<span class="muted">Generated {{.Data.NarrativeAt | rfc3339}}</span>{{end}}
   </div>
   <p class="brief-note muted">ARIA sums up the flagged patterns above in plain English for you to review. Each briefing uses an AI model, so the last one stays cached until you refresh.</p>
