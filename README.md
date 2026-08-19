@@ -101,8 +101,6 @@ flowchart LR
     DISPATCH -->|"signed POST"| APP["Your app"]
     DISPATCH -.->|"parked"| DB
 
-    ADMIN["Admin CLI"] -.->|"off-network"| DB
-
     DB -.->|"audit_log"| ARIA["ARIA"]
     ARIA <-->|"narrate"| LLM["LLM"]
     ARIA -->|"briefing"| HUMAN["Reviewer"]
