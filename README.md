@@ -145,6 +145,8 @@ A quiet window prints a deterministic "nothing tripped the thresholds" line and 
 
 **Prerequisites:** Go (the version in [`go.mod`](go.mod)), Docker with Compose (for Postgres), GNU Make, and `jq`. [Local development](docs/LOCAL-DEVELOPMENT.md) has versions and platform notes.
 
+This is the local-development path. Docker's only job in it is running Postgres; the server itself runs directly on your host with `make run`, no container involved. If you want to containerize the server too (for example, to deploy it), that's a separate, later step: [Deploy with Docker](#-deploy-with-docker).
+
 **1. Clone and configure.**
 
 ```bash
@@ -205,20 +207,41 @@ For prerequisites in depth and the full set of `make` targets, see [Local develo
 
 ## 🐳 Deploy with Docker
 
-The repo ships a `Dockerfile`, so you can build a small (about 20 MB) container and run it anywhere. There is no image to pull; you build it once.
+The repo ships a `Dockerfile`, so you can build a small (about 20 MB) container and run it anywhere. There is no image to pull; you build it once. The image holds only the `scimage` server binary; `scimage-admin` and its `make` targets stay host-side, since they're operator tooling, not something a running deployment needs inside the container.
 
 ```bash
-docker build -t scimage .
+make up
 
+docker build -t scimage .
+```
+
+**Production.** Env vars come from the orchestrator (its secret manager, task definition, or Kubernetes `Secret`/`ConfigMap`), passed at `docker run` time or however your platform injects them. This is the standard way to configure a container: nothing is baked into the image and nothing is auto-loaded from a file inside it, so the same image runs unchanged in every environment. `.env` is a local-dev convenience only; it never ships in the image (it's gitignored) and the server code never reads it directly, it only reads real environment variables.
+
+```bash
 docker run --rm -p 8080:8080 \
   -e DATABASE_URL="postgres://user:pass@your-db:5432/scimage?sslmode=require" \
   -e SCIM_BASE_URL="https://scim.yourcompany.com" \
   scimage
 ```
 
-The container runs the server only. It needs a Postgres you already operate, with the migrations applied. Apply them with `make migrate` against that database, or run the `golang-migrate` image over the files in [`migrations/`](migrations/). Point the server at the database with `DATABASE_URL`.
+The container needs a Postgres you already operate, with the migrations applied. Apply them with `make migrate` against that database, or run the `golang-migrate` image over the files in [`migrations/`](migrations/).
 
 Run it behind a proxy that terminates TLS, and set `SCIM_BASE_URL` to the public HTTPS URL so the links the server returns stay `https`. For an orchestrator, `GET /healthz` is the liveness check and `GET /readyz` is the readiness check. Every setting is an environment variable; see [Configuration](docs/CONFIGURATION.md).
+
+**Local testing**, against the same Postgres and `.env` that `make run` uses. This assumes you've already done the [Getting started](#-getting-started) setup: `.env` filled in and `make up` run, so Postgres is up with migrations applied. Pass `--env-file .env` instead of listing variables one by one, so the container picks up the whole file the same way `scripts/with-env.sh` does for `make run`. Two values still need overriding, both for the same reason: the container has its own network namespace, so anything bound to loopback means the container's loopback, not your host's.
+
+```bash
+docker run --rm -p 8080:8080 -p 127.0.0.1:8090:8090 \
+  --env-file .env \
+  -e DATABASE_URL="postgres://scimage:changeme@host.docker.internal:5432/scimage?sslmode=disable" \
+  -e CONSOLE_ADDR="0.0.0.0:8090" \
+  scimage
+```
+
+- `DATABASE_URL` needs `host.docker.internal` in place of `localhost` to reach the `docker-compose.yml` Postgres running on your host.
+- `CONSOLE_ADDR` needs to bind `0.0.0.0`, not the `127.0.0.1` recommended for a bare-metal deploy: Docker's port publishing forwards to the container's network interface, not its loopback, so a console bound to `127.0.0.1` inside the container is unreachable even with `-p` mapped. `-p 127.0.0.1:8090:8090` puts the loopback restriction back at the host boundary instead, so the console still isn't reachable off-host.
+
+Issue yourself a console login token from the host (the container has no `scimage-admin`): `make console-token LABEL="local docker test"`, then open `http://localhost:8090/console` with it.
 
 ## ✅ Running tests
 

@@ -13,12 +13,23 @@ import (
 const enterpriseURN = "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User"
 
 // extendedRoutes builds a handler with the extensible-attribute pass-through
-// turned on, over the same store/tenant/token the rest of the suite uses. The
-// shared handler keeps the feature off, which the flag-off subtest relies on.
+// turned on, over the same store/tenant/token the rest of the suite uses.
 func extendedRoutes(t *testing.T) http.Handler {
 	t.Helper()
 	h := NewHandler(testStore, testStore, testStore, testStore)
 	h.extended = true
+	return h.Routes()
+}
+
+// flagOffRoutes builds a handler with the pass-through explicitly off. The
+// flag-off subtest asserts against this rather than the shared package
+// handler, whose `extended` value depends on SCIM_EXTENDED_ATTRIBUTES in the
+// environment `make test` loads from .env — ambient state a local dev setup
+// can flip without touching this test.
+func flagOffRoutes(t *testing.T) http.Handler {
+	t.Helper()
+	h := NewHandler(testStore, testStore, testStore, testStore)
+	h.extended = false
 	return h.Routes()
 }
 
@@ -168,11 +179,12 @@ func TestExtendedAttributes(t *testing.T) {
 		}
 	})
 
-	// The flag-off guarantee: the shared suite handler has the feature disabled,
-	// so a registered attribute is ignored — exactly today's behaviour.
+	// The flag-off guarantee: with h.extended explicitly false, a registered
+	// attribute is ignored — exactly today's behaviour.
 	t.Run("with the feature off, a registered attribute is dropped", func(t *testing.T) {
+		off := flagOffRoutes(t)
 		body := `{"schemas":["` + userSchema + `"],"userName":"` + uniqueUserName() + `","displayName":"ignored"}`
-		rr := do(t, http.MethodPost, "/Users", body)
+		rr := doAt(t, off, http.MethodPost, "/Users", body)
 		if rr.Code != http.StatusCreated {
 			t.Fatalf("POST = %d, want 201: %s", rr.Code, rr.Body)
 		}
