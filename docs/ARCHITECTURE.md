@@ -257,7 +257,14 @@ jitter so a batch that failed together returns spread out.
 
 A parked row keeps its payload and last error. Replay moves it back to
 `pending` with a fresh budget, which `scimage-admin webhook replay <id>` (or
-`webhook replay-all`) and the console's **Webhooks** page both do:
+`webhook replay-all`) and the console's **Webhooks** page both do. The
+console can replay one row or several selected at once, each call running the
+same statement below independently. The console refuses to replay at all while
+webhooks are disabled: with no dispatcher running, a requeued row would just
+sit `pending` indefinitely. A Pending deliveries view lists currently-queued
+rows (whether freshly replayed or mid-retry) alongside the parked ones, so a
+replay's outcome stays visible instead of the row disappearing the moment it's
+no longer dead-lettered.
 
 ```sql
 UPDATE webhook_deliveries

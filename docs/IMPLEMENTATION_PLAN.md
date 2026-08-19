@@ -362,9 +362,9 @@ tracked in `ROADMAP.md`.
 Two independent, additive pieces that make the server approachable without a
 full customer-facing admin portal: an admin console for whoever runs SCIMage,
 and interactive API docs for whoever integrates against it. The console covers
-the day-to-day of `scimage-admin` (including mutations) — issuing its own login
-credential stays CLI-only by design — but only for that one
-operator — a tenant's own IT staff never log in themselves; that would be a
+the day-to-day of `scimage-admin` (including mutations), though issuing its own
+login credential stays CLI-only by design, and only for that one
+operator: a tenant's own IT staff never log in themselves; that would be a
 materially different, larger feature (a WorkOS/Stytch-style self-service
 portal) considered and declined for this project.
 
@@ -373,7 +373,7 @@ portal) considered and declined for this project.
 - [x] `console_tokens` table (migration `000012`) and
       `internal/store/consoletoken.go`: `IssueConsoleToken`,
       `ListConsoleTokens`, `RevokeConsoleToken`, mirroring `token.go`'s
-      existing pattern — same hashing, same atomic `insertAdminAudit` call
+      existing pattern: same hashing, same atomic `insertAdminAudit` call
       inside the mutation's own transaction
 - [x] `scimage-admin console-token issue/list/revoke`, shown-once plaintext
       like `token issue` already does
@@ -385,8 +385,8 @@ portal) considered and declined for this project.
       `crypto/subtle.ConstantTimeCompare`), not a static shared secret
 - [x] View tenants, tokens (metadata only, never the secret), the SCIM audit
       log, the admin audit log, and ARIA summaries
-- [x] Mutating routes — create tenant, issue/revoke token,
-      register/unregister attribute — reusing the exact `store.*` functions
+- [x] Mutating routes (create tenant, issue/revoke token,
+      register/unregister attribute) reusing the exact `store.*` functions
       `scimage-admin` calls, so the audit-log-in-transaction guarantee is
       inherited, not re-implemented
 - [x] Stateless, signed CSRF token (HMAC over a time bucket, no session, no
@@ -395,19 +395,22 @@ portal) considered and declined for this project.
       and `templates/*.html` from these values, not a re-derived palette
 - [x] Landing page (`/console`) and each tenant's derived SCIM base URL on the
       Tenants page, so an operator can copy the endpoint an IdP points at
-- [x] Webhooks page: read-only delivery health (secret-free endpoint, queue
-      counts, parked deliveries) with a per-row **Replay** that requeues a
-      dead-letter and writes a `webhook.replay` admin-audit row; also a
+- [x] Webhooks page: delivery health (secret-free endpoint, queue counts),
+      parked deliveries with a per-row and bulk **Replay** that requeues one
+      or several dead-letters and writes a `webhook.replay` admin-audit row
+      each, and a Pending deliveries view so a replayed or retrying event
+      stays visible until it lands or parks again; also a
       `scimage-admin webhook replay <id>` / `replay-all` CLI, sharing one store
-      method
+      method. Replay is refused while webhooks are disabled, since a requeued
+      delivery would have no dispatcher to pick it up
 - [x] ARIA page can generate the LLM briefing on demand (advisory-only,
       HTML-escaped, cached per tenant+window), reusing `internal/aria`; the
       server reads `ARIA_LLM_*` when this is used
 
 **Console design tokens.** A working interactive mockup exists at
 `docs/mockups/console-mockup.html` on the machine it was built on, but that
-path is gitignored — a personal working reference, not a committed artifact
-— so this table, not that file, is the binding spec for anyone picking this
+path is gitignored (a personal working reference, not a committed artifact),
+so this table, not that file, is the binding spec for anyone picking this
 up from a fresh clone. Brand is dark-native (`docs/assets/scimage_logo.png`):
 dark is the base palette, with a light-mode override underneath for viewers
 whose system prefers it.
@@ -431,8 +434,10 @@ reference aesthetic; the teal accent and the rest of the tokens are unchanged.
 | `--warn` | `#F5A524` | `#9A6B12` |
 | `--bad` | `#F0475C` | `#C13248` |
 
-`--accent`/`--accent-2` are the shield logo's teal-to-blue gradient — used
-for `.primary` buttons and a soft glow behind the sidebar logo, nowhere else.
+`--accent`/`--accent-2` are the shield logo's teal-to-blue gradient, used
+for `.primary` buttons and nowhere else; a later pass (2026-08-18) dropped the
+glow this table used to describe behind the sidebar logo, favoring a flatter
+look.
 Semantic colors (`--good`/`--warn`/`--bad`) stay a separate hue family from
 the accent. Fonts: a literary serif (`"Iowan Old Style", "Palatino
 Linotype", Palatino, Georgia, serif`) for page titles only, system sans for

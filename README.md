@@ -21,7 +21,7 @@ SCIMage is a focused SCIM 2.0 server written in Go. It implements the core `/Use
 - [How it's built](#-how-its-built)
 - [Change delivery](#-change-delivery)
 - [Security practices](#-security-practices)
-- [ARIA: The AI advisory audit reviewer](#-aria-the-advisory-audit-reviewer)
+- [ARIA: The AI advisory audit reviewer](#-aria-the-ai-advisory-audit-reviewer)
 - [Getting started](#-getting-started)
 - [Deploy with Docker](#-deploy-with-docker)
 - [Running tests](#-running-tests)

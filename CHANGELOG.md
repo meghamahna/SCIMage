@@ -43,10 +43,14 @@ are recorded as they were made.
 - **Retention for delivered webhook rows**: the dispatcher prunes delivered rows
   older than `SCIM_WEBHOOK_RETENTION_DAYS` (default 30, `0` disables) on an hourly
   sweep. Pending and dead-lettered rows are never touched.
-- **Webhook dead-letter replay**: a parked delivery can be requeued with a fresh
-  retry budget from `scimage-admin webhook replay <id>` / `replay-all` or the
-  console's Webhooks page. The requeue is guarded on the row still being parked
-  and writes a `webhook.replay` admin-audit row in its own transaction.
+- **Webhook dead-letter replay**: one or several parked deliveries can be
+  requeued with a fresh retry budget from `scimage-admin webhook replay <id>` /
+  `replay-all` or the console's Webhooks page (per-row or bulk-select). The
+  requeue is guarded on the row still being parked, refused while webhooks are
+  disabled (nothing would ever pick a requeued delivery up), and writes a
+  `webhook.replay` admin-audit row per delivery in its own transaction. A
+  Pending deliveries view keeps a replayed or retrying event visible until it
+  lands or parks again, instead of it disappearing between replay and outcome.
 - **ARIA** (`cmd/aria`): an advisory audit reviewer that computes activity
   signals in Go and asks an LLM only to narrate them, over any OpenAI-compatible
   endpoint. Advisory only, by design.
@@ -62,7 +66,7 @@ are recorded as they were made.
   loopback). It covers the day-to-day of the `scimage-admin` CLI: a landing page;
   view and mutate tenants (each with its SCIM base URL), tokens and attributes;
   watch webhook delivery health and replay parked events; read the SCIM audit
-  log, the admin audit log, and ARIA's report with an optional on-demand AI
+  log, the admin audit log, and ARIA's report with an optional on-demand ARIA
   briefing. Issuing the console's own login credential stays CLI-only, by design.
   It authenticates with a dedicated system-wide credential
   issued by `scimage-admin console-token issue` (with `list`/`revoke`), compared
