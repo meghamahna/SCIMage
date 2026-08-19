@@ -354,8 +354,7 @@ decides.
       keeps the DELETE a range scan
 - [x] A `Dockerfile` for a small static image (see the README Deploy section)
 
-A published registry image and the `v1.0.0` tag are the remaining release steps,
-tracked in `ROADMAP.md`.
+`v1.0.0` is tagged, covering phases 1 through 13.
 
 ### Phase 14: Operator and integrator tooling
 

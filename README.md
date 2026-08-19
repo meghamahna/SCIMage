@@ -231,7 +231,7 @@ Store and audit tests run against a real Postgres instance via `docker-compose`,
 
 ## 🗺️ Roadmap
 
-Phases 1 through 14 are complete. A published registry image and a tagged `v1.0.0` release are the remaining steps.
+`v1.0.0` is tagged, covering phases 1 through 13. Phase 14 (the admin console and the OpenAPI spec with Swagger UI) is complete on top of that and ships in the next release.
 
 [ROADMAP.md](ROADMAP.md) tracks what's deliberately left for later, [CHANGELOG.md](CHANGELOG.md) records what's landed, and the [implementation plan](docs/IMPLEMENTATION_PLAN.md) has the phase-by-phase detail with the decisions recorded as they were made.
 

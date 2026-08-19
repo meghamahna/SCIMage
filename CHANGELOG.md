@@ -7,10 +7,41 @@ release.
 
 ## [Unreleased]
 
-The work below is the intended `1.0.0` surface, the first tagged release. It
-captures phases 1 through 14 of the [implementation
-plan](docs/IMPLEMENTATION_PLAN.md), where each phase's decisions and trade-offs
-are recorded as they were made.
+Phase 14 of the [implementation plan](docs/IMPLEMENTATION_PLAN.md): operator
+and integrator tooling, built on top of the `1.0.0` surface below.
+
+### Added
+
+- **Admin console** (`/console`): an opt-in admin web UI that starts on a second
+  listener only when `CONSOLE_ADDR` is set (`127.0.0.1:8090` recommended,
+  loopback). It covers the day-to-day of the `scimage-admin` CLI: a landing page;
+  view and mutate tenants (each with its SCIM base URL), tokens and attributes;
+  watch webhook delivery health and replay parked events; read the SCIM audit
+  log, the admin audit log, and ARIA's report with an optional on-demand ARIA
+  briefing. Issuing the console's own login credential stays CLI-only, by design.
+  It authenticates with a dedicated system-wide credential
+  issued by `scimage-admin console-token issue` (with `list`/`revoke`), compared
+  in constant time and accepted as an HTTP Basic password or a Bearer header.
+  Every mutating route reuses the same audited `store.*` functions the CLI calls
+  and carries a stateless signed CSRF token.
+- **Webhook dead-letter replay**: one or several parked deliveries can be
+  requeued with a fresh retry budget from `scimage-admin webhook replay <id>` /
+  `replay-all` or the console's Webhooks page (per-row or bulk-select). The
+  requeue is guarded on the row still being parked, refused while webhooks are
+  disabled (nothing would ever pick a requeued delivery up), and writes a
+  `webhook.replay` admin-audit row per delivery in its own transaction. A
+  Pending deliveries view keeps a replayed or retrying event visible until it
+  lands or parks again, instead of it disappearing between replay and outcome.
+- **OpenAPI spec and Swagger UI** (`/docs`): a hand-written OpenAPI 3.0 document
+  and a vendored Swagger UI (no CDN), embedded and served on the SCIM server. It
+  is unauthenticated by design, since it describes the public protocol and
+  carries no tenant data.
+
+## [1.0.0] - 2026-08-16
+
+The first tagged release. Captures phases 1 through 13 of the
+[implementation plan](docs/IMPLEMENTATION_PLAN.md), where each phase's
+decisions and trade-offs are recorded as they were made.
 
 ### Added
 
@@ -43,14 +74,6 @@ are recorded as they were made.
 - **Retention for delivered webhook rows**: the dispatcher prunes delivered rows
   older than `SCIM_WEBHOOK_RETENTION_DAYS` (default 30, `0` disables) on an hourly
   sweep. Pending and dead-lettered rows are never touched.
-- **Webhook dead-letter replay**: one or several parked deliveries can be
-  requeued with a fresh retry budget from `scimage-admin webhook replay <id>` /
-  `replay-all` or the console's Webhooks page (per-row or bulk-select). The
-  requeue is guarded on the row still being parked, refused while webhooks are
-  disabled (nothing would ever pick a requeued delivery up), and writes a
-  `webhook.replay` admin-audit row per delivery in its own transaction. A
-  Pending deliveries view keeps a replayed or retrying event visible until it
-  lands or parks again, instead of it disappearing between replay and outcome.
 - **ARIA** (`cmd/aria`): an advisory audit reviewer that computes activity
   signals in Go and asks an LLM only to narrate them, over any OpenAI-compatible
   endpoint. Advisory only, by design.
@@ -61,22 +84,6 @@ are recorded as they were made.
   writes to `0700`/`0600` paths since bodies carry user attributes.
 - **Graceful shutdown**: SIGINT/SIGTERM drains the listener, then stops the
   webhook dispatcher.
-- **Admin console** (`/console`): an opt-in admin web UI that starts on a second
-  listener only when `CONSOLE_ADDR` is set (`127.0.0.1:8090` recommended,
-  loopback). It covers the day-to-day of the `scimage-admin` CLI: a landing page;
-  view and mutate tenants (each with its SCIM base URL), tokens and attributes;
-  watch webhook delivery health and replay parked events; read the SCIM audit
-  log, the admin audit log, and ARIA's report with an optional on-demand ARIA
-  briefing. Issuing the console's own login credential stays CLI-only, by design.
-  It authenticates with a dedicated system-wide credential
-  issued by `scimage-admin console-token issue` (with `list`/`revoke`), compared
-  in constant time and accepted as an HTTP Basic password or a Bearer header.
-  Every mutating route reuses the same audited `store.*` functions the CLI calls
-  and carries a stateless signed CSRF token.
-- **OpenAPI spec and Swagger UI** (`/docs`): a hand-written OpenAPI 3.0 document
-  and a vendored Swagger UI (no CDN), embedded and served on the SCIM server. It
-  is unauthenticated by design, since it describes the public protocol and
-  carries no tenant data.
 
 ### Security
 
@@ -89,4 +96,5 @@ are recorded as they were made.
   same transaction as the change; refusals are recorded too.
 - `govulncheck` runs in CI for dependency scanning.
 
-[Unreleased]: https://github.com/meghamahna/SCIMage/commits/main
+[Unreleased]: https://github.com/meghamahna/SCIMage/compare/v1.0.0...main
+[1.0.0]: https://github.com/meghamahna/SCIMage/releases/tag/v1.0.0
