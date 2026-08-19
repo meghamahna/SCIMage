@@ -44,7 +44,7 @@
   </div>
   {{end}}
 
-  {{if .Data.Flags}}
+  {{if and .Data.Flags .ARIAEnabled}}
   <div id="aria-brief">
     {{template "aria-brief" .}}
   </div>

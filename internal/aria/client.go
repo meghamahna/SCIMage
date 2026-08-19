@@ -55,6 +55,14 @@ func ConfigFromEnv() (Config, error) {
 	return cfg, nil
 }
 
+// Enabled reports whether ARIA_LLM_BASE_URL, ARIA_LLM_API_KEY and
+// ARIA_LLM_MODEL are all set, without exposing their values. The console uses
+// this to decide whether the briefing feature should appear at all.
+func Enabled() bool {
+	_, err := ConfigFromEnv()
+	return err == nil
+}
+
 // Client calls the configured chat-completions endpoint. The http.Client is a
 // field rather than a global so a test can point it at an httptest server.
 type Client struct {

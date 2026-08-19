@@ -8,21 +8,24 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/meghamahna/SCIMage/internal/aria"
 )
 
 // pageView is the envelope every page renders inside. Data carries the
 // page-specific payload; the rest is chrome shared by the layout (nav
 // highlight, who's signed in, the CSRF token, an optional error banner).
 type pageView struct {
-	Title      string
-	Active     string
-	Identity   consoleIdentity
-	EnvLabel   string
-	CSRF       string
-	Error      string
-	RenderedAt time.Time // when this page was served, shown in the refresh bar
-	Body       template.HTML
-	Data       any
+	Title       string
+	Active      string
+	Identity    consoleIdentity
+	EnvLabel    string
+	CSRF        string
+	Error       string
+	RenderedAt  time.Time // when this page was served, shown in the refresh bar
+	ARIAEnabled bool      // whether ARIA_LLM_* is configured; hides the nav entry and gates the briefing UI
+	Body        template.HTML
+	Data        any
 }
 
 // render executes the named page template into the shared layout. It's a
@@ -37,6 +40,7 @@ func (srv *Server) render(w http.ResponseWriter, r *http.Request, status int, pa
 	view.EnvLabel = srv.env
 	view.CSRF = srv.csrf.token(time.Now())
 	view.RenderedAt = time.Now()
+	view.ARIAEnabled = aria.Enabled()
 
 	var body bytes.Buffer
 	if err := srv.tmpl.ExecuteTemplate(&body, page, view); err != nil {

@@ -24,7 +24,7 @@
       <li><a href="/console/webhooks" class="{{if eq .Active "webhooks"}}active{{end}}">Webhooks</a></li>
       <li><a href="/console/audit" class="{{if eq .Active "audit"}}active{{end}}">Audit log</a></li>
       <li><a href="/console/admin-audit" class="{{if eq .Active "admin-audit"}}active{{end}}">Admin audit</a></li>
-      <li><a href="/console/aria" class="{{if eq .Active "aria"}}active{{end}}">ARIA</a></li>
+      {{if .ARIAEnabled}}<li><a href="/console/aria" class="{{if eq .Active "aria"}}active{{end}}">ARIA</a></li>{{end}}
     </ul>
     <div class="whoami">
       <span>Signed in as</span>

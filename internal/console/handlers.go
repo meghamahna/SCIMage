@@ -737,9 +737,11 @@ func (srv *Server) handleARIANarrate(w http.ResponseWriter, r *http.Request) {
 
 	text, err := srv.narrate(r.Context(), in.report)
 	if err != nil {
-		// A missing ARIA_LLM_* config or an LLM outage shouldn't 500 the
-		// console — surface it in the page and keep any prior briefing visible.
-		srv.respondARIA(w, r, fragment, in, "Couldn't generate a briefing: "+err.Error())
+		// An LLM outage shouldn't 500 the console, and its detail (upstream
+		// error text, missing config names) shouldn't reach the operator's
+		// screen either. Log it and show a generic status instead.
+		slog.Error("aria narrate", "error", err)
+		srv.respondARIA(w, r, fragment, in, "Couldn't generate a briefing. The LLM is currently unavailable.")
 		return
 	}
 	srv.narratives.put(key, text)
