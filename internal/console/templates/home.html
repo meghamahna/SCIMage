@@ -28,9 +28,13 @@
       <li><a href="/console/tokens">Tokens</a>: Create and revoke the access tokens an identity provider signs in with.</li>
       <li><a href="/console/attributes">Attributes</a>: Extra fields a tenant syncs on top of the standard SCIM set.</li>
       <li><a href="/console/webhooks">Webhooks</a>: The health of the change events SCIMage sends to your systems, with the option to resend one.</li>
-      <li><a href="/console/audit">Audit log</a>: Every provisioning change, per tenant.</li>
-      <li><a href="/console/admin-audit">Admin audit</a>: What operators do in this console, separate from provisioning changes.</li>
+      <li><a href="/console/audit">Audit Log</a>: Every provisioning change, per tenant.</li>
+      <li><a href="/console/admin-audit">Admin Log</a>: What operators do in this console, separate from provisioning changes.</li>
+      {{if .ARIAEnabled}}
       <li><a href="/console/aria">ARIA AI</a>: An AI agent that reviews the audit trail and points out patterns worth your attention. You stay in control of every decision.</li>
+      {{else}}
+      <li class="muted">ARIA AI: An AI agent that reviews the audit trail and points out patterns worth your attention. You stay in control of every decision.</li>
+      {{end}}
     </ul>
   </div>
 

@@ -340,7 +340,7 @@ func (srv *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 		}
 		data.Entries = entries
 	}
-	srv.render(w, r, http.StatusOK, "audit", pageView{Title: "Audit log", Active: "audit", Data: data})
+	srv.render(w, r, http.StatusOK, "audit", pageView{Title: "Audit Log", Active: "audit", Data: data})
 }
 
 func (srv *Server) handleAdminAudit(w http.ResponseWriter, r *http.Request) {
@@ -352,7 +352,7 @@ func (srv *Server) handleAdminAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	srv.render(w, r, http.StatusOK, "admin-audit", pageView{
-		Title:  "Admin audit",
+		Title:  "Admin Log",
 		Active: "admin-audit",
 		Data:   struct{ Entries []store.AdminAuditEntry }{entries},
 	})
