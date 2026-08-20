@@ -16,9 +16,12 @@ and integrator tooling, built on top of the `1.0.0` surface below.
   listener only when `CONSOLE_ADDR` is set (`127.0.0.1:8090` recommended,
   loopback). It covers the day-to-day of the `scimage-admin` CLI: a landing page;
   view and mutate tenants (each with its SCIM base URL), tokens and attributes;
-  watch webhook delivery health and replay parked events; read the SCIM audit
-  log, the admin audit log, and ARIA's report with an optional on-demand ARIA
-  briefing. Issuing the console's own login credential stays CLI-only, by design.
+  watch webhook delivery health and replay parked events; read the SCIM
+  Audit Log and the Admin Log. When `ARIA_LLM_*` is configured, it also shows
+  ARIA's report with an on-demand ARIA Briefing; the nav entry and home page
+  link stay hidden until then, and a failed briefing call shows a generic
+  status rather than leaking config or upstream error detail. Issuing the
+  console's own login credential stays CLI-only, by design.
   It authenticates with a dedicated system-wide credential
   issued by `scimage-admin console-token issue` (with `list`/`revoke`), compared
   in constant time and accepted as an HTTP Basic password or a Bearer header.

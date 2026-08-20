@@ -332,7 +332,7 @@ func TestConsoleARIANarrateReturnsFragment(t *testing.T) {
 		t.Fatalf("narrate fragment status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "ARIA briefing") {
+	if !strings.Contains(body, "ARIA Briefing") {
 		t.Error("fragment response should contain the briefing block")
 	}
 	if strings.Contains(body, "Entries reviewed") {
