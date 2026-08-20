@@ -85,26 +85,7 @@ Responses use `application/scim+json`, and errors use the SCIM Error schema with
 
 ## 🏗️ How it's built
 
-```mermaid
-flowchart LR
-    IDP["Identity provider"] -->|"SCIM request"| AUTH["Auth"]
-    AUTH -.->|"verify token"| DB[("Postgres")]
-    AUTH --> RL["Rate limiter"]
-    RL --> ROUTER{"Router"}
-    ROUTER --> DISCOVERY["Discovery"]
-    ROUTER --> MUTATE["Mutate"]
-    ROUTER --> READ["Read"]
-    MUTATE ==>|"one txn"| DB
-    READ --> DB
-
-    DB -.->|"due rows"| DISPATCH["Dispatcher"]
-    DISPATCH -->|"signed POST"| APP["Your app"]
-    DISPATCH -.->|"parked"| DB
-
-    DB -.->|"audit_log"| ARIA["ARIA"]
-    ARIA <-->|"narrate"| LLM["LLM"]
-    ARIA -->|"briefing"| HUMAN["Reviewer"]
-```
+![SCIMage architecture](docs/assets/SCIMAGE_architecture.png)
 
 Everything lives in **one Postgres database**, with every query scoped by `tenant_id` and each mutation writing its row, audit entry and outbound event in one transaction. ARIA is the one advisory branch, reading `audit_log` off to the side, clear of the store and the auth path.
 
@@ -243,12 +224,14 @@ Issue yourself a console login token from the host (the container has no `scimag
 
 ## ✅ Running tests
 
+Tests need Postgres running, so `make up` first:
+
 ```bash
-make up      # the integration tests use a real Postgres
+make up
 make test
 ```
 
-Store and audit tests run against a real Postgres instance via `docker-compose`, exercising the actual SQL and constraints. Handlers are driven through `httptest`, and the webhook dispatcher against a real `httptest` receiver. Every suite cleans up the rows it creates.
+Store and audit tests hit real SQL and constraints in Postgres. Handlers run through `httptest`, and the webhook dispatcher against a real `httptest` receiver. Every suite cleans up after itself.
 
 ## 🗺️ Roadmap
 

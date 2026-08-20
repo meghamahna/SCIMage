@@ -1,0 +1,27 @@
+flowchart LR
+    IDP["Identity Provider"] -->|"SCIM request"| AUTH["Auth"]
+    AUTH -->|"verify token"| DB[("Postgres")]
+    AUTH --> RL["Rate Limiter"]
+    RL --> ROUTER{"Router"}
+
+    subgraph OPS["SCIM Operations"]
+        DISCOVERY["Discovery"]
+        MUTATE["Mutate"]
+        READ["Read"]
+    end
+
+    ROUTER --> DISCOVERY
+    ROUTER --> MUTATE
+    ROUTER --> READ
+
+    DISCOVERY --> DB
+    MUTATE ==>|"one txn"| DB
+    READ --> DB
+
+    DB -.->|"due rows"| DISPATCH["Dispatcher"]
+    DISPATCH -->|"signed POST"| APP["Your App"]
+    DISPATCH -.->|"parked"| DB
+
+    DB -.->|"audit_log"| ARIA["ARIA"]
+    ARIA <-->|"narrate"| LLM["LLM"]
+    ARIA -->|"briefing"| HUMAN["Reviewer"]
