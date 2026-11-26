@@ -38,3 +38,19 @@ go.work.sum
 
 # Personal Claude Code overrides — never shared
 .claude/settings.local.json
+
+# harness:start
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+.claude/settings.local.json
+.claude/state/
+.claude/scratch/
+.claude/knowledge/handoffs/*
+!.claude/knowledge/handoffs/.gitkeep
+.claude/**/*.bak-*
+.claude/**/__pycache__/
+# harness:end

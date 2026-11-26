@@ -82,3 +82,19 @@ concrete input/call path that breaks. End with a one-line verdict:
 `SHIP` if there are no non-negotiable violations, or `DO NOT COMMIT`
 if there are, followed by the count of must-fix items. Style nits
 alone never justify `DO NOT COMMIT`.
+
+## Context budget
+- `[harness:context] WARN`: finish the file you're on; stop opening new context.
+- `[harness:context] LIMIT`: put the full handoff content (Goal, Done, Remaining, Key pointers, Decisions made, Open questions, Next first step) in SUMMARY for the parent to save; return `STATUS: HANDOFF pending-parent-write`.
+
+End with the return block, below the findings:
+```
+STATUS: DONE | HANDOFF <path> | BLOCKED <reason>
+SUMMARY: <SHIP | DO NOT COMMIT (N must-fix)>
+CHANGES:
+- none (read-only)
+POINTERS:
+- path:line: evidence
+KG: <none | gap <topic>>
+NEXT: <commit-helper | main session to fix>
+```

@@ -1,0 +1,10 @@
+# Harness detector allowlist. HUMAN-EDITED ONLY (Claude is blocked from changing this file).
+#
+# path:<glob>        skip secret/PII detection for matching files (relative to project root)
+# sha256:<hex>       allow one specific matched value (hash it yourself: printf %s 'value' | shasum -a 256)
+# detector:<name>    disable a detector project-wide (names in docs: e.g. pii.email, pii.phone)
+#
+# Examples (uncomment to use):
+# path:tests/fixtures/**
+# path:docs/examples/**
+# detector:pii.phone

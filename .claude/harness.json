@@ -1,0 +1,116 @@
+{
+  "version": "1.0.0",
+  "codeowners": "",
+  "context": {
+    "limit_pct": 75,
+    "warn_pct": 70,
+    "window_tokens": "auto"
+  },
+  "scan": {
+    "max_file_bytes": 5242880,
+    "grep_max_files": 2000,
+    "grep_max_bytes": 52428800,
+    "block_pii": true,
+    "pii_detectors": [
+      "email",
+      "phone",
+      "ssn",
+      "sin",
+      "credit_card",
+      "iban"
+    ],
+    "pii_action": {
+      "email": "warn",
+      "phone": "warn"
+    },
+    "pii_bulk_threshold": 20,
+    "skip_dirs": [
+      ".git",
+      "node_modules",
+      ".venv",
+      "venv",
+      "__pycache__",
+      "dist",
+      "build",
+      ".next",
+      "target",
+      "vendor",
+      ".tox",
+      ".mypy_cache",
+      ".pytest_cache",
+      "coverage"
+    ]
+  },
+  "egress": {
+    "recipient_keys": [
+      "to",
+      "cc",
+      "bcc",
+      "recipient",
+      "recipients",
+      "email",
+      "emails",
+      "user",
+      "users",
+      "user_id",
+      "attendees",
+      "assignee",
+      "owner",
+      "emailAddress"
+    ]
+  },
+  "knowledge": {
+    "max_index_lines": 200,
+    "max_node_lines": 60,
+    "pending_trigger_count": 5,
+    "ignore": [
+      "tests/**",
+      "test/**",
+      "**/__tests__/**",
+      "**/*.test.*",
+      "**/*.spec.*",
+      "**/*_test.*",
+      "**/test_*.py",
+      "*.lock",
+      "**/package-lock.json",
+      "**/pnpm-lock.yaml",
+      "**/yarn.lock",
+      ".claude/**",
+      "**/*.snap"
+    ]
+  },
+  "diagrams": {
+    "theme": "light"
+  },
+  "prompt_budgets": {
+    "agent_chars": 6000,
+    "skill_chars": 8500,
+    "always_loaded_chars": 16500,
+    "spawn_chars": 24000,
+    "overrides": {
+      "agents/doc-writer.md": 9000
+    }
+  },
+  "cleanup": {
+    "trash_days": 7,
+    "scratch_hours": 24,
+    "handoff_days": 7,
+    "build_dirs": [
+      "node_modules",
+      "dist",
+      "build",
+      ".next",
+      "target",
+      "__pycache__",
+      ".pytest_cache",
+      ".mypy_cache",
+      ".ruff_cache",
+      ".tox",
+      "coverage",
+      "htmlcov"
+    ]
+  },
+  "supply_chain": {
+    "install_scripts": "block"
+  }
+}

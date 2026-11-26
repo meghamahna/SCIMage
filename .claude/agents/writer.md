@@ -83,3 +83,19 @@ don't fix with a word swap, only with saying the thing plainly.
 If you're editing someone else's text, preserve their actual meaning
 and technical content exactly: you're removing performance, not
 opinions or information.
+
+## Context budget
+- `[harness:context] WARN`: stop exploring and write with what you have.
+- `[harness:context] LIMIT`: put the full handoff content (Goal, Done, Remaining, Key pointers, Decisions made, Open questions, Next first step) in SUMMARY for the parent to save; return `STATUS: HANDOFF pending-parent-write`.
+
+## Output
+```
+STATUS: DONE | HANDOFF <path> | BLOCKED <reason>
+SUMMARY: <1-3 lines, outcome first; name anything unverified>
+CHANGES:
+- path: what changed
+POINTERS:
+- path:line: source of truth for a documented claim
+KG: <none | gap <topic>>
+NEXT: <recommended next step>
+```

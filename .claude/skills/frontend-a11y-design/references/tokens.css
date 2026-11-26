@@ -1,0 +1,57 @@
+/* Design-token starter. Adapt names to the project's existing system if one exists. */
+:root {
+  /* spacing (4px base) */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px;
+
+  /* type */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --text-xs: 0.75rem; --text-sm: 0.875rem; --text-md: 1rem; --text-lg: 1.125rem;
+  --text-xl: 1.25rem; --text-2xl: 1.5rem; --text-3xl: 1.875rem; --text-4xl: 2.25rem;
+  --leading-body: 1.5; --leading-heading: 1.25;
+
+  /* shape */
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-full: 9999px;
+
+  /* color, light theme (all text pairs ≥ 4.5:1 on --color-bg) */
+  --color-bg: #FFFFFF;
+  --color-surface: #F8FAFC;
+  --color-fg: #0F172A;
+  --color-muted: #475569;
+  --color-border: #CBD5E1;
+  --color-accent: #1D4ED8;
+  --color-accent-fg: #FFFFFF;
+  --color-danger: #B91C1C;
+  --color-success: #15803D;
+  --color-focus: #2563EB;
+
+  --focus-ring: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-focus);
+  --duration-fast: 120ms; --duration-base: 200ms;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: #0B1220;
+    --color-surface: #111827;
+    --color-fg: #E5E7EB;
+    --color-muted: #94A3B8;
+    --color-border: #334155;
+    --color-accent: #60A5FA;
+    --color-accent-fg: #0B1220;
+    --color-danger: #F87171;
+    --color-success: #4ADE80;
+    --color-focus: #93C5FD;
+  }
+}
+:root[data-theme="dark"] {
+  --color-bg: #0B1220; --color-surface: #111827; --color-fg: #E5E7EB; --color-muted: #94A3B8;
+  --color-border: #334155; --color-accent: #60A5FA; --color-accent-fg: #0B1220;
+  --color-danger: #F87171; --color-success: #4ADE80; --color-focus: #93C5FD;
+}
+
+:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}

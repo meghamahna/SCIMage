@@ -4,6 +4,191 @@
     "commit": "",
     "pr": ""
   },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": ".claude/hooks/gofmt.sh",
+            "timeout": 15,
+            "type": "command"
+          }
+        ],
+        "matcher": "Write|Edit"
+      },
+      {
+        "matcher": "Bash|Grep|WebFetch|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/redact_output.py\"",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/kg_hooks.py\" track",
+            "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/doc_check.py\"",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/handoff_watch.py\"",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/context_guard.py\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": ".claude/hooks/block-secret-read.sh",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "Read"
+      },
+      {
+        "hooks": [
+          {
+            "command": ".claude/hooks/block-secret-view-bash.sh",
+            "timeout": 10,
+            "type": "command"
+          },
+          {
+            "command": ".claude/hooks/block-secret-commit.sh",
+            "if": "Bash(git commit*)",
+            "timeout": 15,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
+            "command": ".claude/hooks/block-secret-write.sh",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "Write|Edit"
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_bash.py\"",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_read.py\"",
+            "timeout": 60
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_write.py\"",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "WebFetch|WebSearch|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_egress.py\"",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/housekeeping.py\" pre",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/session_start.py\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_prompt.py\"",
+            "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/context_guard.py\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/stop_checks.py\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  },
   "permissions": {
     "allow": [
       "Read",
@@ -30,7 +215,88 @@
       "Bash(git show*)",
       "Bash(git branch)",
       "Bash(git branch --list*)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit -m *)",
+      "Bash(git branch -a*)",
+      "Bash(git switch *)",
+      "Bash(git checkout -b *)",
+      "Bash(git stash list*)",
+      "Bash(git stash push*)",
+      "Bash(git fetch*)",
+      "Bash(git blame *)",
+      "Bash(git remote -v)",
+      "Bash(git ls-files*)",
+      "Bash(git rev-parse *)",
+      "Bash(ls)",
+      "Bash(ls *)",
+      "Bash(pwd)",
+      "Bash(cat *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(tree*)",
+      "Bash(grep *)",
+      "Bash(rg *)",
+      "Bash(gh pr view*)",
+      "Bash(gh pr list*)",
+      "Bash(gh pr checks*)",
+      "Bash(gh pr diff*)",
+      "Bash(python3 .claude/tools/kg.py *)",
+      "Bash(python3 .claude/tools/save.py *)",
+      "Bash(python3 .claude/tools/safe_read.py *)",
+      "Bash(python3 .claude/tools/svg_lint.py *)",
+      "Bash(python3 .claude/tools/doc_format.py *)",
+      "Bash(python3 .claude/tools/cleanup.py *)",
+      "Bash(python3 .claude/tools/stack.py*)",
+      "Bash(python3 .claude/tools/doctor.py*)",
+      "Bash(pytest)",
+      "Bash(pytest *)",
+      "Bash(python3 -m pytest*)",
+      "Bash(python -m pytest*)",
+      "Bash(uv run pytest*)",
+      "Bash(python3 -m unittest*)",
+      "Bash(python -m unittest*)",
+      "Bash(npm test*)",
+      "Bash(npm run test*)",
+      "Bash(pnpm test*)",
+      "Bash(pnpm run test*)",
+      "Bash(yarn test*)",
+      "Bash(go test *)",
+      "Bash(cargo test*)",
+      "Bash(go build ./...)",
+      "Bash(go build ./... *)",
+      "Bash(go test ./...)",
+      "Bash(go test ./... *)",
+      "Bash(make test)",
+      "Bash(make test *)",
+      "Bash(go vet ./...)",
+      "Bash(go vet ./... *)",
+      "Bash(gofmt -l .)",
+      "Bash(gofmt -l . *)",
+      "Bash(make fmt)",
+      "Bash(make fmt *)"
+    ],
+    "ask": [
+      "Bash(git commit*)",
+      "Bash(git push*)",
+      "Bash(git rebase*)",
+      "Bash(docker compose down*)",
+      "Bash(git push)",
+      "Bash(git push *)",
+      "Bash(git rebase *)",
+      "Bash(git commit --amend*)",
+      "Bash(npm install *)",
+      "Bash(npm i *)",
+      "Bash(pnpm add *)",
+      "Bash(pnpm install *)",
+      "Bash(yarn add *)",
+      "Bash(pip install *)",
+      "Bash(pip3 install *)",
+      "Bash(poetry add *)",
+      "Bash(uv add *)",
+      "Bash(docker push *)",
+      "Bash(gh pr create*)",
+      "WebFetch"
     ],
     "deny": [
       "Bash(rm -rf *)",
@@ -49,65 +315,152 @@
       "Read(**/id_rsa)",
       "Read(**/id_ed25519)",
       "Read(**/credentials.json)",
-      "Read(**/.netrc)"
+      "Read(**/.netrc)",
+      "Read(**/.env.*.local)",
+      "Read(**/.env.development)",
+      "Read(**/.env.staging)",
+      "Read(**/.env.test)",
+      "Read(**/*.key)",
+      "Read(**/*.p12)",
+      "Read(**/*.pfx)",
+      "Read(**/*.jks)",
+      "Read(**/*.keystore)",
+      "Read(**/id_rsa*)",
+      "Read(**/id_dsa*)",
+      "Read(**/id_ecdsa*)",
+      "Read(**/id_ed25519*)",
+      "Read(**/*.kdbx)",
+      "Read(**/.npmrc)",
+      "Read(**/.pypirc)",
+      "Read(**/.git-credentials)",
+      "Read(**/.pgpass)",
+      "Read(**/*.tfstate)",
+      "Read(**/*.tfstate.*)",
+      "Read(**/secrets/**)",
+      "Read(**/.secrets/**)",
+      "Read(**/credentials*.json)",
+      "Read(**/service-account*.json)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.gnupg/**)",
+      "Read(~/.config/gcloud/**)",
+      "Read(~/.kube/config)",
+      "Read(~/.docker/config.json)",
+      "Read(~/.netrc)",
+      "Read(~/.git-credentials)",
+      "Read(~/.npmrc)",
+      "Read(~/.pypirc)",
+      "Read(~/.zsh_history)",
+      "Read(~/.bash_history)",
+      "Edit(**/.env)",
+      "Edit(**/.env.local)",
+      "Edit(**/.env.*.local)",
+      "Edit(**/.env.development)",
+      "Edit(**/.env.production)",
+      "Edit(**/.env.staging)",
+      "Edit(**/.env.test)",
+      "Edit(**/*.pem)",
+      "Edit(**/*.key)",
+      "Edit(**/*.p12)",
+      "Edit(**/*.pfx)",
+      "Edit(**/*.jks)",
+      "Edit(**/*.keystore)",
+      "Edit(**/id_rsa*)",
+      "Edit(**/id_dsa*)",
+      "Edit(**/id_ecdsa*)",
+      "Edit(**/id_ed25519*)",
+      "Edit(**/*.kdbx)",
+      "Edit(**/.npmrc)",
+      "Edit(**/.pypirc)",
+      "Edit(**/.netrc)",
+      "Edit(**/.git-credentials)",
+      "Edit(**/.pgpass)",
+      "Edit(**/*.tfstate)",
+      "Edit(**/*.tfstate.*)",
+      "Edit(**/secrets/**)",
+      "Edit(**/.secrets/**)",
+      "Edit(**/credentials*.json)",
+      "Edit(**/service-account*.json)",
+      "Edit(~/.ssh/**)",
+      "Edit(~/.aws/**)",
+      "Edit(~/.gnupg/**)",
+      "Edit(~/.config/gcloud/**)",
+      "Edit(~/.kube/config)",
+      "Edit(~/.docker/config.json)",
+      "Edit(~/.netrc)",
+      "Edit(~/.git-credentials)",
+      "Edit(~/.npmrc)",
+      "Edit(~/.pypirc)",
+      "Edit(~/.zsh_history)",
+      "Edit(~/.bash_history)",
+      "Edit(/.claude/settings.json)",
+      "Edit(/.claude/settings.local.json)",
+      "Edit(/.claude/harness.json)",
+      "Edit(/.claude/.harness-manifest.json)",
+      "Edit(/.claude/hooks/**)",
+      "Edit(/.claude/tools/**)",
+      "Edit(/.claude/security/**)",
+      "Bash(rm *)",
+      "Bash(rm)",
+      "Bash(rmdir *)",
+      "Bash(shred *)",
+      "Bash(unlink *)",
+      "Bash(sudo *)",
+      "Bash(su *)",
+      "Bash(dd *)",
+      "Bash(mkfs*)",
+      "Bash(truncate *)",
+      "Bash(chmod -R 777 *)",
+      "Bash(git push * --force*)",
+      "Bash(git push * -f*)",
+      "Bash(git clean -d*)",
+      "Bash(git branch -D *)",
+      "Bash(git checkout -- .)",
+      "Bash(git filter-branch*)",
+      "Bash(git stash drop*)",
+      "Bash(git stash clear*)",
+      "Bash(printenv*)",
+      "Bash(env)",
+      "Bash(npm publish*)",
+      "Bash(pnpm publish*)",
+      "Bash(yarn publish*)",
+      "Bash(curl * | sh*)",
+      "Bash(curl * | bash*)",
+      "Bash(wget * | sh*)",
+      "Bash(wget * | bash*)",
+      "Bash(kubectl delete *)",
+      "Bash(terraform destroy*)",
+      "Bash(security find-generic-password*)",
+      "Bash(security find-internet-password*)",
+      "Bash(gh auth token*)",
+      "Bash(cat ~/.ssh/*)",
+      "Bash(cat ~/.aws/*)"
     ],
-    "ask": [
-      "Bash(git commit*)",
-      "Bash(git push*)",
-      "Bash(git rebase*)",
-      "Bash(docker compose down*)"
-    ]
+    "disableBypassPermissionsMode": "disable"
   },
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Read",
-        "hooks": [
-          {
-            "type": "command",
-            "command": ".claude/hooks/block-secret-read.sh",
-            "timeout": 10
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": ".claude/hooks/block-secret-view-bash.sh",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": ".claude/hooks/block-secret-commit.sh",
-            "if": "Bash(git commit*)",
-            "timeout": 15
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": ".claude/hooks/block-secret-write.sh",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": ".claude/hooks/gofmt.sh",
-            "timeout": 15
-          }
-        ]
-      }
-    ]
+  "env": {
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "75"
+  },
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": false,
+    "filesystem": {
+      "denyRead": [
+        "~/.ssh",
+        "~/.aws",
+        "~/.gnupg",
+        "~/.config/gcloud",
+        "~/.kube",
+        "~/.docker/config.json",
+        "~/.netrc",
+        "~/.git-credentials",
+        "~/.npmrc",
+        "~/.pypirc"
+      ]
+    }
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}/.claude/tools/statusline.py\""
   }
 }
