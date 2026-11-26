@@ -1,0 +1,2916 @@
+{
+ "version": 1,
+ "nodes": [
+  {
+   "id": "api-console-routes",
+   "kind": "api",
+   "title": "Console HTTP routes (/console)",
+   "summary": "Read pages under GET /console/*, mutations under POST /console/* with CSRF; all but static need a console token",
+   "tags": [
+    "routes",
+    "endpoints",
+    "api",
+    "console routes",
+    "pages",
+    "replay",
+    "narrate",
+    "aria",
+    "webhooks",
+    "tenants",
+    "tokens",
+    "attributes",
+    "audit"
+   ],
+   "sources": [
+    "internal/console/server.go:114-142",
+    "internal/console/handlers.go:31-41",
+    "internal/console/handlers.go:424-426"
+   ],
+   "file": ".claude/knowledge/nodes/api-console-routes.md"
+  },
+  {
+   "id": "api-env-vars",
+   "kind": "api",
+   "title": "Environment variables",
+   "summary": "Catalogue of env var names grouped by purpose (database, server, console, rate limit, logging, webhooks, ARIA, tooling); names and defaults only; docs/CONFIGURATION.md is the authoritative reference",
+   "tags": [
+    "env",
+    "environment variables",
+    "config",
+    "configuration",
+    ".env",
+    ".env.example",
+    "settings",
+    "POSTGRES_USER",
+    "DATABASE_URL",
+    "SCIM_ADDR",
+    "SCIM_WEBHOOK",
+    "ARIA_LLM",
+    "LOG_DIR",
+    "flags",
+    "defaults"
+   ],
+   "sources": [
+    "docs/CONFIGURATION.md:1-6",
+    ".env.example:1-91",
+    "scripts/with-env.sh:6-19",
+    "internal/store/store.go:103-106",
+    ".gitignore:2-4"
+   ],
+   "file": ".claude/knowledge/nodes/api-env-vars.md"
+  },
+  {
+   "id": "api-scim-errors",
+   "kind": "api",
+   "title": "SCIM error responses",
+   "summary": "Shape of SCIM error bodies, scimType values in use, and which status each failure maps to",
+   "tags": [
+    "errors",
+    "scimType",
+    "error response",
+    "400",
+    "401",
+    "404",
+    "409",
+    "413",
+    "429",
+    "500",
+    "invalidValue",
+    "invalidPath",
+    "invalidFilter",
+    "uniqueness",
+    "mutability",
+    "tooMany"
+   ],
+   "sources": [
+    "internal/scim/handler.go:541-605",
+    "internal/scim/handler.go:648-660",
+    "internal/scim/handler.go:699-732",
+    "internal/scim/models.go:119-124"
+   ],
+   "file": ".claude/knowledge/nodes/api-scim-errors.md"
+  },
+  {
+   "id": "api-scim-filter",
+   "kind": "api",
+   "title": "SCIM filter support",
+   "summary": "Only `attribute eq \"value\"` on userName/externalId (users) or displayName/externalId (groups); everything else is a 400 invalidFilter",
+   "tags": [
+    "filter",
+    "query",
+    "eq",
+    "userName",
+    "externalId",
+    "displayName",
+    "invalidFilter",
+    "RFC 7644 3.4.2.2",
+    "reconciliation",
+    "lookup"
+   ],
+   "sources": [
+    "internal/scim/filter.go:17-85",
+    "internal/scim/handler.go:144-160"
+   ],
+   "file": ".claude/knowledge/nodes/api-scim-filter.md"
+  },
+  {
+   "id": "api-scim-patch",
+   "kind": "api",
+   "title": "SCIM PATCH support",
+   "summary": "PATCH for Users (core attributes plus registered extensions) and Groups (members add/replace/remove); op names are case-insensitive; no bulk",
+   "tags": [
+    "patch",
+    "PATCH",
+    "RFC 7644 3.5.2",
+    "add",
+    "replace",
+    "remove",
+    "members",
+    "emails",
+    "operations",
+    "partial update",
+    "scim"
+   ],
+   "sources": [
+    "internal/scim/patch.go:1-372",
+    "internal/scim/handler.go:225-306",
+    "internal/scim/handler.go:409-452"
+   ],
+   "file": ".claude/knowledge/nodes/api-scim-patch.md"
+  },
+  {
+   "id": "api-scim-routes",
+   "kind": "api",
+   "title": "SCIM HTTP routes",
+   "summary": "Route table for /scim/v2/{tenantID} Users, Groups and discovery, plus unauthenticated health probes and middleware order",
+   "tags": [
+    "routes",
+    "endpoints",
+    "api",
+    "scim",
+    "users",
+    "groups",
+    "discovery",
+    "serviceproviderconfig",
+    "healthz",
+    "readyz",
+    "rest"
+   ],
+   "sources": [
+    "internal/scim/handler.go:63-98",
+    "internal/scim/discovery.go:105-161",
+    "internal/scim/health.go:28-40",
+    "cmd/server/main.go:122-126"
+   ],
+   "file": ".claude/knowledge/nodes/api-scim-routes.md"
+  },
+  {
+   "id": "architecture-overview",
+   "kind": "architecture",
+   "title": "Architecture overview",
+   "summary": "Three binaries over one Postgres database; SCIM listener with auth, rate limit, handlers and transactional store; outbox to webhook dispatcher; optional admin console and ARIA",
+   "tags": [
+    "architecture",
+    "overview",
+    "go",
+    "binaries",
+    "request path",
+    "multi-tenancy",
+    "outbox",
+    "console",
+    "aria",
+    "layout",
+    "design",
+    "structure"
+   ],
+   "sources": [
+    "cmd/server/main.go:1-200",
+    "cmd/scimage-admin/main.go:1-100",
+    "cmd/aria/main.go:1-100",
+    "docs/ARCHITECTURE.md:1-433",
+    "internal/scim/handler.go:1-100",
+    "internal/store/store.go:1-80",
+    "internal/webhook/dispatcher.go:1-100",
+    "internal/console/server.go:1-100"
+   ],
+   "file": ".claude/knowledge/nodes/architecture-overview.md"
+  },
+  {
+   "id": "command-dev-commands",
+   "kind": "command",
+   "title": "Dev commands",
+   "summary": "Make targets and Go commands to install hooks, start Postgres, migrate, build, test, lint, format and run the server",
+   "tags": [
+    "build",
+    "commands",
+    "install",
+    "lint",
+    "run",
+    "test",
+    "make",
+    "makefile",
+    "format",
+    "gofmt",
+    "goimports",
+    "vet",
+    "docker compose",
+    "up",
+    "down",
+    "reset",
+    "hooks",
+    "seed"
+   ],
+   "sources": [
+    "Makefile:12-168",
+    "scripts/with-env.sh:1-21",
+    "CLAUDE.md:34-42"
+   ],
+   "file": ".claude/knowledge/nodes/command-dev-commands.md"
+  },
+  {
+   "id": "component-scim-auth",
+   "kind": "module",
+   "title": "SCIM bearer token auth",
+   "summary": "Per-tenant bearer token middleware; constant-time secret compare; uniform 401; token lookup via TokenStore",
+   "tags": [
+    "auth",
+    "authentication",
+    "bearer",
+    "token",
+    "constant-time",
+    "subtle",
+    "tenant",
+    "401",
+    "middleware",
+    "api key"
+   ],
+   "sources": [
+    "internal/scim/auth.go:1-151",
+    "internal/scim/userstore.go:38-43"
+   ],
+   "file": ".claude/knowledge/nodes/component-scim-auth.md"
+  },
+  {
+   "id": "component-scim-extended-attributes",
+   "kind": "module",
+   "title": "SCIM extensible attributes (opt-in)",
+   "summary": "Off by default; when SCIM_EXTENDED_ATTRIBUTES=1 and a tenant registers names, unknown top-level user attributes are stored in a JSONB blob and merged back on reads",
+   "tags": [
+    "extended attributes",
+    "extensible",
+    "JSONB",
+    "custom attributes",
+    "registry",
+    "SCIM_EXTENDED_ATTRIBUTES",
+    "feature flag",
+    "enterprise extension"
+   ],
+   "sources": [
+    "internal/scim/extended.go:1-228",
+    "internal/scim/handler.go:30-53",
+    "internal/scim/attributestore.go:1-18"
+   ],
+   "file": ".claude/knowledge/nodes/component-scim-extended-attributes.md"
+  },
+  {
+   "id": "component-scim-ratelimit",
+   "kind": "module",
+   "title": "SCIM per-caller rate limiter",
+   "summary": "Token-bucket limiter keyed by tenant and key id, placed after auth; 429 tooMany on excess; env-tunable",
+   "tags": [
+    "rate limit",
+    "ratelimit",
+    "throttle",
+    "token bucket",
+    "429",
+    "retry-after",
+    "dos",
+    "SCIM_RATE_LIMIT",
+    "burst"
+   ],
+   "sources": [
+    "internal/scim/ratelimit.go:1-87",
+    "internal/scim/handler.go:94-98"
+   ],
+   "file": ".claude/knowledge/nodes/component-scim-ratelimit.md"
+  },
+  {
+   "id": "component-scim-request-middleware",
+   "kind": "module",
+   "title": "SCIM request timeout and request logging",
+   "summary": "Per-request 10s context deadline covering auth and handler, and an opt-in request body logger that never logs Authorization",
+   "tags": [
+    "timeout",
+    "deadline",
+    "context",
+    "request log",
+    "logging",
+    "SCIM_REQUEST_TIMEOUT",
+    "SCIM_LOG_REQUESTS",
+    "audit",
+    "debugging"
+   ],
+   "sources": [
+    "internal/scim/timeout.go:1-43",
+    "internal/scim/requestlog.go:1-70"
+   ],
+   "file": ".claude/knowledge/nodes/component-scim-request-middleware.md"
+  },
+  {
+   "id": "data-model-audit-log",
+   "kind": "data-model",
+   "title": "Audit log tables (audit_log and admin_audit_log)",
+   "summary": "Append-only trails for every SCIM mutation and refusal, and every privileged admin action, written inside the mutating transaction",
+   "tags": [
+    "audit",
+    "audit_log",
+    "admin_audit_log",
+    "governance",
+    "provenance",
+    "before after",
+    "refusal",
+    "denied",
+    "aria",
+    "trail"
+   ],
+   "sources": [
+    "migrations/000002_create_audit_log.up.sql:1-28",
+    "migrations/000005_multi_tenancy.up.sql:53-54",
+    "migrations/000006_admin_governance.up.sql:17-34",
+    "migrations/000008_audit_log_resource_type.up.sql:1-6",
+    "migrations/000009_audit_log_fault_injection.up.sql:1-17",
+    "migrations/000012_console_tokens.up.sql:23-29",
+    "internal/store/audit.go:14-60",
+    "internal/store/adminaudit.go:9-52"
+   ],
+   "file": ".claude/knowledge/nodes/data-model-audit-log.md"
+  },
+  {
+   "id": "data-model-core-users-groups",
+   "kind": "data-model",
+   "title": "Users, groups and group membership tables",
+   "summary": "SCIM User and Group rows per tenant, with case-insensitive per-tenant uniqueness, soft-deleted users and cascading membership",
+   "tags": [
+    "users",
+    "groups",
+    "group_members",
+    "schema",
+    "scim user",
+    "scim group",
+    "membership",
+    "uniqueness",
+    "externalId",
+    "userName"
+   ],
+   "sources": [
+    "migrations/000001_create_users_table.up.sql:5-19",
+    "migrations/000003_add_users_external_id.up.sql:5-11",
+    "migrations/000005_multi_tenancy.up.sql:40-51",
+    "migrations/000007_create_groups.up.sql:1-43",
+    "migrations/000010_extended_attributes.up.sql:11",
+    "internal/store/user.go:20-40",
+    "internal/store/group.go:141-165"
+   ],
+   "file": ".claude/knowledge/nodes/data-model-core-users-groups.md"
+  },
+  {
+   "id": "data-model-tenants-tokens",
+   "kind": "data-model",
+   "title": "Tenants, SCIM tokens, console tokens and tenant attributes",
+   "summary": "Tenant isolation root, hashed per-tenant bearer tokens, a system-wide console credential, and the per-tenant extra attribute registry",
+   "tags": [
+    "tenant",
+    "tenants",
+    "scim_tokens",
+    "token",
+    "bearer",
+    "sha256",
+    "key_id",
+    "console_tokens",
+    "tenant_attributes",
+    "extensible attributes",
+    "revoke",
+    "rotation"
+   ],
+   "sources": [
+    "migrations/000005_multi_tenancy.up.sql:1-38",
+    "migrations/000006_admin_governance.up.sql:1-15",
+    "migrations/000010_extended_attributes.up.sql:14-25",
+    "migrations/000012_console_tokens.up.sql:1-21",
+    "internal/store/tenant.go:31-37",
+    "internal/store/token.go:23-47"
+   ],
+   "file": ".claude/knowledge/nodes/data-model-tenants-tokens.md"
+  },
+  {
+   "id": "data-model-webhook-outbox",
+   "kind": "data-model",
+   "title": "Webhook outbox (webhook_deliveries)",
+   "summary": "Transactional outbox of change events, with pending/delivered/dead_letter states, a claim lease and partial indexes for the dispatcher",
+   "tags": [
+    "webhook",
+    "outbox",
+    "webhook_deliveries",
+    "delivery",
+    "dead letter",
+    "retry",
+    "lease",
+    "at-least-once",
+    "event",
+    "dispatcher",
+    "replay"
+   ],
+   "sources": [
+    "migrations/000004_create_webhook_deliveries.up.sql:8-42",
+    "migrations/000005_multi_tenancy.up.sql:56",
+    "migrations/000011_webhook_delivered_retention.up.sql:1-8",
+    "internal/store/outbox.go:24-40",
+    "internal/store/outbox.go:105-136",
+    "internal/store/outbox.go:180-226",
+    "internal/store/outbox.go:271-290",
+    "internal/store/outbox.go:340-377"
+   ],
+   "file": ".claude/knowledge/nodes/data-model-webhook-outbox.md"
+  },
+  {
+   "id": "decision-aria-advisory-only",
+   "kind": "decision",
+   "title": "ARIA is advisory only and never feeds provisioning or auth",
+   "summary": "ARIA output is shown to a human and never written back to the store or consulted by the SCIM auth path; deterministic flags come before any LLM text",
+   "tags": [
+    "aria",
+    "advisory",
+    "read-only",
+    "llm",
+    "authorization",
+    "provisioning",
+    "auth path",
+    "security design",
+    "guardrail",
+    "console",
+    "narrative"
+   ],
+   "sources": [
+    "internal/aria/aria.go:1-9",
+    "internal/aria/client.go:100-102",
+    "internal/aria/prompt.go:9-13",
+    "cmd/aria/main.go:1-7",
+    "internal/console/handlers.go:705-762",
+    ".claude/CLAUDE.md:92-96"
+   ],
+   "file": ".claude/knowledge/nodes/decision-aria-advisory-only.md"
+  },
+  {
+   "id": "decision-audit-in-transaction",
+   "kind": "decision",
+   "title": "Audit and outbox rows commit with the change they describe",
+   "summary": "Successful user and group mutations write their audit_log row and any webhook outbox row inside the change's transaction, so a committed change always has a record; refusals are recorded best-effort outside a transaction (see the gotcha)",
+   "tags": [
+    "decision",
+    "audit",
+    "audit_log",
+    "transaction",
+    "atomic",
+    "outbox",
+    "governance",
+    "why",
+    "rollback",
+    "store",
+    "compliance",
+    "actor",
+    "admin_audit_log"
+   ],
+   "sources": [
+    "migrations/000002_create_audit_log.up.sql:1-4",
+    "migrations/000004_create_webhook_deliveries.up.sql:1-7",
+    "internal/store/user.go:153-189",
+    "internal/store/user.go:295-305",
+    "internal/store/group.go:204-250",
+    "internal/store/audit.go:46-113",
+    "internal/store/adminaudit.go:44",
+    "internal/store/outbox.go:192-280",
+    "internal/scim/userstore.go:24-30",
+    "internal/scim/groupstore.go:13-19",
+    "internal/scim/handler.go:516-531"
+   ],
+   "file": ".claude/knowledge/nodes/decision-audit-in-transaction.md"
+  },
+  {
+   "id": "decision-console-separate-listener",
+   "kind": "decision",
+   "title": "Console runs on its own opt-in listener",
+   "summary": "Admin console is a second http.Server, started only when CONSOLE_ADDR is set, so it never shares a socket with tenant SCIM traffic",
+   "tags": [
+    "decision",
+    "console",
+    "listener",
+    "CONSOLE_ADDR",
+    "loopback",
+    "separate port",
+    "admin surface",
+    "why"
+   ],
+   "sources": [
+    "cmd/server/main.go:36-44",
+    "cmd/server/main.go:145-158",
+    "internal/console/server.go:1-16"
+   ],
+   "file": ".claude/knowledge/nodes/decision-console-separate-listener.md"
+  },
+  {
+   "id": "decision-console-token-csrf",
+   "kind": "decision",
+   "title": "Console uses bearer/basic tokens and stateless CSRF, not sessions",
+   "summary": "No login session or cookie; each request presents a console token, and CSRF is a keyed HMAC over an hourly bucket",
+   "tags": [
+    "decision",
+    "session",
+    "cookies",
+    "csrf",
+    "token auth",
+    "bearer",
+    "basic auth",
+    "stateless",
+    "why"
+   ],
+   "sources": [
+    "internal/console/csrf.go:21-31",
+    "internal/console/auth.go:38-42",
+    "internal/console/server.go:8-12"
+   ],
+   "file": ".claude/knowledge/nodes/decision-console-token-csrf.md"
+  },
+  {
+   "id": "decision-credentials-issued-by-cli",
+   "kind": "decision",
+   "title": "Tenant and console credentials are issued by the CLI, never over HTTP",
+   "summary": "No network endpoint can create a SCIM token or console token; scimage-admin writes them straight to Postgres and audits the action",
+   "tags": [
+    "decision",
+    "token",
+    "credential",
+    "cli",
+    "scimage-admin",
+    "console-token",
+    "attack-surface",
+    "admin-audit",
+    "why"
+   ],
+   "sources": [
+    "docs/ARCHITECTURE.md:119-133",
+    "internal/console/server.go:8-12",
+    "cmd/scimage-admin/main.go:81-93",
+    "cmd/scimage-admin/main.go:141-226",
+    "cmd/scimage-admin/main.go:229-302"
+   ],
+   "file": ".claude/knowledge/nodes/decision-credentials-issued-by-cli.md"
+  },
+  {
+   "id": "decision-real-postgres-tests",
+   "kind": "decision",
+   "title": "Tests run against real Postgres, never a mock",
+   "summary": "Store and handler integration tests hit the compose or CI Postgres; isolation comes from per-test tenants, not from mocks or serial packages",
+   "tags": [
+    "decision",
+    "testing",
+    "real database",
+    "no mocks",
+    "postgres",
+    "tenant isolation",
+    "integration test",
+    "ci",
+    "make test",
+    "-p 1"
+   ],
+   "sources": [
+    "Makefile:86-93",
+    ".github/workflows/ci.yml:12-14",
+    ".github/workflows/ci.yml:65-67",
+    ".githooks/pre-commit:40-41"
+   ],
+   "file": ".claude/knowledge/nodes/decision-real-postgres-tests.md"
+  },
+  {
+   "id": "decision-request-timeout-before-auth",
+   "kind": "decision",
+   "title": "Request timeout wraps auth; rate limiting runs after token verification",
+   "summary": "The timeout is the outermost wrapper so the token lookup (a DB call) is bounded, and the per-caller limiter keys on a verified token, so pre-auth flooding is a known gap",
+   "tags": [
+    "decision",
+    "timeout",
+    "rate limit",
+    "ratelimit",
+    "auth",
+    "middleware",
+    "dos",
+    "token bucket",
+    "why",
+    "order"
+   ],
+   "sources": [
+    "docs/ARCHITECTURE.md:24-57",
+    "internal/scim/handler.go:63-98"
+   ],
+   "file": ".claude/knowledge/nodes/decision-request-timeout-before-auth.md"
+  },
+  {
+   "id": "decision-scim-strict-filter",
+   "kind": "decision",
+   "title": "Refuse unsupported SCIM filters instead of approximating",
+   "summary": "Only equality on reconciliation keys is accepted; any other filter is a 400 so a client never acts on the wrong set",
+   "tags": [
+    "decision",
+    "filter",
+    "why",
+    "invalidFilter",
+    "safety",
+    "reconciliation",
+    "provisioning"
+   ],
+   "sources": [
+    "internal/scim/filter.go:11-18",
+    "internal/scim/handler.go:144-151"
+   ],
+   "file": ".claude/knowledge/nodes/decision-scim-strict-filter.md"
+  },
+  {
+   "id": "decision-scim-uniform-401",
+   "kind": "decision",
+   "title": "Every auth failure returns the same 401",
+   "summary": "Missing, unknown, revoked, expired, wrong-secret and wrong-tenant tokens all get one generic 401 so callers cannot probe tenants or key ids",
+   "tags": [
+    "decision",
+    "401",
+    "auth",
+    "enumeration",
+    "uniform error",
+    "security",
+    "why",
+    "tenant"
+   ],
+   "sources": [
+    "internal/scim/auth.go:29-52",
+    "internal/scim/auth.go:84-110"
+   ],
+   "file": ".claude/knowledge/nodes/decision-scim-uniform-401.md"
+  },
+  {
+   "id": "decision-stdlib-and-raw-sql",
+   "kind": "decision",
+   "title": "Standard library HTTP and raw SQL, with a minimal dependency set",
+   "summary": "net/http with no framework, pgx with hand-written SQL and no ORM, and only pgx plus x/time as external modules, so each behaviour stays visible in code",
+   "tags": [
+    "decision",
+    "stdlib",
+    "net/http",
+    "pgx",
+    "sql",
+    "orm",
+    "dependencies",
+    "why",
+    "minimal",
+    "framework"
+   ],
+   "sources": [
+    "docs/ARCHITECTURE.md:44-46",
+    "docs/ARCHITECTURE.md:402-404",
+    "docs/IMPLEMENTATION_PLAN.md:9-19"
+   ],
+   "file": ".claude/knowledge/nodes/decision-stdlib-and-raw-sql.md"
+  },
+  {
+   "id": "decision-tenant-scoping",
+   "kind": "decision",
+   "title": "One database, many tenants, isolation by tenant_id in SCIM queries",
+   "summary": "Tenants share the same tables; SCIM user and group reads and writes filter on tenant_id, with uniqueness enforced per tenant. Some store paths deliberately span tenants (see Exceptions)",
+   "tags": [
+    "decision",
+    "tenant",
+    "tenancy",
+    "multi-tenant",
+    "isolation",
+    "tenant_id",
+    "scoping",
+    "cross-tenant",
+    "exceptions"
+   ],
+   "sources": [
+    "migrations/000005_multi_tenancy.up.sql:1-13",
+    "migrations/000005_multi_tenancy.up.sql:44-56",
+    "internal/store/user.go:56-70",
+    "internal/store/user.go:188-195",
+    "internal/store/group.go:141-152",
+    "internal/store/tenant.go:31-37",
+    "internal/store/audit.go:151-159",
+    "internal/store/audit.go:186-191",
+    "internal/store/adminaudit.go:54-56",
+    "internal/scim/auth.go:84-108",
+    "internal/store/outbox.go:197-203",
+    "internal/store/outbox.go:281"
+   ],
+   "file": ".claude/knowledge/nodes/decision-tenant-scoping.md"
+  },
+  {
+   "id": "decision-token-hashing",
+   "kind": "decision",
+   "title": "Bearer tokens stored as sha256 of a random secret, looked up by key id",
+   "summary": "The database holds a non-secret key id and sha256 of a 32-byte random secret; no KDF, because the secret is already high entropy",
+   "tags": [
+    "decision",
+    "token",
+    "hashing",
+    "sha256",
+    "bearer",
+    "secret",
+    "key_id",
+    "credential storage",
+    "kdf"
+   ],
+   "sources": [
+    "internal/store/token.go:17-30",
+    "internal/store/token.go:64-74",
+    "migrations/000005_multi_tenancy.up.sql:20-22",
+    "migrations/000012_console_tokens.up.sql:8-11"
+   ],
+   "file": ".claude/knowledge/nodes/decision-token-hashing.md"
+  },
+  {
+   "id": "decision-user-soft-delete",
+   "kind": "decision",
+   "title": "Users are soft-deleted (deactivated); groups are hard-deleted",
+   "summary": "DELETE on a user only sets active to false so history keeps the subject, while group DELETE is a real removal because the Group schema has no active attribute",
+   "tags": [
+    "decision",
+    "soft delete",
+    "deactivate",
+    "deactivation",
+    "delete",
+    "users",
+    "groups",
+    "history",
+    "audit",
+    "why",
+    "active"
+   ],
+   "sources": [
+    "docs/ARCHITECTURE.md:80-82",
+    "internal/store/user.go:312"
+   ],
+   "file": ".claude/knowledge/nodes/decision-user-soft-delete.md"
+  },
+  {
+   "id": "decision-webhook-retry-classification",
+   "kind": "decision",
+   "title": "Webhook retries only transient failures and dead-letters the rest",
+   "summary": "Network errors, 408, 429 and 5xx retry on doubling backoff; other 4xx dead-letter at once, and attempts are capped by SCIM_WEBHOOK_MAX_ATTEMPTS",
+   "tags": [
+    "webhook",
+    "retry",
+    "backoff",
+    "jitter",
+    "dead letter",
+    "dead_letter",
+    "4xx",
+    "5xx",
+    "429",
+    "max attempts",
+    "replay"
+   ],
+   "sources": [
+    "internal/webhook/dispatcher.go:274-303",
+    "internal/webhook/dispatcher.go:305-342",
+    "internal/webhook/dispatcher.go:358-386"
+   ],
+   "file": ".claude/knowledge/nodes/decision-webhook-retry-classification.md"
+  },
+  {
+   "id": "decision-webhook-signed-payload",
+   "kind": "decision",
+   "title": "Webhook signature covers timestamp, delivery id, event and body",
+   "summary": "Each delivery's HMAC-SHA256 covers the timestamp, delivery id and event type as well as the body, so receivers can reject replays and forged routing",
+   "tags": [
+    "webhook",
+    "signature",
+    "hmac",
+    "sha256",
+    "replay",
+    "timestamp",
+    "signing",
+    "verify",
+    "X-SCIMage-Signature"
+   ],
+   "sources": [
+    "internal/webhook/signer.go:38-66",
+    "internal/webhook/signer.go:68-95"
+   ],
+   "file": ".claude/knowledge/nodes/decision-webhook-signed-payload.md"
+  },
+  {
+   "id": "doc-contributing",
+   "kind": "doc",
+   "title": "CONTRIBUTING.md",
+   "summary": "Sections of CONTRIBUTING.md",
+   "tags": [
+    "docs",
+    "seed"
+   ],
+   "sources": [
+    "CONTRIBUTING.md"
+   ],
+   "file": ".claude/knowledge/nodes/doc-contributing.md"
+  },
+  {
+   "id": "doc-readme",
+   "kind": "doc",
+   "title": "README.md",
+   "summary": "Sections of README.md",
+   "tags": [
+    "docs",
+    "readme",
+    "seed"
+   ],
+   "sources": [
+    "README.md"
+   ],
+   "file": ".claude/knowledge/nodes/doc-readme.md"
+  },
+  {
+   "id": "entrypoint-cmd-aria-main",
+   "kind": "entrypoint",
+   "title": "Entry: cmd/aria/main.go (ARIA CLI)",
+   "summary": "Read-only CLI that reviews audit_log for a window, prints flags, and calls the LLM only when there are findings; flags -tenant, -since, -timezone",
+   "tags": [
+    "entrypoint",
+    "main",
+    "cli",
+    "aria",
+    "audit review",
+    "briefing",
+    "since",
+    "timezone",
+    "ARIA_TIMEZONE",
+    "ARIA_LLM_BASE_URL",
+    "command",
+    "flags"
+   ],
+   "sources": [
+    "cmd/aria/main.go:1-8",
+    "cmd/aria/main.go:24-29",
+    "cmd/aria/main.go:31-114",
+    "cmd/aria/main.go:119-155"
+   ],
+   "file": ".claude/knowledge/nodes/entrypoint-cmd-aria-main.md"
+  },
+  {
+   "id": "entrypoint-cmd-scimage-admin-main",
+   "kind": "entrypoint",
+   "title": "Entry: cmd/scimage-admin/main.go (admin CLI)",
+   "summary": "Operator CLI with six groups (tenant, token, console-token, attribute, audit, webhook); opens the store directly from the environment and never starts a listener",
+   "tags": [
+    "entrypoint",
+    "main",
+    "cli",
+    "admin",
+    "scimage-admin",
+    "subcommands",
+    "tenant",
+    "token",
+    "console-token",
+    "attribute",
+    "audit",
+    "webhook replay",
+    "usage",
+    "command"
+   ],
+   "sources": [
+    "cmd/scimage-admin/main.go:21-61",
+    "cmd/scimage-admin/main.go:63-79",
+    "cmd/scimage-admin/main.go:85-93",
+    "cmd/scimage-admin/main.go:470-476",
+    "cmd/scimage-admin/main.go:481-502"
+   ],
+   "file": ".claude/knowledge/nodes/entrypoint-cmd-scimage-admin-main.md"
+  },
+  {
+   "id": "entrypoint-cmd-server-main",
+   "kind": "entrypoint",
+   "title": "Entry: cmd/server/main.go (SCIM server process)",
+   "summary": "Long-running server: wires logging, store, webhook dispatcher, SCIM and docs on SCIM_ADDR, and the optional console on CONSOLE_ADDR; signal-driven graceful shutdown",
+   "tags": [
+    "entrypoint",
+    "main",
+    "server",
+    "startup",
+    "wiring",
+    "listeners",
+    "SCIM_ADDR",
+    "CONSOLE_ADDR",
+    "healthz",
+    "readyz",
+    "shutdown",
+    "env",
+    "SIGTERM"
+   ],
+   "sources": [
+    "cmd/server/main.go:23-34",
+    "cmd/server/main.go:36-63",
+    "cmd/server/main.go:65-113",
+    "cmd/server/main.go:115-158",
+    "cmd/server/main.go:161-203"
+   ],
+   "file": ".claude/knowledge/nodes/entrypoint-cmd-server-main.md"
+  },
+  {
+   "id": "glossary-core-terms",
+   "kind": "glossary",
+   "title": "Glossary of SCIMage domain terms",
+   "summary": "One-line definitions of SCIM, tenant, tokens, key id, externalId, soft delete, audit and admin audit logs, outbox, dead-letter, IdP and ARIA, each with its pointer",
+   "tags": [
+    "glossary",
+    "terms",
+    "definitions",
+    "scim",
+    "tenant",
+    "token",
+    "key id",
+    "externalId",
+    "soft delete",
+    "deactivate",
+    "audit",
+    "outbox",
+    "dead letter",
+    "idp",
+    "okta",
+    "entra",
+    "aria",
+    "lease",
+    "replay"
+   ],
+   "sources": [
+    "docs/IMPLEMENTATION_PLAN.md:5-7",
+    "docs/ARCHITECTURE.md:74-134",
+    "docs/ARCHITECTURE.md:212-272",
+    "docs/ARCHITECTURE.md:390-393",
+    "docs/OKTA.md:1-2",
+    "docs/OKTA.md:61",
+    "docs/OKTA.md:92-93",
+    "docs/MS-ENTRA.md:1-2",
+    "docs/MS-ENTRA.md:48"
+   ],
+   "file": ".claude/knowledge/nodes/glossary-core-terms.md"
+  },
+  {
+   "id": "gotcha-bare-go-test-skips-postgres",
+   "kind": "gotcha",
+   "title": "Bare go test skips the Postgres tests",
+   "summary": "Running go test without POSTGRES_* or DATABASE_URL skips store and scim integration tests and can look green; use make test",
+   "tags": [
+    "gotcha",
+    "go test",
+    "skip",
+    "skipped",
+    "integration test",
+    "postgres",
+    "make test",
+    "with-env",
+    "env",
+    "false green",
+    "DATABASE_URL"
+   ],
+   "sources": [
+    "internal/store/store_test.go:19-24",
+    "internal/scim/handler_test.go:44-48",
+    "Makefile:94-96",
+    "scripts/with-env.sh:12-19"
+   ],
+   "file": ".claude/knowledge/nodes/gotcha-bare-go-test-skips-postgres.md"
+  },
+  {
+   "id": "gotcha-console-docker-bind-address",
+   "kind": "gotcha",
+   "title": "Console bind address differs in Docker",
+   "summary": "Loopback 127.0.0.1 for CONSOLE_ADDR is right on bare metal but unreachable through Docker port publishing",
+   "tags": [
+    "gotcha",
+    "docker",
+    "CONSOLE_ADDR",
+    "bind",
+    "loopback",
+    "0.0.0.0",
+    "port publish",
+    "console"
+   ],
+   "sources": [
+    "README.md:216-221",
+    "cmd/server/main.go:36-39"
+   ],
+   "file": ".claude/knowledge/nodes/gotcha-console-docker-bind-address.md"
+  },
+  {
+   "id": "gotcha-container-log-dir",
+   "kind": "gotcha",
+   "title": "Container logs default to a file under logs/",
+   "summary": "The image sets no LOG_DIR, so the default writes a file under relative logs/ unless the runner sets LOG_DIR empty for stdout-only logging",
+   "tags": [
+    "gotcha",
+    "docker",
+    "LOG_DIR",
+    "logs",
+    "container",
+    "stdout",
+    "logging",
+    "distroless",
+    "log file",
+    "rotation"
+   ],
+   "sources": [
+    "Dockerfile:19-28",
+    "internal/logging/logging.go:20-24",
+    "internal/logging/logging.go:27-29",
+    "internal/logging/logging.go:34-50",
+    ".env.example:49-52"
+   ],
+   "file": ".claude/knowledge/nodes/gotcha-container-log-dir.md"
+  },
+  {
+   "id": "gotcha-refused-mutation-audit-best-effort",
+   "kind": "gotcha",
+   "title": "Refusal audit entries are best-effort, success entries are not",
+   "summary": "A denied mutation is audited outside any transaction and a failed insert is only logged, so a refusal can be missing from the trail while a success never is",
+   "tags": [
+    "gotcha",
+    "audit",
+    "refusal",
+    "denied",
+    "best effort",
+    "logging",
+    "transaction",
+    "duplicate",
+    "409"
+   ],
+   "sources": [
+    "internal/store/audit.go:105-113",
+    "internal/store/user.go:164-170",
+    "internal/store/user.go:281-290",
+    "internal/store/group.go:214-228"
+   ],
+   "file": ".claude/knowledge/nodes/gotcha-refused-mutation-audit-best-effort.md"
+  },
+  {
+   "id": "gotcha-request-body-logging-opt-in",
+   "kind": "gotcha",
+   "title": "Request body logging is opt-in and lives in internal/scim",
+   "summary": "SCIM_LOG_REQUESTS=1 records request bodies (user attributes) to the normal log stream; Authorization is never logged",
+   "tags": [
+    "gotcha",
+    "logging",
+    "request logs",
+    "SCIM_LOG_REQUESTS",
+    "body",
+    "PII",
+    "user attributes",
+    "debug logging"
+   ],
+   "sources": [
+    "internal/scim/requestlog.go:15-27",
+    "internal/scim/requestlog.go:29-56"
+   ],
+   "file": ".claude/knowledge/nodes/gotcha-request-body-logging-opt-in.md"
+  },
+  {
+   "id": "gotcha-scim-idp-quirks",
+   "kind": "gotcha",
+   "title": "Identity provider payload quirks the parser accepts",
+   "summary": "Entra sends string booleans and capitalised ops; unknown attributes are dropped, not rejected; these leniencies are deliberate",
+   "tags": [
+    "gotcha",
+    "Entra",
+    "Okta",
+    "identity provider",
+    "IdP",
+    "string boolean",
+    "primary",
+    "PATCH op case",
+    "unknown fields",
+    "interop"
+   ],
+   "sources": [
+    "internal/scim/models.go:20-47",
+    "internal/scim/patch.go:44-49",
+    "internal/scim/handler.go:536-540",
+    "internal/scim/handler.go:186-190"
+   ],
+   "file": ".claude/knowledge/nodes/gotcha-scim-idp-quirks.md"
+  },
+  {
+   "id": "gotcha-scim-tenant-path-parsing",
+   "kind": "gotcha",
+   "title": "Tenant id is parsed twice and must agree",
+   "summary": "Auth reads the tenant from the raw escaped path before the mux runs; a mismatch with the mux would authenticate as one tenant and route as another",
+   "tags": [
+    "gotcha",
+    "tenant",
+    "path",
+    "escaping",
+    "PathValue",
+    "percent-encoding",
+    "security",
+    "mux",
+    "tenantID"
+   ],
+   "sources": [
+    "internal/scim/auth.go:73-78",
+    "internal/scim/auth.go:118-139",
+    "internal/scim/handler.go:58-62"
+   ],
+   "file": ".claude/knowledge/nodes/gotcha-scim-tenant-path-parsing.md"
+  },
+  {
+   "id": "gotcha-scim-unauthenticated-not-limited",
+   "kind": "gotcha",
+   "title": "Unauthenticated requests are not rate limited",
+   "summary": "The per-caller limiter sits behind auth, so a flood of bad tokens is bounded only by the cost of one token lookup per request",
+   "tags": [
+    "gotcha",
+    "rate limit",
+    "DoS",
+    "unauthenticated",
+    "brute force",
+    "token lookup",
+    "throttle",
+    "429"
+   ],
+   "sources": [
+    "internal/scim/ratelimit.go:68-72",
+    "internal/scim/handler.go:94-98",
+    "internal/scim/auth.go:84-93"
+   ],
+   "file": ".claude/knowledge/nodes/gotcha-scim-unauthenticated-not-limited.md"
+  },
+  {
+   "id": "gotcha-tenant-migration-needs-empty-tables",
+   "kind": "gotcha",
+   "title": "Migration 000005 only applies cleanly to empty tables, and its down is lossy",
+   "summary": "The tenant_id columns are NOT NULL with no default, so existing rows need a real tenant first; the down migration restores global unique indexes that can fail",
+   "tags": [
+    "gotcha",
+    "migration",
+    "000005",
+    "tenant_id",
+    "not null",
+    "backfill",
+    "multi-tenancy",
+    "upgrade",
+    "rollback",
+    "existing data"
+   ],
+   "sources": [
+    "migrations/000005_multi_tenancy.up.sql:6-13",
+    "migrations/000005_multi_tenancy.up.sql:40",
+    "migrations/000005_multi_tenancy.up.sql:53",
+    "migrations/000005_multi_tenancy.up.sql:56",
+    "migrations/000005_multi_tenancy.down.sql:1-13"
+   ],
+   "file": ".claude/knowledge/nodes/gotcha-tenant-migration-needs-empty-tables.md"
+  },
+  {
+   "id": "gotcha-webhook-lease-covers-batch",
+   "kind": "gotcha",
+   "title": "Webhook claim lease must cover the whole batch; attempts count at claim",
+   "summary": "The lease is Poll + Batch\u00d7Timeout so a slow batch does not double-POST; each claim burns an attempt, so a crash mid-batch costs one",
+   "tags": [
+    "webhook",
+    "lease",
+    "claim",
+    "attempts",
+    "double send",
+    "at-least-once",
+    "outbox",
+    "timeout",
+    "batch"
+   ],
+   "sources": [
+    "internal/webhook/dispatcher.go:185-200",
+    "internal/webhook/dispatcher.go:254-258",
+    "internal/store/outbox.go:77-83",
+    "internal/store/outbox.go:179-198"
+   ],
+   "file": ".claude/knowledge/nodes/gotcha-webhook-lease-covers-batch.md"
+  },
+  {
+   "id": "model-scim-resources",
+   "kind": "data-model",
+   "title": "SCIM resource models and store mapping",
+   "summary": "Go structs for SCIM User, Group, Member, ListResponse, Error and the lenient Bool, plus mapping to store.User and store.Group",
+   "tags": [
+    "model",
+    "data model",
+    "scim user",
+    "scim group",
+    "schema",
+    "mapper",
+    "json",
+    "Bool",
+    "ListResponse",
+    "RFC 7643",
+    "store mapping"
+   ],
+   "sources": [
+    "internal/scim/models.go:10-124",
+    "internal/scim/mapper.go:11-116"
+   ],
+   "file": ".claude/knowledge/nodes/model-scim-resources.md"
+  },
+  {
+   "id": "module-apidocs",
+   "kind": "module",
+   "title": "API docs (internal/apidocs)",
+   "summary": "Embedded OpenAPI 3.0 spec and vendored Swagger UI served unauthenticated at /docs, with no runtime network fetch",
+   "tags": [
+    "api docs",
+    "openapi",
+    "swagger",
+    "swagger ui",
+    "docs",
+    "spec",
+    "embed",
+    "specification",
+    "documentation"
+   ],
+   "sources": [
+    "internal/apidocs/embed.go:1-66",
+    "internal/apidocs/openapi.yaml:1-30",
+    "cmd/server/main.go:127-132"
+   ],
+   "file": ".claude/knowledge/nodes/module-apidocs.md"
+  },
+  {
+   "id": "module-aria",
+   "kind": "module",
+   "title": "ARIA audit reviewer",
+   "summary": "Audit Risk Intelligence Advisor: deterministic Go flags on audit_log activity, then an optional OpenAI-compatible LLM narrates them; advisory only",
+   "tags": [
+    "aria",
+    "audit",
+    "audit review",
+    "audit risk",
+    "bulk deactivation",
+    "denial burst",
+    "off-hours",
+    "high volume",
+    "llm",
+    "narrate",
+    "briefing",
+    "ARIA_LLM_BASE_URL",
+    "ARIA_LLM_API_KEY",
+    "ARIA_LLM_MODEL",
+    "ARIA_TIMEZONE"
+   ],
+   "sources": [
+    "internal/aria/aria.go:1-34",
+    "internal/aria/aria.go:41-45",
+    "internal/aria/aria.go:97-187",
+    "internal/aria/client.go:26-64",
+    "internal/aria/client.go:103-149",
+    "internal/aria/prompt.go:14-40",
+    "internal/aria/prompt.go:45-108"
+   ],
+   "file": ".claude/knowledge/nodes/module-aria.md"
+  },
+  {
+   "id": "module-console-auth",
+   "kind": "module",
+   "title": "Console auth and CSRF",
+   "summary": "Console login is a console_tokens credential sent as Bearer or Basic; CSRF is a stateless per-process HMAC over an hourly bucket",
+   "tags": [
+    "auth",
+    "authentication",
+    "login",
+    "console token",
+    "bearer",
+    "basic auth",
+    "csrf",
+    "session",
+    "hmac",
+    "constant time"
+   ],
+   "sources": [
+    "internal/console/auth.go:1-126",
+    "internal/console/csrf.go:1-80",
+    "internal/console/handlers.go:851-863"
+   ],
+   "file": ".claude/knowledge/nodes/module-console-auth.md"
+  },
+  {
+   "id": "module-console",
+   "kind": "module",
+   "title": "Admin console (internal/console)",
+   "summary": "Opt-in loopback web UI for the SCIMage operator on its own listener; reuses store.* calls, token-authenticated",
+   "tags": [
+    "console",
+    "admin console",
+    "admin ui",
+    "web ui",
+    "dashboard",
+    "operator",
+    "CONSOLE_ADDR",
+    "templates",
+    "ARIA",
+    "webhooks"
+   ],
+   "sources": [
+    "internal/console/server.go:1-143",
+    "internal/console/render.go:1-94",
+    "internal/console/static.go:1-76",
+    "cmd/server/main.go:36-56",
+    "cmd/server/main.go:145-167"
+   ],
+   "file": ".claude/knowledge/nodes/module-console.md"
+  },
+  {
+   "id": "module-logging",
+   "kind": "module",
+   "title": "Process logging (internal/logging)",
+   "summary": "Sets the default slog JSON logger to stdout plus one dated file under LOG_DIR; the audit trail is separate",
+   "tags": [
+    "logging",
+    "logs",
+    "slog",
+    "json logs",
+    "LOG_DIR",
+    "LOG_LEVEL",
+    "log file",
+    "operational logs",
+    "log level"
+   ],
+   "sources": [
+    "internal/logging/logging.go:1-74",
+    "cmd/server/main.go:65-70"
+   ],
+   "file": ".claude/knowledge/nodes/module-logging.md"
+  },
+  {
+   "id": "module-scim",
+   "kind": "module",
+   "title": "SCIM HTTP module (internal/scim)",
+   "summary": "SCIM 2.0 HTTP handlers, bearer auth, rate limit, filter/PATCH parsing and SCIM models for /Users and /Groups",
+   "tags": [
+    "scim",
+    "rfc7644",
+    "handler",
+    "users",
+    "groups",
+    "http",
+    "provisioning",
+    "internal/scim"
+   ],
+   "sources": [
+    "internal/scim/handler.go:1-100",
+    "internal/scim/auth.go:1-151",
+    "internal/scim/userstore.go:1-43",
+    "internal/scim/groupstore.go:1-21"
+   ],
+   "file": ".claude/knowledge/nodes/module-scim.md"
+  },
+  {
+   "id": "module-store",
+   "kind": "module",
+   "title": "Store (Postgres persistence layer)",
+   "summary": "internal/store owns every SQL query, pgx pool setup, tenant scoping and the same-transaction audit and outbox writes",
+   "tags": [
+    "store",
+    "postgres",
+    "pgx",
+    "sql",
+    "repository",
+    "persistence",
+    "database",
+    "tenant",
+    "audit",
+    "outbox"
+   ],
+   "sources": [
+    "internal/store/store.go:1-149",
+    "internal/store/user.go:1-99",
+    "internal/store/group.go:1-30",
+    "internal/store/audit.go:1-60",
+    "internal/store/outbox.go:1-70"
+   ],
+   "file": ".claude/knowledge/nodes/module-store.md"
+  },
+  {
+   "id": "module-webhook",
+   "kind": "module",
+   "title": "Webhook dispatcher and signing",
+   "summary": "Drains the webhook outbox to one configured HTTPS endpoint with HMAC-signed POSTs, retries, dead letters and retention pruning",
+   "tags": [
+    "webhook",
+    "webhooks",
+    "dispatcher",
+    "outbox",
+    "delivery",
+    "retry",
+    "backoff",
+    "dead letter",
+    "signing",
+    "hmac",
+    "SCIM_WEBHOOK_URL",
+    "SCIM_WEBHOOK_SECRET"
+   ],
+   "sources": [
+    "internal/webhook/dispatcher.go:21-30",
+    "internal/webhook/dispatcher.go:74-126",
+    "internal/webhook/dispatcher.go:204-234",
+    "internal/webhook/dispatcher.go:254-303",
+    "internal/webhook/signer.go:16-26",
+    "internal/webhook/status.go:14-44"
+   ],
+   "file": ".claude/knowledge/nodes/module-webhook.md"
+  },
+  {
+   "id": "workflow-ci",
+   "kind": "workflow",
+   "title": "CI (GitHub Actions)",
+   "summary": "ci.yml runs gofmt, go vet, migrations and go test -p 1 against a Postgres 16 service on pushes to main and on PRs, plus govulncheck",
+   "tags": [
+    "ci",
+    "continuous integration",
+    "github actions",
+    "workflow",
+    "pipeline",
+    "gate",
+    "govulncheck",
+    "postgres service",
+    "pull request",
+    "test gate",
+    "merge check"
+   ],
+   "sources": [
+    ".github/workflows/ci.yml:1-80"
+   ],
+   "file": ".claude/knowledge/nodes/workflow-ci.md"
+  },
+  {
+   "id": "workflow-docker",
+   "kind": "workflow",
+   "title": "Docker image and compose stack",
+   "summary": "Multi-stage Dockerfile builds a static nonroot scimage binary; docker-compose runs only Postgres 16 on a configurable host port",
+   "tags": [
+    "docker",
+    "dockerfile",
+    "docker compose",
+    "compose",
+    "container",
+    "image",
+    "build image",
+    "distroless",
+    "nonroot",
+    "postgres container",
+    "port",
+    "volume",
+    "deploy"
+   ],
+   "sources": [
+    "Dockerfile:1-28",
+    "docker-compose.yml:1-20",
+    "scripts/migrate.sh:56-87"
+   ],
+   "file": ".claude/knowledge/nodes/workflow-docker.md"
+  },
+  {
+   "id": "workflow-migrations",
+   "kind": "workflow",
+   "title": "Database migrations (golang-migrate)",
+   "summary": "Numbered up/down SQL files in migrations/ applied through make migrate; additive changes, partial indexes for optional values, and one test-only trigger",
+   "tags": [
+    "migrations",
+    "golang-migrate",
+    "schema",
+    "sql",
+    "make migrate",
+    "up down",
+    "schema change",
+    "ddl"
+   ],
+   "sources": [
+    "migrations/000001_create_users_table.up.sql:1-19",
+    "migrations/000012_console_tokens.up.sql:1-29",
+    "Makefile:72-73"
+   ],
+   "file": ".claude/knowledge/nodes/workflow-migrations.md"
+  },
+  {
+   "id": "workflow-precommit-hook",
+   "kind": "workflow",
+   "title": "Pre-commit hook and staged secret scan",
+   "summary": ".githooks/pre-commit, enabled by make hooks-install, blocks commits with staged secrets, unformatted or unvetted Go, or failing tests",
+   "tags": [
+    "pre-commit",
+    "git hook",
+    "githooks",
+    "hooks-install",
+    "secrets",
+    "secret scan",
+    "gofmt",
+    "goimports",
+    "go vet",
+    "commit gate",
+    "no-verify",
+    "hooksPath"
+   ],
+   "sources": [
+    ".githooks/pre-commit:1-57",
+    "scripts/check-staged-secrets.sh:8-86",
+    "Makefile:164-168"
+   ],
+   "file": ".claude/knowledge/nodes/workflow-precommit-hook.md"
+  }
+ ],
+ "edges": [
+  {
+   "from": "api-console-routes",
+   "to": "module-console",
+   "type": "implements"
+  },
+  {
+   "from": "api-console-routes",
+   "to": "module-console-auth",
+   "type": "depends_on"
+  },
+  {
+   "from": "api-env-vars",
+   "to": "command-dev-commands",
+   "type": "related"
+  },
+  {
+   "from": "api-env-vars",
+   "to": "workflow-docker",
+   "type": "related"
+  },
+  {
+   "from": "api-env-vars",
+   "to": "module-logging",
+   "type": "related"
+  },
+  {
+   "from": "api-env-vars",
+   "to": "module-webhook",
+   "type": "related"
+  },
+  {
+   "from": "api-env-vars",
+   "to": "module-aria",
+   "type": "related"
+  },
+  {
+   "from": "api-env-vars",
+   "to": "module-console",
+   "type": "related"
+  },
+  {
+   "from": "api-env-vars",
+   "to": "gotcha-container-log-dir",
+   "type": "related"
+  },
+  {
+   "from": "api-scim-errors",
+   "to": "module-scim",
+   "type": "implements"
+  },
+  {
+   "from": "api-scim-errors",
+   "to": "api-scim-routes",
+   "type": "related"
+  },
+  {
+   "from": "api-scim-errors",
+   "to": "gotcha-scim-idp-quirks",
+   "type": "related"
+  },
+  {
+   "from": "api-scim-filter",
+   "to": "module-scim",
+   "type": "implements"
+  },
+  {
+   "from": "api-scim-filter",
+   "to": "decision-scim-strict-filter",
+   "type": "related"
+  },
+  {
+   "from": "api-scim-filter",
+   "to": "api-scim-routes",
+   "type": "related"
+  },
+  {
+   "from": "api-scim-filter",
+   "to": "api-scim-errors",
+   "type": "related"
+  },
+  {
+   "from": "api-scim-patch",
+   "to": "module-scim",
+   "type": "implements"
+  },
+  {
+   "from": "api-scim-patch",
+   "to": "api-scim-routes",
+   "type": "related"
+  },
+  {
+   "from": "api-scim-patch",
+   "to": "api-scim-errors",
+   "type": "related"
+  },
+  {
+   "from": "api-scim-patch",
+   "to": "component-scim-extended-attributes",
+   "type": "related"
+  },
+  {
+   "from": "api-scim-patch",
+   "to": "model-scim-resources",
+   "type": "related"
+  },
+  {
+   "from": "api-scim-routes",
+   "to": "module-scim",
+   "type": "implements"
+  },
+  {
+   "from": "api-scim-routes",
+   "to": "api-scim-errors",
+   "type": "related"
+  },
+  {
+   "from": "api-scim-routes",
+   "to": "api-scim-filter",
+   "type": "related"
+  },
+  {
+   "from": "api-scim-routes",
+   "to": "api-scim-patch",
+   "type": "related"
+  },
+  {
+   "from": "api-scim-routes",
+   "to": "component-scim-auth",
+   "type": "related"
+  },
+  {
+   "from": "api-scim-routes",
+   "to": "model-scim-resources",
+   "type": "related"
+  },
+  {
+   "from": "architecture-overview",
+   "to": "module-scim",
+   "type": "depends_on"
+  },
+  {
+   "from": "architecture-overview",
+   "to": "module-store",
+   "type": "depends_on"
+  },
+  {
+   "from": "architecture-overview",
+   "to": "module-webhook",
+   "type": "depends_on"
+  },
+  {
+   "from": "architecture-overview",
+   "to": "module-console",
+   "type": "depends_on"
+  },
+  {
+   "from": "architecture-overview",
+   "to": "module-console-auth",
+   "type": "depends_on"
+  },
+  {
+   "from": "architecture-overview",
+   "to": "module-apidocs",
+   "type": "depends_on"
+  },
+  {
+   "from": "architecture-overview",
+   "to": "module-logging",
+   "type": "depends_on"
+  },
+  {
+   "from": "architecture-overview",
+   "to": "module-aria",
+   "type": "depends_on"
+  },
+  {
+   "from": "architecture-overview",
+   "to": "entrypoint-cmd-server-main",
+   "type": "related"
+  },
+  {
+   "from": "architecture-overview",
+   "to": "entrypoint-cmd-scimage-admin-main",
+   "type": "related"
+  },
+  {
+   "from": "architecture-overview",
+   "to": "entrypoint-cmd-aria-main",
+   "type": "related"
+  },
+  {
+   "from": "architecture-overview",
+   "to": "workflow-migrations",
+   "type": "related"
+  },
+  {
+   "from": "architecture-overview",
+   "to": "workflow-docker",
+   "type": "related"
+  },
+  {
+   "from": "architecture-overview",
+   "to": "workflow-ci",
+   "type": "related"
+  },
+  {
+   "from": "architecture-overview",
+   "to": "workflow-precommit-hook",
+   "type": "related"
+  },
+  {
+   "from": "architecture-overview",
+   "to": "decision-audit-in-transaction",
+   "type": "decided_by"
+  },
+  {
+   "from": "architecture-overview",
+   "to": "decision-tenant-scoping",
+   "type": "decided_by"
+  },
+  {
+   "from": "architecture-overview",
+   "to": "decision-request-timeout-before-auth",
+   "type": "decided_by"
+  },
+  {
+   "from": "architecture-overview",
+   "to": "decision-credentials-issued-by-cli",
+   "type": "decided_by"
+  },
+  {
+   "from": "architecture-overview",
+   "to": "decision-console-separate-listener",
+   "type": "decided_by"
+  },
+  {
+   "from": "architecture-overview",
+   "to": "decision-aria-advisory-only",
+   "type": "decided_by"
+  },
+  {
+   "from": "architecture-overview",
+   "to": "decision-stdlib-and-raw-sql",
+   "type": "decided_by"
+  },
+  {
+   "from": "architecture-overview",
+   "to": "glossary-core-terms",
+   "type": "related"
+  },
+  {
+   "from": "command-dev-commands",
+   "to": "architecture-overview",
+   "type": "related"
+  },
+  {
+   "from": "command-dev-commands",
+   "to": "workflow-docker",
+   "type": "related"
+  },
+  {
+   "from": "command-dev-commands",
+   "to": "workflow-migrations",
+   "type": "related"
+  },
+  {
+   "from": "command-dev-commands",
+   "to": "workflow-ci",
+   "type": "related"
+  },
+  {
+   "from": "command-dev-commands",
+   "to": "workflow-precommit-hook",
+   "type": "related"
+  },
+  {
+   "from": "command-dev-commands",
+   "to": "gotcha-bare-go-test-skips-postgres",
+   "type": "related"
+  },
+  {
+   "from": "command-dev-commands",
+   "to": "api-env-vars",
+   "type": "related"
+  },
+  {
+   "from": "component-scim-auth",
+   "to": "module-scim",
+   "type": "implements"
+  },
+  {
+   "from": "component-scim-auth",
+   "to": "api-scim-routes",
+   "type": "related"
+  },
+  {
+   "from": "component-scim-auth",
+   "to": "decision-scim-uniform-401",
+   "type": "related"
+  },
+  {
+   "from": "component-scim-auth",
+   "to": "gotcha-scim-tenant-path-parsing",
+   "type": "related"
+  },
+  {
+   "from": "component-scim-auth",
+   "to": "component-scim-ratelimit",
+   "type": "related"
+  },
+  {
+   "from": "component-scim-extended-attributes",
+   "to": "module-scim",
+   "type": "implements"
+  },
+  {
+   "from": "component-scim-extended-attributes",
+   "to": "module-store",
+   "type": "depends_on"
+  },
+  {
+   "from": "component-scim-extended-attributes",
+   "to": "api-scim-patch",
+   "type": "related"
+  },
+  {
+   "from": "component-scim-extended-attributes",
+   "to": "model-scim-resources",
+   "type": "related"
+  },
+  {
+   "from": "component-scim-extended-attributes",
+   "to": "gotcha-scim-idp-quirks",
+   "type": "related"
+  },
+  {
+   "from": "component-scim-ratelimit",
+   "to": "module-scim",
+   "type": "implements"
+  },
+  {
+   "from": "component-scim-ratelimit",
+   "to": "component-scim-auth",
+   "type": "depends_on"
+  },
+  {
+   "from": "component-scim-ratelimit",
+   "to": "gotcha-scim-unauthenticated-not-limited",
+   "type": "related"
+  },
+  {
+   "from": "component-scim-ratelimit",
+   "to": "api-scim-errors",
+   "type": "related"
+  },
+  {
+   "from": "component-scim-request-middleware",
+   "to": "module-scim",
+   "type": "implements"
+  },
+  {
+   "from": "component-scim-request-middleware",
+   "to": "api-scim-routes",
+   "type": "related"
+  },
+  {
+   "from": "component-scim-request-middleware",
+   "to": "gotcha-scim-idp-quirks",
+   "type": "related"
+  },
+  {
+   "from": "data-model-audit-log",
+   "to": "decision-audit-in-transaction",
+   "type": "decided_by"
+  },
+  {
+   "from": "data-model-audit-log",
+   "to": "module-store",
+   "type": "related"
+  },
+  {
+   "from": "data-model-audit-log",
+   "to": "gotcha-refused-mutation-audit-best-effort",
+   "type": "related"
+  },
+  {
+   "from": "data-model-audit-log",
+   "to": "data-model-tenants-tokens",
+   "type": "related"
+  },
+  {
+   "from": "data-model-core-users-groups",
+   "to": "data-model-tenants-tokens",
+   "type": "depends_on"
+  },
+  {
+   "from": "data-model-core-users-groups",
+   "to": "module-store",
+   "type": "related"
+  },
+  {
+   "from": "data-model-core-users-groups",
+   "to": "decision-tenant-scoping",
+   "type": "related"
+  },
+  {
+   "from": "data-model-core-users-groups",
+   "to": "gotcha-tenant-migration-needs-empty-tables",
+   "type": "related"
+  },
+  {
+   "from": "data-model-tenants-tokens",
+   "to": "decision-token-hashing",
+   "type": "related"
+  },
+  {
+   "from": "data-model-tenants-tokens",
+   "to": "decision-tenant-scoping",
+   "type": "related"
+  },
+  {
+   "from": "data-model-tenants-tokens",
+   "to": "module-store",
+   "type": "related"
+  },
+  {
+   "from": "data-model-tenants-tokens",
+   "to": "data-model-core-users-groups",
+   "type": "related"
+  },
+  {
+   "from": "data-model-tenants-tokens",
+   "to": "data-model-audit-log",
+   "type": "related"
+  },
+  {
+   "from": "data-model-webhook-outbox",
+   "to": "decision-audit-in-transaction",
+   "type": "related"
+  },
+  {
+   "from": "data-model-webhook-outbox",
+   "to": "module-store",
+   "type": "related"
+  },
+  {
+   "from": "decision-aria-advisory-only",
+   "to": "module-aria",
+   "type": "decided_by"
+  },
+  {
+   "from": "decision-aria-advisory-only",
+   "to": "module-aria",
+   "type": "related"
+  },
+  {
+   "from": "decision-aria-advisory-only",
+   "to": "module-scim",
+   "type": "related"
+  },
+  {
+   "from": "decision-aria-advisory-only",
+   "to": "decision-audit-in-transaction",
+   "type": "related"
+  },
+  {
+   "from": "decision-audit-in-transaction",
+   "to": "data-model-audit-log",
+   "type": "related"
+  },
+  {
+   "from": "decision-audit-in-transaction",
+   "to": "data-model-webhook-outbox",
+   "type": "related"
+  },
+  {
+   "from": "decision-audit-in-transaction",
+   "to": "module-store",
+   "type": "related"
+  },
+  {
+   "from": "decision-audit-in-transaction",
+   "to": "module-scim",
+   "type": "related"
+  },
+  {
+   "from": "decision-audit-in-transaction",
+   "to": "gotcha-refused-mutation-audit-best-effort",
+   "type": "related"
+  },
+  {
+   "from": "decision-console-separate-listener",
+   "to": "module-console",
+   "type": "decided_by"
+  },
+  {
+   "from": "decision-console-separate-listener",
+   "to": "module-console",
+   "type": "related"
+  },
+  {
+   "from": "decision-console-separate-listener",
+   "to": "module-scim",
+   "type": "related"
+  },
+  {
+   "from": "decision-console-token-csrf",
+   "to": "module-console-auth",
+   "type": "decided_by"
+  },
+  {
+   "from": "decision-console-token-csrf",
+   "to": "module-console-auth",
+   "type": "related"
+  },
+  {
+   "from": "decision-credentials-issued-by-cli",
+   "to": "entrypoint-cmd-scimage-admin-main",
+   "type": "related"
+  },
+  {
+   "from": "decision-credentials-issued-by-cli",
+   "to": "module-console-auth",
+   "type": "related"
+  },
+  {
+   "from": "decision-credentials-issued-by-cli",
+   "to": "data-model-tenants-tokens",
+   "type": "related"
+  },
+  {
+   "from": "decision-credentials-issued-by-cli",
+   "to": "decision-token-hashing",
+   "type": "related"
+  },
+  {
+   "from": "decision-credentials-issued-by-cli",
+   "to": "decision-scim-uniform-401",
+   "type": "related"
+  },
+  {
+   "from": "decision-real-postgres-tests",
+   "to": "workflow-ci",
+   "type": "related"
+  },
+  {
+   "from": "decision-real-postgres-tests",
+   "to": "command-dev-commands",
+   "type": "related"
+  },
+  {
+   "from": "decision-real-postgres-tests",
+   "to": "gotcha-bare-go-test-skips-postgres",
+   "type": "related"
+  },
+  {
+   "from": "decision-real-postgres-tests",
+   "to": "data-model-tenants-tokens",
+   "type": "related"
+  },
+  {
+   "from": "decision-request-timeout-before-auth",
+   "to": "module-scim",
+   "type": "related"
+  },
+  {
+   "from": "decision-request-timeout-before-auth",
+   "to": "component-scim-ratelimit",
+   "type": "related"
+  },
+  {
+   "from": "decision-request-timeout-before-auth",
+   "to": "component-scim-auth",
+   "type": "related"
+  },
+  {
+   "from": "decision-request-timeout-before-auth",
+   "to": "gotcha-scim-unauthenticated-not-limited",
+   "type": "related"
+  },
+  {
+   "from": "decision-scim-strict-filter",
+   "to": "api-scim-filter",
+   "type": "documented_in"
+  },
+  {
+   "from": "decision-scim-strict-filter",
+   "to": "module-scim",
+   "type": "related"
+  },
+  {
+   "from": "decision-scim-uniform-401",
+   "to": "component-scim-auth",
+   "type": "documented_in"
+  },
+  {
+   "from": "decision-scim-uniform-401",
+   "to": "module-scim",
+   "type": "related"
+  },
+  {
+   "from": "decision-scim-uniform-401",
+   "to": "api-scim-errors",
+   "type": "related"
+  },
+  {
+   "from": "decision-stdlib-and-raw-sql",
+   "to": "architecture-overview",
+   "type": "related"
+  },
+  {
+   "from": "decision-stdlib-and-raw-sql",
+   "to": "module-store",
+   "type": "related"
+  },
+  {
+   "from": "decision-stdlib-and-raw-sql",
+   "to": "module-scim",
+   "type": "related"
+  },
+  {
+   "from": "decision-stdlib-and-raw-sql",
+   "to": "decision-real-postgres-tests",
+   "type": "related"
+  },
+  {
+   "from": "decision-tenant-scoping",
+   "to": "data-model-tenants-tokens",
+   "type": "related"
+  },
+  {
+   "from": "decision-tenant-scoping",
+   "to": "data-model-core-users-groups",
+   "type": "related"
+  },
+  {
+   "from": "decision-tenant-scoping",
+   "to": "module-store",
+   "type": "related"
+  },
+  {
+   "from": "decision-tenant-scoping",
+   "to": "gotcha-tenant-migration-needs-empty-tables",
+   "type": "related"
+  },
+  {
+   "from": "decision-token-hashing",
+   "to": "data-model-tenants-tokens",
+   "type": "related"
+  },
+  {
+   "from": "decision-token-hashing",
+   "to": "module-store",
+   "type": "related"
+  },
+  {
+   "from": "decision-user-soft-delete",
+   "to": "data-model-core-users-groups",
+   "type": "related"
+  },
+  {
+   "from": "decision-user-soft-delete",
+   "to": "module-store",
+   "type": "related"
+  },
+  {
+   "from": "decision-user-soft-delete",
+   "to": "decision-audit-in-transaction",
+   "type": "related"
+  },
+  {
+   "from": "decision-webhook-retry-classification",
+   "to": "module-webhook",
+   "type": "decided_by"
+  },
+  {
+   "from": "decision-webhook-retry-classification",
+   "to": "data-model-webhook-outbox",
+   "type": "depends_on"
+  },
+  {
+   "from": "decision-webhook-retry-classification",
+   "to": "gotcha-webhook-lease-covers-batch",
+   "type": "related"
+  },
+  {
+   "from": "decision-webhook-signed-payload",
+   "to": "module-webhook",
+   "type": "decided_by"
+  },
+  {
+   "from": "decision-webhook-signed-payload",
+   "to": "module-webhook",
+   "type": "related"
+  },
+  {
+   "from": "doc-contributing",
+   "to": "architecture-overview",
+   "type": "related"
+  },
+  {
+   "from": "doc-readme",
+   "to": "architecture-overview",
+   "type": "related"
+  },
+  {
+   "from": "entrypoint-cmd-aria-main",
+   "to": "module-aria",
+   "type": "calls"
+  },
+  {
+   "from": "entrypoint-cmd-aria-main",
+   "to": "module-store",
+   "type": "depends_on"
+  },
+  {
+   "from": "entrypoint-cmd-aria-main",
+   "to": "decision-aria-advisory-only",
+   "type": "implements"
+  },
+  {
+   "from": "entrypoint-cmd-aria-main",
+   "to": "entrypoint-cmd-scimage-admin-main",
+   "type": "related"
+  },
+  {
+   "from": "entrypoint-cmd-scimage-admin-main",
+   "to": "module-store",
+   "type": "calls"
+  },
+  {
+   "from": "entrypoint-cmd-scimage-admin-main",
+   "to": "module-webhook",
+   "type": "calls"
+  },
+  {
+   "from": "entrypoint-cmd-scimage-admin-main",
+   "to": "module-store",
+   "type": "depends_on"
+  },
+  {
+   "from": "entrypoint-cmd-scimage-admin-main",
+   "to": "data-model-tenants-tokens",
+   "type": "related"
+  },
+  {
+   "from": "entrypoint-cmd-scimage-admin-main",
+   "to": "data-model-audit-log",
+   "type": "related"
+  },
+  {
+   "from": "entrypoint-cmd-scimage-admin-main",
+   "to": "architecture-overview",
+   "type": "related"
+  },
+  {
+   "from": "entrypoint-cmd-server-main",
+   "to": "module-scim",
+   "type": "calls"
+  },
+  {
+   "from": "entrypoint-cmd-server-main",
+   "to": "module-console",
+   "type": "calls"
+  },
+  {
+   "from": "entrypoint-cmd-server-main",
+   "to": "module-webhook",
+   "type": "calls"
+  },
+  {
+   "from": "entrypoint-cmd-server-main",
+   "to": "module-store",
+   "type": "depends_on"
+  },
+  {
+   "from": "entrypoint-cmd-server-main",
+   "to": "module-logging",
+   "type": "depends_on"
+  },
+  {
+   "from": "entrypoint-cmd-server-main",
+   "to": "module-apidocs",
+   "type": "depends_on"
+  },
+  {
+   "from": "entrypoint-cmd-server-main",
+   "to": "decision-console-separate-listener",
+   "type": "decided_by"
+  },
+  {
+   "from": "entrypoint-cmd-server-main",
+   "to": "gotcha-console-docker-bind-address",
+   "type": "related"
+  },
+  {
+   "from": "entrypoint-cmd-server-main",
+   "to": "architecture-overview",
+   "type": "related"
+  },
+  {
+   "from": "glossary-core-terms",
+   "to": "architecture-overview",
+   "type": "related"
+  },
+  {
+   "from": "glossary-core-terms",
+   "to": "module-scim",
+   "type": "related"
+  },
+  {
+   "from": "glossary-core-terms",
+   "to": "module-store",
+   "type": "related"
+  },
+  {
+   "from": "glossary-core-terms",
+   "to": "module-webhook",
+   "type": "related"
+  },
+  {
+   "from": "glossary-core-terms",
+   "to": "module-aria",
+   "type": "related"
+  },
+  {
+   "from": "glossary-core-terms",
+   "to": "decision-user-soft-delete",
+   "type": "related"
+  },
+  {
+   "from": "glossary-core-terms",
+   "to": "decision-credentials-issued-by-cli",
+   "type": "related"
+  },
+  {
+   "from": "glossary-core-terms",
+   "to": "data-model-audit-log",
+   "type": "related"
+  },
+  {
+   "from": "glossary-core-terms",
+   "to": "data-model-webhook-outbox",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-bare-go-test-skips-postgres",
+   "to": "command-dev-commands",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-bare-go-test-skips-postgres",
+   "to": "workflow-ci",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-bare-go-test-skips-postgres",
+   "to": "workflow-precommit-hook",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-bare-go-test-skips-postgres",
+   "to": "decision-real-postgres-tests",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-console-docker-bind-address",
+   "to": "module-console",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-console-docker-bind-address",
+   "to": "decision-console-separate-listener",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-container-log-dir",
+   "to": "workflow-docker",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-container-log-dir",
+   "to": "api-env-vars",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-container-log-dir",
+   "to": "module-logging",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-refused-mutation-audit-best-effort",
+   "to": "data-model-audit-log",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-refused-mutation-audit-best-effort",
+   "to": "decision-audit-in-transaction",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-refused-mutation-audit-best-effort",
+   "to": "module-store",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-request-body-logging-opt-in",
+   "to": "module-logging",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-request-body-logging-opt-in",
+   "to": "module-scim",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-scim-idp-quirks",
+   "to": "model-scim-resources",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-scim-idp-quirks",
+   "to": "api-scim-patch",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-scim-idp-quirks",
+   "to": "api-scim-errors",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-scim-tenant-path-parsing",
+   "to": "component-scim-auth",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-scim-tenant-path-parsing",
+   "to": "module-scim",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-scim-tenant-path-parsing",
+   "to": "api-scim-routes",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-scim-unauthenticated-not-limited",
+   "to": "component-scim-ratelimit",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-scim-unauthenticated-not-limited",
+   "to": "component-scim-auth",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-scim-unauthenticated-not-limited",
+   "to": "decision-scim-uniform-401",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-tenant-migration-needs-empty-tables",
+   "to": "workflow-migrations",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-tenant-migration-needs-empty-tables",
+   "to": "decision-tenant-scoping",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-tenant-migration-needs-empty-tables",
+   "to": "data-model-core-users-groups",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-webhook-lease-covers-batch",
+   "to": "module-webhook",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-webhook-lease-covers-batch",
+   "to": "data-model-webhook-outbox",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-webhook-lease-covers-batch",
+   "to": "decision-webhook-retry-classification",
+   "type": "related"
+  },
+  {
+   "from": "model-scim-resources",
+   "to": "module-scim",
+   "type": "implements"
+  },
+  {
+   "from": "model-scim-resources",
+   "to": "api-scim-errors",
+   "type": "depends_on"
+  },
+  {
+   "from": "model-scim-resources",
+   "to": "gotcha-scim-idp-quirks",
+   "type": "related"
+  },
+  {
+   "from": "model-scim-resources",
+   "to": "component-scim-extended-attributes",
+   "type": "related"
+  },
+  {
+   "from": "module-apidocs",
+   "to": "doc-readme",
+   "type": "documented_in"
+  },
+  {
+   "from": "module-apidocs",
+   "to": "module-console",
+   "type": "related"
+  },
+  {
+   "from": "module-apidocs",
+   "to": "module-scim",
+   "type": "related"
+  },
+  {
+   "from": "module-aria",
+   "to": "decision-aria-advisory-only",
+   "type": "implements"
+  },
+  {
+   "from": "module-aria",
+   "to": "data-model-audit-log",
+   "type": "depends_on"
+  },
+  {
+   "from": "module-aria",
+   "to": "module-store",
+   "type": "depends_on"
+  },
+  {
+   "from": "module-aria",
+   "to": "api-console-routes",
+   "type": "related"
+  },
+  {
+   "from": "module-aria",
+   "to": "entrypoint-cmd-aria-main",
+   "type": "related"
+  },
+  {
+   "from": "module-aria",
+   "to": "module-console",
+   "type": "related"
+  },
+  {
+   "from": "module-console-auth",
+   "to": "module-store",
+   "type": "depends_on"
+  },
+  {
+   "from": "module-console-auth",
+   "to": "module-console",
+   "type": "related"
+  },
+  {
+   "from": "module-console-auth",
+   "to": "decision-console-token-csrf",
+   "type": "decided_by"
+  },
+  {
+   "from": "module-console",
+   "to": "module-store",
+   "type": "depends_on"
+  },
+  {
+   "from": "module-console",
+   "to": "module-scim",
+   "type": "depends_on"
+  },
+  {
+   "from": "module-console",
+   "to": "module-console-auth",
+   "type": "related"
+  },
+  {
+   "from": "module-console",
+   "to": "api-console-routes",
+   "type": "related"
+  },
+  {
+   "from": "module-console",
+   "to": "decision-console-separate-listener",
+   "type": "decided_by"
+  },
+  {
+   "from": "module-console",
+   "to": "decision-console-token-csrf",
+   "type": "decided_by"
+  },
+  {
+   "from": "module-console",
+   "to": "module-apidocs",
+   "type": "related"
+  },
+  {
+   "from": "module-logging",
+   "to": "module-console-auth",
+   "type": "related"
+  },
+  {
+   "from": "module-logging",
+   "to": "gotcha-request-body-logging-opt-in",
+   "type": "related"
+  },
+  {
+   "from": "module-logging",
+   "to": "entrypoint-cmd-server-main",
+   "type": "depends_on"
+  },
+  {
+   "from": "module-scim",
+   "to": "architecture-overview",
+   "type": "documented_in"
+  },
+  {
+   "from": "module-scim",
+   "to": "api-scim-routes",
+   "type": "related"
+  },
+  {
+   "from": "module-scim",
+   "to": "component-scim-auth",
+   "type": "related"
+  },
+  {
+   "from": "module-scim",
+   "to": "component-scim-ratelimit",
+   "type": "related"
+  },
+  {
+   "from": "module-scim",
+   "to": "component-scim-request-middleware",
+   "type": "related"
+  },
+  {
+   "from": "module-scim",
+   "to": "model-scim-resources",
+   "type": "related"
+  },
+  {
+   "from": "module-scim",
+   "to": "api-scim-filter",
+   "type": "related"
+  },
+  {
+   "from": "module-scim",
+   "to": "api-scim-patch",
+   "type": "related"
+  },
+  {
+   "from": "module-scim",
+   "to": "api-scim-errors",
+   "type": "related"
+  },
+  {
+   "from": "module-scim",
+   "to": "component-scim-extended-attributes",
+   "type": "related"
+  },
+  {
+   "from": "module-scim",
+   "to": "decision-audit-in-transaction",
+   "type": "decided_by"
+  },
+  {
+   "from": "module-scim",
+   "to": "decision-scim-strict-filter",
+   "type": "related"
+  },
+  {
+   "from": "module-scim",
+   "to": "decision-scim-uniform-401",
+   "type": "related"
+  },
+  {
+   "from": "module-scim",
+   "to": "gotcha-scim-tenant-path-parsing",
+   "type": "related"
+  },
+  {
+   "from": "module-scim",
+   "to": "gotcha-scim-idp-quirks",
+   "type": "related"
+  },
+  {
+   "from": "module-scim",
+   "to": "gotcha-scim-unauthenticated-not-limited",
+   "type": "related"
+  },
+  {
+   "from": "module-store",
+   "to": "data-model-core-users-groups",
+   "type": "depends_on"
+  },
+  {
+   "from": "module-store",
+   "to": "data-model-tenants-tokens",
+   "type": "depends_on"
+  },
+  {
+   "from": "module-store",
+   "to": "data-model-audit-log",
+   "type": "depends_on"
+  },
+  {
+   "from": "module-store",
+   "to": "data-model-webhook-outbox",
+   "type": "depends_on"
+  },
+  {
+   "from": "module-store",
+   "to": "decision-audit-in-transaction",
+   "type": "decided_by"
+  },
+  {
+   "from": "module-store",
+   "to": "decision-tenant-scoping",
+   "type": "decided_by"
+  },
+  {
+   "from": "module-store",
+   "to": "decision-token-hashing",
+   "type": "decided_by"
+  },
+  {
+   "from": "module-store",
+   "to": "module-scim",
+   "type": "related"
+  },
+  {
+   "from": "module-store",
+   "to": "workflow-migrations",
+   "type": "related"
+  },
+  {
+   "from": "module-webhook",
+   "to": "data-model-webhook-outbox",
+   "type": "depends_on"
+  },
+  {
+   "from": "module-webhook",
+   "to": "module-store",
+   "type": "depends_on"
+  },
+  {
+   "from": "module-webhook",
+   "to": "decision-audit-in-transaction",
+   "type": "related"
+  },
+  {
+   "from": "module-webhook",
+   "to": "decision-webhook-signed-payload",
+   "type": "related"
+  },
+  {
+   "from": "module-webhook",
+   "to": "decision-webhook-retry-classification",
+   "type": "decided_by"
+  },
+  {
+   "from": "module-webhook",
+   "to": "gotcha-webhook-lease-covers-batch",
+   "type": "related"
+  },
+  {
+   "from": "module-webhook",
+   "to": "module-console",
+   "type": "related"
+  },
+  {
+   "from": "module-webhook",
+   "to": "entrypoint-cmd-server-main",
+   "type": "related"
+  },
+  {
+   "from": "workflow-ci",
+   "to": "command-dev-commands",
+   "type": "related"
+  },
+  {
+   "from": "workflow-ci",
+   "to": "workflow-migrations",
+   "type": "related"
+  },
+  {
+   "from": "workflow-ci",
+   "to": "workflow-precommit-hook",
+   "type": "related"
+  },
+  {
+   "from": "workflow-ci",
+   "to": "workflow-docker",
+   "type": "related"
+  },
+  {
+   "from": "workflow-ci",
+   "to": "decision-real-postgres-tests",
+   "type": "related"
+  },
+  {
+   "from": "workflow-ci",
+   "to": "gotcha-bare-go-test-skips-postgres",
+   "type": "related"
+  },
+  {
+   "from": "workflow-docker",
+   "to": "command-dev-commands",
+   "type": "related"
+  },
+  {
+   "from": "workflow-docker",
+   "to": "api-env-vars",
+   "type": "related"
+  },
+  {
+   "from": "workflow-docker",
+   "to": "workflow-migrations",
+   "type": "related"
+  },
+  {
+   "from": "workflow-docker",
+   "to": "gotcha-container-log-dir",
+   "type": "related"
+  },
+  {
+   "from": "workflow-docker",
+   "to": "gotcha-console-docker-bind-address",
+   "type": "related"
+  },
+  {
+   "from": "workflow-migrations",
+   "to": "data-model-core-users-groups",
+   "type": "related"
+  },
+  {
+   "from": "workflow-migrations",
+   "to": "data-model-tenants-tokens",
+   "type": "related"
+  },
+  {
+   "from": "workflow-migrations",
+   "to": "data-model-audit-log",
+   "type": "related"
+  },
+  {
+   "from": "workflow-migrations",
+   "to": "data-model-webhook-outbox",
+   "type": "related"
+  },
+  {
+   "from": "workflow-migrations",
+   "to": "gotcha-tenant-migration-needs-empty-tables",
+   "type": "related"
+  },
+  {
+   "from": "workflow-migrations",
+   "to": "command-dev-commands",
+   "type": "related"
+  },
+  {
+   "from": "workflow-precommit-hook",
+   "to": "command-dev-commands",
+   "type": "related"
+  },
+  {
+   "from": "workflow-precommit-hook",
+   "to": "workflow-ci",
+   "type": "related"
+  },
+  {
+   "from": "workflow-precommit-hook",
+   "to": "gotcha-bare-go-test-skips-postgres",
+   "type": "related"
+  }
+ ]
+}
