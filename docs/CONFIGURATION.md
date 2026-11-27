@@ -127,7 +127,7 @@ Used when `DATABASE_URL` is absent, and by `docker-compose.yml`.
 | `POSTGRES_USER` | Database user. |
 | `POSTGRES_PASSWORD` | Database password. |
 | `POSTGRES_DB` | Database name. |
-| `POSTGRES_PORT` | Host port for the container. Defaults to 5432. |
+| `POSTGRES_PORT` | Host port the Compose Postgres publishes on `127.0.0.1`. Defaults to 5432. |
 
 ## 🔑 Tenants and tokens
 

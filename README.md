@@ -186,7 +186,7 @@ For prerequisites in depth and the full set of `make` targets, see [Local develo
 
 ## 🐳 Deploy with Docker
 
-The repo ships a `Dockerfile`, so you can build a small (about 20 MB) container and run it anywhere. There is no image to pull; you build it once. The image holds only the `scimage` server binary; `scimage-admin` and its `make` targets stay host-side, since they're operator tooling, not something a running deployment needs inside the container.
+The repo ships a `Dockerfile`, so you can build a small (under 30 MB) container and run it anywhere. There is no image to pull; you build it once. The image holds only the `scimage` server binary; `scimage-admin` and its `make` targets stay host-side, since they're operator tooling, not something a running deployment needs inside the container.
 
 ```bash
 make up
@@ -207,20 +207,29 @@ The container needs a Postgres you already operate, with the migrations applied.
 
 Run it behind a proxy that terminates TLS, and set `SCIM_BASE_URL` to the public HTTPS URL so the links the server returns stay `https`. For an orchestrator, `GET /healthz` is the liveness check and `GET /readyz` is the readiness check. Every setting is an environment variable; see [Configuration](docs/CONFIGURATION.md).
 
-**Local testing**, against the same Postgres and `.env` that `make run` uses. This assumes you've already done the [Getting started](#-getting-started) setup: `.env` filled in and `make up` run, so Postgres is up with migrations applied. Pass `--env-file .env` instead of listing variables one by one, so the container picks up the whole file the same way `scripts/with-env.sh` does for `make run`. Two values still need overriding, both for the same reason: the container has its own network namespace, so anything bound to loopback means the container's loopback, not your host's.
+**Local testing**, against the same Postgres and `.env` that `make run` uses. This assumes you've already done the [Getting started](#-getting-started) setup: `.env` filled in and `make up` run, so Postgres is up with migrations applied. `--env-file .env` passes every variable in the file to the container. Docker reads it literally, so keep values unquoted and comments on their own lines. Inside the container, `localhost` and `127.0.0.1` point at the container itself, so the command overrides `DATABASE_URL` and `CONSOLE_ADDR`. A webhook URL in `.env` that points at `localhost` fails to connect for the same reason.
 
 ```bash
-docker run --rm -p 8080:8080 -p 127.0.0.1:8090:8090 \
-  --env-file .env \
-  -e DATABASE_URL="postgres://scimage:changeme@host.docker.internal:5432/scimage?sslmode=disable" \
-  -e CONSOLE_ADDR="0.0.0.0:8090" \
-  scimage
+(
+  set -a; source .env; set +a
+  docker run --rm -p 8080:8080 -p 127.0.0.1:8090:8090 \
+    --network scimage_default \
+    --env-file .env \
+    -e DATABASE_URL="postgres://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/$POSTGRES_DB?sslmode=disable" \
+    -e CONSOLE_ADDR="0.0.0.0:8090" \
+    scimage
+)
 ```
 
-- `DATABASE_URL` needs `host.docker.internal` in place of `localhost` to reach the `docker-compose.yml` Postgres running on your host.
-- `CONSOLE_ADDR` needs to bind `0.0.0.0`, not the `127.0.0.1` recommended for a bare-metal deploy: Docker's port publishing forwards to the container's network interface, not its loopback, so a console bound to `127.0.0.1` inside the container is unreachable even with `-p` mapped. `-p 127.0.0.1:8090:8090` puts the loopback restriction back at the host boundary instead, so the console still isn't reachable off-host.
+- The parentheses keep the variables loaded from `.env` out of your terminal afterwards.
+- `DATABASE_URL` points at the Compose database by its service name, `postgres`, so it works from inside the Compose network.
+- `scimage_default` is the Compose network, named after the lowercased project folder plus `_default`. If your clone's folder has a different name, find the network with `docker network ls`.
+- If the password contains `/`, `?`, `#`, `%` or a space, percent-encode it in place of `$POSTGRES_PASSWORD`, or choose one without those characters.
+- `CONSOLE_ADDR` binds `0.0.0.0` inside the container, while a bare-metal deploy uses `127.0.0.1`. Docker's port publishing forwards to the container's network interface, so a console bound to the container's `127.0.0.1` is unreachable even with `-p` mapped. `-p 127.0.0.1:8090:8090` applies the loopback restriction on the host, so the console stays reachable from this machine only.
 
 Issue yourself a console login token from the host (the container has no `scimage-admin`): `make console-token LABEL="local docker test"`, then open `http://localhost:8090/console` with it.
+
+`docker-compose.yml` is for local development. It publishes Postgres on `127.0.0.1` only, so other machines cannot connect; on Linux the loopback-only binding needs Docker Engine 28 or later. Processes on this host and containers on the Compose network can still reach the database, so its password is the only access control.
 
 ## ✅ Running tests
 
