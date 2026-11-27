@@ -7,14 +7,14 @@
 
   <form method="get" action="/console/aria" class="toolbar">
     <label for="tenant">Tenant</label>
-    <select id="tenant" name="tenant" onchange="this.form.submit()">
+    <select id="tenant" name="tenant" data-autosubmit>
       <option value="">All tenants</option>
       {{range .Data.Tenants}}
       <option value="{{.ID}}" {{if eq .ID $.Data.SelectedTenant}}selected{{end}}>{{.Name}}</option>
       {{end}}
     </select>
     <label for="since">Window</label>
-    <select id="since" name="since" onchange="this.form.submit()">
+    <select id="since" name="since" data-autosubmit>
       {{range .Data.Windows}}
       <option value="{{.Value}}" {{if eq .Value $.Data.SelectedSince}}selected{{end}}>{{.Label}}</option>
       {{end}}
@@ -48,40 +48,6 @@
   <div id="aria-brief">
     {{template "aria-brief" .}}
   </div>
-
-  <script>
-  // In-place update: the briefing is fetched in the background and only the
-  // #aria-brief block is swapped, so the URL stays on /console/aria (no full-page
-  // POST to /aria/narrate). The listener is delegated on the stable container, so
-  // the button inside the freshly injected fragment keeps working.
-  (function () {
-    var container = document.getElementById('aria-brief');
-    if (!container) { return; }
-    container.addEventListener('submit', async function (e) {
-      var form = e.target.closest('.narrate-form');
-      if (!form) { return; }
-      e.preventDefault();
-      var btn = form.querySelector('button[type=submit]');
-      var status = form.querySelector('.brief-status');
-      var originalLabel = btn ? btn.textContent : '';
-      if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; btn.classList.add('busy'); }
-      if (status) { status.hidden = false; }
-      try {
-        var res = await fetch(form.action, {
-          method: 'POST',
-          headers: { 'X-Requested-With': 'fetch', 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams(new FormData(form)).toString()
-        });
-        if (!res.ok) { throw new Error('status ' + res.status); }
-        container.innerHTML = await res.text();
-      } catch (err) {
-        if (btn) { btn.disabled = false; btn.textContent = originalLabel; btn.classList.remove('busy'); }
-        if (status) { status.hidden = true; }
-        container.insertAdjacentHTML('afterbegin', '<div class="error">Couldn\'t reach the server just now. Try again.</div>');
-      }
-    });
-  })();
-  </script>
   {{end}}
 </section>
 {{- end}}

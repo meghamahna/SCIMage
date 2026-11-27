@@ -10,22 +10,25 @@ import (
 	"time"
 )
 
-//go:embed assets/console.css assets/scimage_logo.png
+//go:embed assets/console.css assets/console.js assets/scimage_logo.png
 var assetsFS embed.FS
 
 //go:embed templates/*.html
 var templatesFS embed.FS
 
-// cssVersion is a short content hash of console.css, appended to its <link> as
-// ?v=… so a new build serves a fresh URL. Without it the browser holds the
-// cached stylesheet for the full max-age and misses CSS changes.
-var cssVersion = func() string {
-	b, err := assetsFS.ReadFile("assets/console.css")
-	if err != nil {
-		return "0"
+// assetVersion is a short content hash of console.css and console.js, appended
+// to their URLs as ?v=… so a new build serves fresh URLs. Without it the
+// browser holds the cached files for the full max-age and misses changes.
+var assetVersion = func() string {
+	h := sha256.New()
+	for _, name := range []string{"assets/console.css", "assets/console.js"} {
+		b, err := assetsFS.ReadFile(name)
+		if err != nil {
+			return "0"
+		}
+		h.Write(b)
 	}
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])[:12]
+	return hex.EncodeToString(h.Sum(nil))[:12]
 }()
 
 // parseTemplates loads every page template into one set, sharing the funcs
@@ -54,13 +57,13 @@ var templateFuncs = template.FuncMap{
 	// hms is a compact wall-clock time for the "Last refreshed at" caption,
 	// where the date is implied by the operator watching the page live.
 	"hms": func(t time.Time) string { return t.Format("15:04:05 MST") },
-	// assetver is the cache-busting suffix for the stylesheet link.
-	"assetver": func() string { return cssVersion },
+	// assetver is the cache-busting suffix for the stylesheet and script URLs.
+	"assetver": func() string { return assetVersion },
 }
 
-// staticHandler serves the embedded CSS and logo under /static/. These carry
-// no secrets and are cheap and cacheable, so they mount before the auth
-// middleware — the browser's login dialog page needs the stylesheet to render.
+// staticHandler serves the embedded CSS, script and logo under /static/.
+// These carry no secrets and are cheap and cacheable, so they mount before
+// the auth middleware; the browser's login dialog page needs the stylesheet.
 func staticHandler() http.Handler {
 	sub, err := fs.Sub(assetsFS, "assets")
 	if err != nil {
@@ -70,6 +73,13 @@ func staticHandler() http.Handler {
 	}
 	fileServer := http.FileServer(http.FS(sub))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Only real files are cacheable. Misses and the directory itself get a
+		// plain 404 that keeps the no-store default, and no listing.
+		info, err := fs.Stat(sub, r.URL.Path)
+		if err != nil || info.IsDir() {
+			http.NotFound(w, r)
+			return
+		}
 		w.Header().Set("Cache-Control", "public, max-age=3600")
 		fileServer.ServeHTTP(w, r)
 	})

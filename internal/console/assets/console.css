@@ -444,3 +444,13 @@ tr.leaving { opacity: 0; transition: opacity 0.4s ease; }
   margin-bottom: 18px;
   font-size: 13.5px;
 }
+
+/* ---- One-off spacing and wrapping. Kept last so they win over a component's
+   own margin (.card sets margin-top), as the style attributes they replace did;
+   the CSP refuses style attributes. ---- */
+.mt-12 { margin-top: 12px; }
+.mt-16 { margin-top: 16px; }
+.mt-20 { margin-top: 20px; }
+.mt-22 { margin-top: 22px; }
+.mt-26 { margin-top: 26px; }
+.wrap-anywhere { overflow-wrap: anywhere; }

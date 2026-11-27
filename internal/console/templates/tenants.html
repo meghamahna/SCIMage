@@ -19,10 +19,10 @@
   </div>
 
   {{if .Data.BasePlaceholder}}
-  <p class="hint" style="margin-top:16px">Add your SCIM_BASE_URL setting to show a ready-to-copy address in each row below. For now, the host reads <code>&lt;SCIM_BASE_URL&gt;</code> as a placeholder.</p>
+  <p class="hint mt-16">Add your SCIM_BASE_URL setting to show a ready-to-copy address in each row below. For now, the host reads <code>&lt;SCIM_BASE_URL&gt;</code> as a placeholder.</p>
   {{end}}
 
-  <div class="table-wrap" style="margin-top:20px">
+  <div class="table-wrap mt-20">
     <table>
       <thead>
         <tr><th>Name</th><th>SCIM base URL</th><th>Created by</th><th>Created</th></tr>
@@ -41,6 +41,6 @@
       </tbody>
     </table>
   </div>
-  <p class="hint" style="margin-top:12px">The SCIM base URL is the address a customer's identity provider points to. Each token works only for its own tenant, so every customer's sync stays inside their own directory.</p>
+  <p class="hint mt-12">The SCIM base URL is the address a customer's identity provider points to. Each token works only for its own tenant, so every customer's sync stays inside their own directory.</p>
 </section>
 {{- end}}

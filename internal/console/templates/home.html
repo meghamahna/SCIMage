@@ -15,13 +15,13 @@
   <div class="card">
     <h3>SCIM base URL</h3>
     <p class="hint">This is the address you give a customer's identity provider. Each tenant has its own, with the tenant id in place of <code>{tenantId}</code>.</p>
-    <p class="mono" style="overflow-wrap:anywhere">{{.Data.BaseURL}}</p>
+    <p class="mono wrap-anywhere">{{.Data.BaseURL}}</p>
     {{if .Data.BasePlaceholder}}
     <p class="hint">Add your SCIM_BASE_URL setting to show the real address here and on the Tenants page. For now, the host is a placeholder.</p>
     {{end}}
   </div>
 
-  <div class="card" style="margin-top:20px">
+  <div class="card mt-20">
     <h3>Where things live</h3>
     <ul class="linklist">
       <li><a href="/console/tenants">Tenants</a>: Each customer you provision for, with their own users, groups, tokens, audit trail, and SCIM base URL.</li>
@@ -38,6 +38,6 @@
     </ul>
   </div>
 
-  <p class="hint" style="margin-top:20px">This console is for the team that runs SCIMage. You can do everything here from the <code>scimage-admin</code> command line too. Console sign-in tokens are created from that command line.</p>
+  <p class="hint mt-20">This console is for the team that runs SCIMage. You can do everything here from the <code>scimage-admin</code> command line too. Console sign-in tokens are created from that command line.</p>
 </section>
 {{- end}}

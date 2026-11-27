@@ -7,7 +7,7 @@
 
   <form method="get" action="/console/tokens" class="toolbar">
     <label for="tenant">Tenant</label>
-    <select id="tenant" name="tenant" onchange="this.form.submit()">
+    <select id="tenant" name="tenant" data-autosubmit>
       <option value="">Select a tenant</option>
       {{range .Data.Tenants}}
       <option value="{{.ID}}" {{if eq .ID $.Data.SelectedTenant}}selected{{end}}>{{.Name}}</option>
@@ -47,7 +47,7 @@
     </form>
   </div>
 
-  <div class="table-wrap" style="margin-top:20px">
+  <div class="table-wrap mt-20">
     <table>
       <thead>
         <tr><th>Key ID</th><th>Label</th><th>Status</th><th>Created</th><th>Last used</th><th>Expires</th><th></th></tr>
@@ -65,7 +65,7 @@
             {{if .Revoked}}
             <button class="danger" disabled>Revoked</button>
             {{else}}
-            <form method="post" action="/console/tokens/revoke" class="form-inline" onsubmit="return confirm('Revoke {{.KeyID}}? This cannot be undone.')">
+            <form method="post" action="/console/tokens/revoke" class="form-inline" data-confirm="Revoke {{.KeyID}}? This cannot be undone.">
               <input type="hidden" name="csrf" value="{{$.CSRF}}" />
               <input type="hidden" name="tenant" value="{{$.Data.SelectedTenant}}" />
               <input type="hidden" name="key_id" value="{{.KeyID}}" />

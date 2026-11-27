@@ -7,6 +7,7 @@
   <meta name="robots" content="noindex, nofollow" />
   <title>{{.Title}} · SCIMage Admin Console</title>
   <link rel="stylesheet" href="/console/static/console.css?v={{assetver}}" />
+  <script src="/console/static/console.js?v={{assetver}}" defer></script>
 </head>
 <body>
 <div class="app">
@@ -34,7 +35,7 @@
   </nav>
   <main>
     <div class="page-refresh">
-      <button type="button" class="ghost refresh-btn" onclick="location.reload()">Refresh <span class="refresh-icon" aria-hidden="true">↻</span></button>
+      <button type="button" class="ghost refresh-btn" data-reload>Refresh <span class="refresh-icon" aria-hidden="true">↻</span></button>
       <div class="refresh-at muted">Last refreshed at: {{.RenderedAt | hms}}</div>
     </div>
     {{if .Error}}<div class="error">{{.Error}}</div>{{end}}

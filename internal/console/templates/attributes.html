@@ -7,7 +7,7 @@
 
   <form method="get" action="/console/attributes" class="toolbar">
     <label for="tenant">Tenant</label>
-    <select id="tenant" name="tenant" onchange="this.form.submit()">
+    <select id="tenant" name="tenant" data-autosubmit>
       <option value="">Select a tenant</option>
       {{range .Data.Tenants}}
       <option value="{{.ID}}" {{if eq .ID $.Data.SelectedTenant}}selected{{end}}>{{.Name}}</option>
@@ -41,7 +41,7 @@
       {{range .Data.Attributes}}
       <span class="attr-chip">
         {{.Name}} <span class="kind">{{.Type}}</span>
-        <form method="post" action="/console/attributes/unregister" class="form-inline" onsubmit="return confirm('Unregister {{.Name}}?')">
+        <form method="post" action="/console/attributes/unregister" class="form-inline" data-confirm="Unregister {{.Name}}?">
           <input type="hidden" name="csrf" value="{{$.CSRF}}" />
           <input type="hidden" name="tenant" value="{{$.Data.SelectedTenant}}" />
           <input type="hidden" name="name" value="{{.Name}}" />

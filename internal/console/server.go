@@ -139,5 +139,29 @@ func (srv *Server) Handler() http.Handler {
 	root := http.NewServeMux()
 	root.Handle("GET /console/static/", http.StripPrefix("/console/static/", staticHandler()))
 	root.Handle("/", authed)
-	return root
+	return withSecurityHeaders(root)
+}
+
+// consoleCSP limits scripts, styles, images and fetches to the console's own
+// origin and refuses framing, so another site can't overlay a console page and
+// steer an operator's clicks. The console embeds no plugins or frames.
+const consoleCSP = "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; " +
+	"form-action 'self'; object-src 'none'; frame-src 'none'"
+
+// withSecurityHeaders sets the headers before any handler runs, so 401
+// challenges, mux 404/405s and error pages carry them too. Pages show tenant
+// data and one-time token secrets, so nothing is cached by default; the static
+// handler replaces Cache-Control for its own assets.
+func withSecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Content-Security-Policy", consoleCSP)
+		h.Set("X-Content-Type-Options", "nosniff")
+		// no-referrer makes browsers send "Origin: null" on same-origin form
+		// POSTs; same-origin keeps the real Origin and tells other sites nothing.
+		h.Set("Referrer-Policy", "same-origin")
+		h.Set("Cache-Control", "no-store")
+		next.ServeHTTP(w, r)
+	})
 }
