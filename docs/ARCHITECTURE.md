@@ -160,9 +160,24 @@ one after the other, so a deactivation or a removed group member is never
 overwritten by a request that read the older state. The server does not support
 `ETag` or `If-Match`.
 
-Refusals are recorded too (a duplicate `userName` or `displayName`, a missing
-user or group, an invalid group member reference), which makes
-a burst of denials visible to a reviewer.
+Refusals are recorded too, as rows with result `denied`: a duplicate
+`userName`, `displayName` or `externalId` (users and groups, on create, replace
+and `PATCH`), a missing user or group (including on `PATCH`), an invalid
+`PATCH`, an invalid group member reference, and the handler's refusals: `413`
+for an oversized body on `POST`, `PUT` and `PATCH`, and `400` for an unparseable
+body, a schema validation failure or a body `id` that differs from the path. A refusal is written by `RecordRefusal` after any
+open transaction has rolled back, since no row changed and there is nothing to
+commit together. The write ignores client disconnects, times out after 5
+seconds, and is best-effort: a failure is logged. A target id that isn't a uuid
+is stored as null. A burst of denials is visible to a reviewer.
+
+Requests rejected before a handler runs write no audit row. A failed
+authentication (`401`) logs one `authentication failed` warning with a reason
+class, the key id, the tenant id from the path and the remote address. The key
+id and tenant id are logged only when they have the shape of an issued key id
+and tenant id, and are blank otherwise. A `429` logs one `rate limit exceeded`
+warning with the key id, tenant id, method and path, with the path truncated to
+256 bytes.
 
 ## 🧩 The UserStore and GroupStore interfaces
 

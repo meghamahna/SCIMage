@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -29,11 +30,24 @@ const uniqueTenantNameIndex = "idx_tenants_name_lower"
 // its randomness keeps it immutable — nothing about it should ever need to
 // change once an IdP has it configured.
 func newTenantID() (string, error) {
-	b := make([]byte, 8)
+	b := make([]byte, tenantIDBytes)
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("generate tenant id: %w", err)
 	}
-	return "tenant_" + hex.EncodeToString(b), nil
+	return tenantIDPrefix + hex.EncodeToString(b), nil
+}
+
+const (
+	tenantIDPrefix = "tenant_"
+	tenantIDBytes  = 8
+)
+
+// IsTenantID reports whether s has the shape newTenantID mints. It says
+// nothing about whether that tenant exists; it lets a caller decide whether a
+// client-supplied id is safe to log as is.
+func IsTenantID(s string) bool {
+	hexPart, ok := strings.CutPrefix(s, tenantIDPrefix)
+	return ok && isLowerHex(hexPart, 2*tenantIDBytes)
 }
 
 // CreateTenant assigns the id; the caller supplies the display name and who

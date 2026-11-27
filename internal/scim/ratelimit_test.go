@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"golang.org/x/time/rate"
@@ -41,6 +42,49 @@ func TestLimiter(t *testing.T) {
 		}
 		if got := send(t, l, "tok_a"); got != http.StatusTooManyRequests {
 			t.Errorf("request past the burst = %d, want 429", got)
+		}
+	})
+
+	t.Run("a refusal is logged with the caller and route", func(t *testing.T) {
+		logs := captureLogs(t)
+		l := newLimiter(0, 1)
+
+		send(t, l, "tok_a")
+		if got := send(t, l, "tok_a"); got != http.StatusTooManyRequests {
+			t.Fatalf("request past the burst = %d, want 429", got)
+		}
+
+		got := logRecords(t, logs, "rate limit exceeded")
+		if len(got) != 1 {
+			t.Fatalf("got %d rate-limit lines, want 1", len(got))
+		}
+		want := map[string]any{"level": "WARN", "key_id": "tok_a", "tenant_id": "tenant_ratelimit",
+			"method": http.MethodGet, "path": "/Users"}
+		for k, v := range want {
+			if got[0][k] != v {
+				t.Errorf("%s = %v, want %v", k, got[0][k], v)
+			}
+		}
+	})
+
+	t.Run("a refusal logs a bounded method and path", func(t *testing.T) {
+		logs := captureLogs(t)
+		l := newLimiter(0, 0)
+		next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {})
+
+		r := httptest.NewRequest(strings.Repeat("X", 64<<10), "/"+strings.Repeat("a", 64<<10), nil)
+		ctx := context.WithValue(r.Context(), identityContextKey{}, identity{TenantID: "tenant_ratelimit", KeyID: "tok_a"})
+		l.throttle(next).ServeHTTP(httptest.NewRecorder(), r.WithContext(ctx))
+
+		got := logRecords(t, logs, "rate limit exceeded")
+		if len(got) != 1 {
+			t.Fatalf("got %d rate-limit lines, want 1", len(got))
+		}
+		if path, _ := got[0]["path"].(string); len(path) != maxLoggedPathLen {
+			t.Errorf("logged path is %d bytes, want it cut to %d", len(path), maxLoggedPathLen)
+		}
+		if got[0]["method"] != "other" {
+			t.Errorf("method = %.32v, want a custom method logged as other", got[0]["method"])
 		}
 	})
 

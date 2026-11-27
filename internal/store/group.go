@@ -225,11 +225,11 @@ func (s *Store) CreateGroup(ctx context.Context, tenantID string, g *Group, rec 
 	created, err := scanGroup(tx.QueryRow(ctx, q, tenantID, g.ExternalID, g.DisplayName))
 	if err != nil {
 		if isUniqueViolationOn(err, uniqueGroupNameIndex) {
-			s.auditRefusal(ctx, rec, ResourceGroup, ActionCreate, "", "duplicate displayName")
+			s.refuseTx(ctx, tx, rec, ResourceGroup, ActionCreate, "", "duplicate displayName")
 			return nil, fmt.Errorf("create group %q: %w", g.DisplayName, ErrDuplicateGroupName)
 		}
 		if isUniqueViolationOn(err, uniqueGroupExternalIDIndex) {
-			s.auditRefusal(ctx, rec, ResourceGroup, ActionCreate, "", "duplicate externalId")
+			s.refuseTx(ctx, tx, rec, ResourceGroup, ActionCreate, "", "duplicate externalId")
 			return nil, fmt.Errorf("create group %q: %w", g.DisplayName, ErrDuplicateExternalID)
 		}
 		return nil, fmt.Errorf("create group %q: %w", g.DisplayName, err)
@@ -237,7 +237,7 @@ func (s *Store) CreateGroup(ctx context.Context, tenantID string, g *Group, rec 
 
 	if err := replaceMembers(ctx, tx, tenantID, created.ID, g.Members); err != nil {
 		if errors.Is(err, ErrInvalidMember) {
-			s.auditRefusal(ctx, rec, ResourceGroup, ActionCreate, "", "invalid member reference")
+			s.refuseTx(ctx, tx, rec, ResourceGroup, ActionCreate, "", "invalid member reference")
 		}
 		return nil, fmt.Errorf("create group %q: %w", g.DisplayName, err)
 	}
@@ -341,7 +341,7 @@ func (s *Store) UpdateGroup(ctx context.Context, tenantID, id string, g *Group, 
 	before, err := getGroupTx(ctx, tx, tenantID, id)
 	if err != nil {
 		if errors.Is(err, ErrGroupNotFound) {
-			s.auditRefusal(ctx, rec, ResourceGroup, ActionReplace, id, "no such group")
+			s.refuseTx(ctx, tx, rec, ResourceGroup, ActionReplace, id, "no such group")
 		}
 		return nil, fmt.Errorf("update group %q: %w", id, err)
 	}
@@ -361,8 +361,8 @@ func (s *Store) UpdateGroup(ctx context.Context, tenantID, id string, g *Group, 
 // locked current group, members included, into its full replacement, so
 // concurrent membership PATCHes apply one after the other and a removed member
 // is never written back by a request that read the old list. A missing group
-// is ErrGroupNotFound with no refusal entry. patch is handed a copy, so nothing
-// it does can alter the audit before-image.
+// is ErrGroupNotFound, recorded as a refusal like a failed patch. patch is
+// handed a copy, so nothing it does can alter the audit before-image.
 func (s *Store) PatchGroup(ctx context.Context, tenantID, id string, patch func(*Group) (*Group, error), rec AuditRecord) (*GroupChange, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -372,6 +372,9 @@ func (s *Store) PatchGroup(ctx context.Context, tenantID, id string, patch func(
 
 	before, err := getGroupTx(ctx, tx, tenantID, id)
 	if err != nil {
+		if errors.Is(err, ErrGroupNotFound) {
+			s.refuseTx(ctx, tx, rec, ResourceGroup, ActionReplace, id, "no such group")
+		}
 		return nil, fmt.Errorf("patch group %q: %w", id, err)
 	}
 
@@ -383,6 +386,7 @@ func (s *Store) PatchGroup(ctx context.Context, tenantID, id string, patch func(
 	}
 	g, err := patch(&current)
 	if err != nil {
+		s.refuseTx(ctx, tx, rec, ResourceGroup, ActionReplace, id, "invalid patch")
 		return nil, fmt.Errorf("patch group %q: %w", id, err)
 	}
 
@@ -399,7 +403,8 @@ func (s *Store) PatchGroup(ctx context.Context, tenantID, id string, patch func(
 
 // replaceGroupTx writes g over before, the group getGroupTx locked, with its
 // audit entry and change event, inside the caller's transaction. PATCH records
-// the same replace action a PUT does.
+// the same replace action a PUT does. A refusal ends tx here, before it is
+// recorded.
 func (s *Store) replaceGroupTx(ctx context.Context, tx pgx.Tx, tenantID string, before, g *Group, rec AuditRecord) (*GroupChange, error) {
 	const q = `UPDATE groups SET display_name = $3, external_id = $4, updated_at = now()
 	           WHERE tenant_id = $1 AND id = $2
@@ -409,11 +414,11 @@ func (s *Store) replaceGroupTx(ctx context.Context, tx pgx.Tx, tenantID string, 
 	after, err := scanGroup(tx.QueryRow(ctx, q, tenantID, id, g.DisplayName, g.ExternalID))
 	if err != nil {
 		if isUniqueViolationOn(err, uniqueGroupNameIndex) {
-			s.auditRefusal(ctx, rec, ResourceGroup, ActionReplace, id, "duplicate displayName")
+			s.refuseTx(ctx, tx, rec, ResourceGroup, ActionReplace, id, "duplicate displayName")
 			return nil, ErrDuplicateGroupName
 		}
 		if isUniqueViolationOn(err, uniqueGroupExternalIDIndex) {
-			s.auditRefusal(ctx, rec, ResourceGroup, ActionReplace, id, "duplicate externalId")
+			s.refuseTx(ctx, tx, rec, ResourceGroup, ActionReplace, id, "duplicate externalId")
 			return nil, ErrDuplicateExternalID
 		}
 		return nil, err
@@ -421,7 +426,7 @@ func (s *Store) replaceGroupTx(ctx context.Context, tx pgx.Tx, tenantID string, 
 
 	if err := replaceMembers(ctx, tx, tenantID, id, g.Members); err != nil {
 		if errors.Is(err, ErrInvalidMember) {
-			s.auditRefusal(ctx, rec, ResourceGroup, ActionReplace, id, "invalid member reference")
+			s.refuseTx(ctx, tx, rec, ResourceGroup, ActionReplace, id, "invalid member reference")
 		}
 		return nil, err
 	}
@@ -459,7 +464,7 @@ func (s *Store) DeleteGroup(ctx context.Context, tenantID, id string, rec AuditR
 	before, err := getGroupTx(ctx, tx, tenantID, id)
 	if err != nil {
 		if errors.Is(err, ErrGroupNotFound) {
-			s.auditRefusal(ctx, rec, ResourceGroup, ActionDelete, id, "no such group")
+			s.refuseTx(ctx, tx, rec, ResourceGroup, ActionDelete, id, "no such group")
 		}
 		return nil, fmt.Errorf("delete group %q: %w", id, err)
 	}

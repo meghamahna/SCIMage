@@ -20,6 +20,7 @@ type GroupStore interface {
 	// patch must come back wrapped, so errors.As still finds it.
 	PatchGroup(ctx context.Context, tenantID, id string, patch func(*store.Group) (*store.Group, error), rec store.AuditRecord) (*store.GroupChange, error)
 	DeleteGroup(ctx context.Context, tenantID, id string, rec store.AuditRecord) (*store.Group, error)
+	RecordRefusal(ctx context.Context, rec store.AuditRecord, resourceType, action, targetID, detail string)
 }
 
 var _ GroupStore = (*store.Store)(nil)

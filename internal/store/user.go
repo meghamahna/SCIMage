@@ -167,11 +167,11 @@ func (s *Store) CreateUser(ctx context.Context, tenantID string, u *User, rec Au
 		tenantID, u.UserName, u.ExternalID, u.GivenName, u.FamilyName, u.Email, u.Active, jsonbParam(u.ExtendedAttributes)))
 	if err != nil {
 		if isUniqueViolation(err) {
-			s.auditRefusal(ctx, rec, ResourceUser, ActionCreate, "", "duplicate userName")
+			s.refuseTx(ctx, tx, rec, ResourceUser, ActionCreate, "", "duplicate userName")
 			return nil, fmt.Errorf("create user %q: %w", u.UserName, ErrDuplicateUserName)
 		}
 		if isUniqueViolationOn(err, uniqueUserExternalIDIndex) {
-			s.auditRefusal(ctx, rec, ResourceUser, ActionCreate, "", "duplicate externalId")
+			s.refuseTx(ctx, tx, rec, ResourceUser, ActionCreate, "", "duplicate externalId")
 			return nil, fmt.Errorf("create user %q: %w", u.UserName, ErrDuplicateExternalID)
 		}
 		return nil, fmt.Errorf("create user %q: %w", u.UserName, err)
@@ -268,7 +268,7 @@ func (s *Store) UpdateUser(ctx context.Context, tenantID, id string, u *User, re
 
 	if _, err := lockUserTx(ctx, tx, tenantID, id); err != nil {
 		if isMissingRow(err) {
-			s.auditRefusal(ctx, rec, ResourceUser, ActionReplace, id, "no such user")
+			s.refuseTx(ctx, tx, rec, ResourceUser, ActionReplace, id, "no such user")
 			return nil, fmt.Errorf("update user %q: %w", id, ErrNotFound)
 		}
 		return nil, fmt.Errorf("update user %q: %w", id, err)
@@ -291,8 +291,9 @@ func (s *Store) UpdateUser(ctx context.Context, tenantID, id string, u *User, re
 // would silently reactivate a deprovisioned user).
 //
 // patch runs inside the transaction: it must do no I/O and must not modify its
-// argument. An error from it refuses the PATCH and is returned wrapped, with
-// nothing written. A missing user is ErrNotFound with no refusal entry.
+// argument. An error from it refuses the PATCH and is returned wrapped; only
+// the refusal entry is written. Its detail is fixed, never the error's text,
+// which can carry request input. A missing user is ErrNotFound, also refused.
 func (s *Store) PatchUser(ctx context.Context, tenantID, id string, patch func(*User) (*User, error), rec AuditRecord) (*Change, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -303,6 +304,7 @@ func (s *Store) PatchUser(ctx context.Context, tenantID, id string, patch func(*
 	current, err := lockUserTx(ctx, tx, tenantID, id)
 	if err != nil {
 		if isMissingRow(err) {
+			s.refuseTx(ctx, tx, rec, ResourceUser, ActionReplace, id, "no such user")
 			return nil, fmt.Errorf("patch user %q: %w", id, ErrNotFound)
 		}
 		return nil, fmt.Errorf("patch user %q: %w", id, err)
@@ -310,6 +312,7 @@ func (s *Store) PatchUser(ctx context.Context, tenantID, id string, patch func(*
 
 	u, err := patch(current)
 	if err != nil {
+		s.refuseTx(ctx, tx, rec, ResourceUser, ActionReplace, id, "invalid patch")
 		return nil, fmt.Errorf("patch user %q: %w", id, err)
 	}
 
@@ -336,7 +339,7 @@ func lockUserTx(ctx context.Context, tx pgx.Tx, tenantID, id string) (*User, err
 
 // replaceUserTx writes u over the user the caller locked, with its audit entry
 // and change event, inside the caller's transaction. PATCH records the same
-// replace action a PUT does.
+// replace action a PUT does. A refusal ends tx here, before it is recorded.
 func (s *Store) replaceUserTx(ctx context.Context, tx pgx.Tx, tenantID, id string, u *User, rec AuditRecord) (*Change, error) {
 	q := `WITH b AS (
 	          SELECT ` + userColumns + ` FROM users WHERE tenant_id = $1 AND id = $2
@@ -359,11 +362,11 @@ func (s *Store) replaceUserTx(ctx context.Context, tx pgx.Tx, tenantID, id strin
 		tenantID, id, u.UserName, u.ExternalID, u.GivenName, u.FamilyName, u.Email, u.Active, jsonbParam(u.ExtendedAttributes)))
 	if err != nil {
 		if isUniqueViolation(err) {
-			s.auditRefusal(ctx, rec, ResourceUser, ActionReplace, id, "duplicate userName")
+			s.refuseTx(ctx, tx, rec, ResourceUser, ActionReplace, id, "duplicate userName")
 			return nil, ErrDuplicateUserName
 		}
 		if isUniqueViolationOn(err, uniqueUserExternalIDIndex) {
-			s.auditRefusal(ctx, rec, ResourceUser, ActionReplace, id, "duplicate externalId")
+			s.refuseTx(ctx, tx, rec, ResourceUser, ActionReplace, id, "duplicate externalId")
 			return nil, ErrDuplicateExternalID
 		}
 		return nil, err
@@ -400,7 +403,7 @@ func (s *Store) DeactivateUser(ctx context.Context, tenantID, id string, rec Aud
 
 	if _, err := lockUserTx(ctx, tx, tenantID, id); err != nil {
 		if isMissingRow(err) {
-			s.auditRefusal(ctx, rec, ResourceUser, ActionDeactivate, id, "no such user")
+			s.refuseTx(ctx, tx, rec, ResourceUser, ActionDeactivate, id, "no such user")
 			return nil, fmt.Errorf("deactivate user %q: %w", id, ErrNotFound)
 		}
 		return nil, fmt.Errorf("deactivate user %q: %w", id, err)

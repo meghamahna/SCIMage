@@ -1,7 +1,10 @@
 package scim
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -64,26 +67,37 @@ func TestRequireToken(t *testing.T) {
 		}
 	})
 
+	const wrongPart = "wrongsecretwrongsecretwrongsecret"
+	const otherTenantID = "tenant_07e4000000000000"
+	// Far past any real key id or tenant id, so an unbounded log line shows.
+	huge := strings.Repeat("a", 64<<10)
 	for _, tc := range []struct {
 		name          string
 		tokens        fakeTokenStore
 		target        string
 		authorization string
+		wantReason    string
+		wantKeyID     string
+		wantTenantID  string
 	}{
-		{"no header", valid, target, ""},
-		{"empty header", valid, target, " "},
-		{"no scheme", valid, target, fakeToken},
-		{"wrong scheme", valid, target, "Basic " + fakeToken},
-		{"scheme without a space", valid, target, "Bearer" + fakeToken},
-		{"malformed token", fakeTokenStore{}, target, "Bearer not-a-scim-token"},
-		{"lookup error", fakeTokenStore{err: errors.New("db unavailable")}, target, "Bearer " + fakeToken},
-		{"lookup miss", fakeTokenStore{err: store.ErrNotFound}, target, "Bearer " + fakeToken},
-		{"wrong secret", valid, target, "Bearer scimage_" + fakeKeyID + "_wrongsecretwrongsecretwrongsecret"},
-		{"right token, wrong tenant in path", valid, "/scim/v2/tenant_other/Users", "Bearer " + fakeToken},
-		{"revoked", fakeTokenStore{tok: revokedFakeToken()}, target, "Bearer " + fakeToken},
-		{"expired", fakeTokenStore{tok: expiredFakeToken()}, target, "Bearer " + fakeToken},
+		{"no header", valid, target, "", authMalformed, "", fakeTenantID},
+		{"empty header", valid, target, " ", authMalformed, "", fakeTenantID},
+		{"no scheme", valid, target, fakeToken, authMalformed, "", fakeTenantID},
+		{"wrong scheme", valid, target, "Basic " + fakeToken, authMalformed, "", fakeTenantID},
+		{"scheme without a space", valid, target, "Bearer" + fakeToken, authMalformed, "", fakeTenantID},
+		{"malformed token", fakeTokenStore{}, target, "Bearer not-a-scim-token", authMalformed, "", fakeTenantID},
+		{"lookup error", fakeTokenStore{err: errors.New("db unavailable")}, target, "Bearer " + fakeToken, authLookupError, fakeKeyID, fakeTenantID},
+		{"lookup miss", fakeTokenStore{err: store.ErrNotFound}, target, "Bearer " + fakeToken, authUnknownKey, fakeKeyID, fakeTenantID},
+		{"wrong secret", valid, target, "Bearer scimage_" + fakeKeyID + "_" + wrongPart, authHashMismatch, fakeKeyID, fakeTenantID},
+		{"right token, wrong tenant in path", valid, "/scim/v2/" + otherTenantID + "/Users", "Bearer " + fakeToken, authTenantMismatch, fakeKeyID, otherTenantID},
+		{"oversized key id", valid, target, "Bearer scimage_" + huge + "_" + fakePlaintext, authMalformed, "", fakeTenantID},
+		{"oversized tenant in path", valid, "/scim/v2/tenant_" + huge + "/Users", "Bearer " + fakeToken, authTenantMismatch, fakeKeyID, ""},
+		{"revoked", fakeTokenStore{tok: revokedFakeToken()}, target, "Bearer " + fakeToken, authRevoked, fakeKeyID, fakeTenantID},
+		{"expired", fakeTokenStore{tok: expiredFakeToken()}, target, "Bearer " + fakeToken, authExpired, fakeKeyID, fakeTenantID},
 	} {
-		t.Run(tc.name+" is rejected", func(t *testing.T) {
+		t.Run(tc.name+" is rejected and logged", func(t *testing.T) {
+			logs := captureLogs(t)
+
 			rr, reached := authed(t, tc.tokens, tc.target, tc.authorization)
 
 			if reached {
@@ -91,6 +105,24 @@ func TestRequireToken(t *testing.T) {
 			}
 			if rr.Code != http.StatusUnauthorized {
 				t.Errorf("status = %d, want 401", rr.Code)
+			}
+
+			got := logRecords(t, logs, "authentication failed")
+			if len(got) != 1 {
+				t.Fatalf("got %d authentication-failed lines, want 1", len(got))
+			}
+			want := map[string]any{"level": "WARN", "reason": tc.wantReason, "key_id": tc.wantKeyID,
+				"tenant_id": tc.wantTenantID, "remote_addr": "192.0.2.1"}
+			for k, v := range want {
+				if got[0][k] != v {
+					t.Errorf("%s = %v, want %v", k, got[0][k], v)
+				}
+			}
+			if out := logs.String(); strings.Contains(out, fakePlaintext) || strings.Contains(out, wrongPart) {
+				t.Errorf("the log carries the token secret: %s", out)
+			}
+			if n := logs.Len(); n > 1024 {
+				t.Errorf("the log line is %d bytes, want it bounded whatever the caller sends", n)
 			}
 		})
 	}
@@ -177,4 +209,33 @@ func TestTenantIDFromPath(t *testing.T) {
 			t.Errorf("tenantIDFromPath(%q) = %q, want %q", tc.path, got, tc.want)
 		}
 	}
+}
+
+// captureLogs sends slog's default logger to a buffer, as JSON lines, for one
+// test. Nothing in this package runs in parallel, so swapping it is safe.
+func captureLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &buf
+}
+
+// logRecords returns the captured records with message msg.
+func logRecords(t *testing.T, buf *bytes.Buffer, msg string) []map[string]any {
+	t.Helper()
+
+	var out []map[string]any
+	for line := range strings.Lines(buf.String()) {
+		var rec map[string]any
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatalf("decode log line %q: %v", line, err)
+		}
+		if rec["msg"] == msg {
+			out = append(out, rec)
+		}
+	}
+	return out
 }

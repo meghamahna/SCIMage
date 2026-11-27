@@ -8,6 +8,8 @@ import (
 )
 
 func TestParseToken(t *testing.T) {
+	// key is the shape IssueToken mints: 16 lowercase hex characters.
+	const key = "0123456789abcdef"
 	tests := []struct {
 		name    string
 		raw     string
@@ -15,13 +17,20 @@ func TestParseToken(t *testing.T) {
 		wantSec string
 		wantOK  bool
 	}{
-		{"well formed", "scimage_abc123_def456", "abc123", "def456", true},
-		{"secret with underscores", "scimage_abc123_de_f4_56", "abc123", "de_f4_56", true},
-		{"missing prefix", "abc123_def456", "", "", false},
-		{"no separator", "scimage_abc123", "", "", false},
-		{"empty secret", "scimage_abc123_", "", "", false},
+		{"well formed", "scimage_" + key + "_def456", key, "def456", true},
+		{"secret with underscores", "scimage_" + key + "_de_f4_56", key, "de_f4_56", true},
+		{"missing prefix", key + "_def456", "", "", false},
+		{"no separator", "scimage_" + key, "", "", false},
+		{"empty secret", "scimage_" + key + "_", "", "", false},
 		{"empty key id", "scimage__def456", "", "", false},
 		{"empty string", "", "", "", false},
+		{"key id too short", "scimage_" + key[1:] + "_def456", "", "", false},
+		{"key id too long", "scimage_" + key + "0_def456", "", "", false},
+		{"key id not hex", "scimage_0123456789abcdeg_def456", "", "", false},
+		{"key id uppercase", "scimage_0123456789ABCDEF_def456", "", "", false},
+		// The first underscore ends the key id, so text before it that isn't
+		// a key id (here a pasted secret) is refused rather than looked up.
+		{"extra underscore before the key id", "scimage_secret_" + key + "_def456", "", "", false},
 	}
 
 	for _, tc := range tests {

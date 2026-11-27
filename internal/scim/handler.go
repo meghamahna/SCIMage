@@ -99,8 +99,9 @@ func (h *Handler) Routes() http.Handler {
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
-	in, body, ok := decodeUser(w, r)
-	if !ok {
+	in, body, refused := decodeUser(w, r)
+	if refused != "" {
+		h.refuseUser(r, store.ActionCreate, "", refused)
 		return
 	}
 
@@ -178,17 +179,19 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) replace(w http.ResponseWriter, r *http.Request) {
-	in, body, ok := decodeUser(w, r)
-	if !ok {
+	tenantID, id := r.PathValue("tenantID"), r.PathValue("id")
+
+	in, body, refused := decodeUser(w, r)
+	if refused != "" {
+		h.refuseUser(r, store.ActionReplace, id, refused)
 		return
 	}
-
-	tenantID, id := r.PathValue("tenantID"), r.PathValue("id")
 
 	// id is readOnly in RFC 7643 §3.1. A body naming a different user is a
 	// client bug worth refusing rather than silently ignoring.
 	if in.ID != "" && in.ID != id {
 		writeError(w, http.StatusBadRequest, "mutability", "id in the body does not match the request path")
+		h.refuseUser(r, store.ActionReplace, id, refusedIDMismatch)
 		return
 	}
 
@@ -251,11 +254,9 @@ func writePatchRefusal(w http.ResponseWriter, err error) bool {
 func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 	tenantID, id := r.PathValue("tenantID"), r.PathValue("id")
 
-	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
-
-	var ops PatchOp
-	if err := json.NewDecoder(r.Body).Decode(&ops); err != nil {
-		writeError(w, http.StatusBadRequest, "invalidSyntax", "request body is not valid JSON")
+	ops, refused := decodePatch(w, r)
+	if refused != "" {
+		h.refuseUser(r, store.ActionReplace, id, refused)
 		return
 	}
 
@@ -341,8 +342,9 @@ func (h *Handler) deactivate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createGroup(w http.ResponseWriter, r *http.Request) {
-	in, ok := decodeGroup(w, r)
-	if !ok {
+	in, refused := decodeGroup(w, r)
+	if refused != "" {
+		h.refuseGroup(r, store.ActionCreate, "", refused)
 		return
 	}
 
@@ -400,15 +402,17 @@ func (h *Handler) listGroups(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) replaceGroup(w http.ResponseWriter, r *http.Request) {
-	in, ok := decodeGroup(w, r)
-	if !ok {
+	tenantID, id := r.PathValue("tenantID"), r.PathValue("id")
+
+	in, refused := decodeGroup(w, r)
+	if refused != "" {
+		h.refuseGroup(r, store.ActionReplace, id, refused)
 		return
 	}
 
-	tenantID, id := r.PathValue("tenantID"), r.PathValue("id")
-
 	if in.ID != "" && in.ID != id {
 		writeError(w, http.StatusBadRequest, "mutability", "id in the body does not match the request path")
+		h.refuseGroup(r, store.ActionReplace, id, refusedIDMismatch)
 		return
 	}
 
@@ -429,11 +433,9 @@ func (h *Handler) replaceGroup(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) patchGroup(w http.ResponseWriter, r *http.Request) {
 	tenantID, id := r.PathValue("tenantID"), r.PathValue("id")
 
-	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
-
-	var ops PatchOp
-	if err := json.NewDecoder(r.Body).Decode(&ops); err != nil {
-		writeError(w, http.StatusBadRequest, "invalidSyntax", "request body is not valid JSON")
+	ops, refused := decodePatch(w, r)
+	if refused != "" {
+		h.refuseGroup(r, store.ActionReplace, id, refused)
 		return
 	}
 
@@ -537,6 +539,24 @@ func (h *Handler) auditRecord(r *http.Request) store.AuditRecord {
 	return store.AuditRecord{ActorToken: id.KeyID, ActorIP: clientIP(r), TenantID: id.TenantID}
 }
 
+// Fixed audit details for the refusals a handler makes before the store sees a
+// request. Never the response's detail, which can echo request input. A PATCH
+// the operations refuse is recorded by the store, so it has none here.
+const (
+	refusedBodyTooLarge  = "request body too large"
+	refusedInvalidBody   = "invalid request body"
+	refusedInvalidSchema = "schema validation failed"
+	refusedIDMismatch    = "id does not match path"
+)
+
+func (h *Handler) refuseUser(r *http.Request, action, targetID, detail string) {
+	h.store.RecordRefusal(r.Context(), h.auditRecord(r), store.ResourceUser, action, targetID, detail)
+}
+
+func (h *Handler) refuseGroup(r *http.Request, action, targetID, detail string) {
+	h.groups.RecordRefusal(r.Context(), h.auditRecord(r), store.ResourceGroup, action, targetID, detail)
+}
+
 // X-Forwarded-For is ignored: it is caller-controlled, and trusting it would
 // let anyone forge the IP in the audit trail.
 func clientIP(r *http.Request) string {
@@ -547,34 +567,34 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
-// decodeUser writes the error response itself and reports whether the payload
-// is usable. It returns both the typed user and the raw top-level keys, so the
-// extensible-attribute capture can pull registered names the typed struct
-// doesn't model. Unknown fields are otherwise accepted and dropped: real IdPs
-// send externalId, groups and enterprise-extension attributes this server
-// doesn't model.
-func decodeUser(w http.ResponseWriter, r *http.Request) (User, map[string]json.RawMessage, bool) {
+// decodeUser writes the error response itself and, on a refusal, returns its
+// audit detail; "" means the payload is usable. It returns both the typed user
+// and the raw top-level keys, so the extensible-attribute capture can pull
+// registered names the typed struct doesn't model. Unknown fields are
+// otherwise accepted and dropped: real IdPs send externalId, groups and
+// enterprise-extension attributes this server doesn't model.
+func decodeUser(w http.ResponseWriter, r *http.Request) (User, map[string]json.RawMessage, string) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	raw, err := io.ReadAll(r.Body)
 	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			writeError(w, http.StatusRequestEntityTooLarge, "", "request body is too large")
-			return User{}, nil, false
+			return User{}, nil, refusedBodyTooLarge
 		}
 		writeError(w, http.StatusBadRequest, "invalidSyntax", "request body is not valid JSON")
-		return User{}, nil, false
+		return User{}, nil, refusedInvalidBody
 	}
 
 	var u User
 	if err := json.Unmarshal(raw, &u); err != nil {
 		writeError(w, http.StatusBadRequest, "invalidSyntax", "request body is not valid JSON")
-		return User{}, nil, false
+		return User{}, nil, refusedInvalidBody
 	}
 
 	if detail := validate(u); detail != "" {
 		writeError(w, http.StatusBadRequest, "invalidValue", detail)
-		return User{}, nil, false
+		return User{}, nil, refusedInvalidSchema
 	}
 
 	// The typed decode above already proved the body is a JSON object, so this
@@ -582,7 +602,7 @@ func decodeUser(w http.ResponseWriter, r *http.Request) (User, map[string]json.R
 	var body map[string]json.RawMessage
 	_ = json.Unmarshal(raw, &body)
 
-	return u, body, true
+	return u, body, ""
 }
 
 // validate returns an empty string when the payload is acceptable. Extension
@@ -617,8 +637,26 @@ func validate(u User) string {
 	return ""
 }
 
+// decodePatch mirrors decodeUser for a PATCH body. Schema checks happen when
+// the operations are applied.
+func decodePatch(w http.ResponseWriter, r *http.Request) (PatchOp, string) {
+	var ops PatchOp
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(&ops); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeError(w, http.StatusRequestEntityTooLarge, "", "request body is too large")
+			return ops, refusedBodyTooLarge
+		}
+		writeError(w, http.StatusBadRequest, "invalidSyntax", "request body is not valid JSON")
+		return ops, refusedInvalidBody
+	}
+	return ops, ""
+}
+
 // decodeGroup mirrors decodeUser.
-func decodeGroup(w http.ResponseWriter, r *http.Request) (Group, bool) {
+func decodeGroup(w http.ResponseWriter, r *http.Request) (Group, string) {
 	var g Group
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
@@ -626,18 +664,18 @@ func decodeGroup(w http.ResponseWriter, r *http.Request) (Group, bool) {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			writeError(w, http.StatusRequestEntityTooLarge, "", "request body is too large")
-			return g, false
+			return g, refusedBodyTooLarge
 		}
 		writeError(w, http.StatusBadRequest, "invalidSyntax", "request body is not valid JSON")
-		return g, false
+		return g, refusedInvalidBody
 	}
 
 	if detail := validateGroup(g); detail != "" {
 		writeError(w, http.StatusBadRequest, "invalidValue", detail)
-		return g, false
+		return g, refusedInvalidSchema
 	}
 
-	return g, true
+	return g, ""
 }
 
 func validateGroup(g Group) string {

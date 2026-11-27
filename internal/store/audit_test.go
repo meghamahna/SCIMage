@@ -298,6 +298,47 @@ func TestGroupAuditEntryWrittenWithMutation(t *testing.T) {
 	})
 }
 
+// A client that hangs up on its refusal cancels the request context; the row
+// must still land.
+func TestRecordRefusalOutlivesACancelledContext(t *testing.T) {
+	s := newTestStore(t)
+	tenantID := newTestTenant(t, s)
+	before := countAudit(t, s, tenantID)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	s.RecordRefusal(ctx, testAudit(tenantID), ResourceUser, ActionCreate, "", "invalid request body")
+
+	if after := countAudit(t, s, tenantID); after != before+1 {
+		t.Fatalf("audit rows went %d -> %d, want one more for the refusal", before, after)
+	}
+}
+
+// On a one-connection pool, a refusal written while its transaction still held
+// the connection (and the row lock) could never get one. It must give both back
+// first.
+func TestInTransactionRefusalReleasesItsConnectionFirst(t *testing.T) {
+	s := newFaultInjectingStore(t)
+	tenantID := newTestTenant(t, s)
+	existing := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
+	target := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
+	before := countAudit(t, s, tenantID)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*refusalAuditTimeout)
+	defer cancel()
+	_, err := s.UpdateUser(ctx, tenantID, target.ID, &User{UserName: existing.UserName, Active: true}, testAudit(tenantID))
+	if !errors.Is(err, ErrDuplicateUserName) {
+		t.Fatalf("UpdateUser = %v, want ErrDuplicateUserName", err)
+	}
+
+	if after := countAudit(t, s, tenantID); after != before+1 {
+		t.Fatalf("audit rows went %d -> %d, want one more for the refusal", before, after)
+	}
+	if got := entriesFor(t, s, tenantID)[0]; got.Result != ResultDenied || got.Detail != "duplicate userName" {
+		t.Errorf("entry = %s %q, want denied \"duplicate userName\"", got.Result, got.Detail)
+	}
+}
+
 func entriesFor(t *testing.T, s *Store, tenantID string) []AuditEntry {
 	t.Helper()
 

@@ -33,8 +33,10 @@ func TestCreateTenant(t *testing.T) {
 	}
 	cleanupTenant(t, s, tenant.ID)
 
-	if tenant.ID == "" || !strings.HasPrefix(tenant.ID, "tenant_") {
-		t.Errorf("ID = %q, want a tenant_ prefixed value", tenant.ID)
+	// The auth-failure log drops a tenant id IsTenantID rejects, so a minted
+	// id has to pass it.
+	if !IsTenantID(tenant.ID) {
+		t.Errorf("ID = %q, want the shape IsTenantID accepts", tenant.ID)
 	}
 	if tenant.Name != name {
 		t.Errorf("Name = %q, want %q", tenant.Name, name)

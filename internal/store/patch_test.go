@@ -352,7 +352,7 @@ func TestPatchUserRefusal(t *testing.T) {
 	tenantID := newTestTenant(t, s)
 	ctx := context.Background()
 
-	t.Run("a refused patch writes nothing", func(t *testing.T) {
+	t.Run("a refused patch writes only its refusal", func(t *testing.T) {
 		created := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
 		entriesBefore := countAudit(t, s, tenantID)
 		refused := errors.New("invalid operation")
@@ -371,12 +371,12 @@ func TestPatchUserRefusal(t *testing.T) {
 		if !got.UpdatedAt.Equal(created.UpdatedAt) {
 			t.Errorf("updated_at moved from %v to %v on a refused patch", created.UpdatedAt, got.UpdatedAt)
 		}
-		if n := countAudit(t, s, tenantID); n != entriesBefore {
-			t.Errorf("audit entries = %d, want %d", n, entriesBefore)
-		}
+		assertOneRefusal(t, s, tenantID, entriesBefore, "invalid patch")
 	})
 
-	t.Run("unknown user is not found without calling patch", func(t *testing.T) {
+	t.Run("unknown user is not found without calling patch, and refused", func(t *testing.T) {
+		entriesBefore := countAudit(t, s, tenantID)
+
 		_, err := s.PatchUser(ctx, tenantID, nonexistentID, func(u *User) (*User, error) {
 			t.Error("patch called for a user that does not exist")
 			return u, nil
@@ -384,6 +384,7 @@ func TestPatchUserRefusal(t *testing.T) {
 		if !errors.Is(err, ErrNotFound) {
 			t.Errorf("PatchUser = %v, want ErrNotFound", err)
 		}
+		assertOneRefusal(t, s, tenantID, entriesBefore, "no such user")
 	})
 }
 
@@ -392,7 +393,7 @@ func TestPatchGroupRefusal(t *testing.T) {
 	tenantID := newTestTenant(t, s)
 	ctx := context.Background()
 
-	t.Run("a refused patch writes nothing", func(t *testing.T) {
+	t.Run("a refused patch writes only its refusal", func(t *testing.T) {
 		created := createGroup(t, s, tenantID, &Group{DisplayName: uniqueGroupName()})
 		entriesBefore := countAudit(t, s, tenantID)
 		refused := errors.New("invalid operation")
@@ -411,9 +412,7 @@ func TestPatchGroupRefusal(t *testing.T) {
 		if !got.UpdatedAt.Equal(created.UpdatedAt) {
 			t.Errorf("updated_at moved from %v to %v on a refused patch", created.UpdatedAt, got.UpdatedAt)
 		}
-		if n := countAudit(t, s, tenantID); n != entriesBefore {
-			t.Errorf("audit entries = %d, want %d", n, entriesBefore)
-		}
+		assertOneRefusal(t, s, tenantID, entriesBefore, "invalid patch")
 	})
 
 	t.Run("patch mutating its copy in place leaves the before-image intact", func(t *testing.T) {
@@ -434,7 +433,7 @@ func TestPatchGroupRefusal(t *testing.T) {
 		}
 	})
 
-	t.Run("unknown group is not found without calling patch or auditing", func(t *testing.T) {
+	t.Run("unknown group is not found without calling patch, and refused", func(t *testing.T) {
 		entriesBefore := countAudit(t, s, tenantID)
 
 		_, err := s.PatchGroup(ctx, tenantID, nonexistentID, func(g *Group) (*Group, error) {
@@ -444,8 +443,20 @@ func TestPatchGroupRefusal(t *testing.T) {
 		if !errors.Is(err, ErrGroupNotFound) {
 			t.Errorf("PatchGroup = %v, want ErrGroupNotFound", err)
 		}
-		if n := countAudit(t, s, tenantID); n != entriesBefore {
-			t.Errorf("audit entries = %d, want %d", n, entriesBefore)
-		}
+		assertOneRefusal(t, s, tenantID, entriesBefore, "no such group")
 	})
+}
+
+// assertOneRefusal checks that exactly one entry was added since entriesBefore,
+// and that it is a denied replace with detail.
+func assertOneRefusal(t *testing.T, s *Store, tenantID string, entriesBefore int, detail string) {
+	t.Helper()
+
+	if n := countAudit(t, s, tenantID); n != entriesBefore+1 {
+		t.Fatalf("audit entries = %d, want %d", n, entriesBefore+1)
+	}
+	got := entriesFor(t, s, tenantID)[0]
+	if got.Action != ActionReplace || got.Result != ResultDenied || got.Detail != detail {
+		t.Errorf("entry = %s/%s %q, want replace/denied %q", got.Action, got.Result, got.Detail, detail)
+	}
 }

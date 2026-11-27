@@ -50,7 +50,10 @@ risks.
   gets a `404`.
 - **Every mutation is audited in its own transaction.** The audit row (actor,
   action, resource, target id, timestamp, before/after) commits with the change
-  or not at all. Refusals are recorded too. Privileged CLI actions write an
+  or not at all. Refused mutations are recorded as `denied` entries in a
+  separate best-effort write after any open transaction rolls back. A failed
+  login (`401`) or a rate-limited request (`429`) writes no audit row and logs
+  one warning with the key id. Privileged CLI actions write an
   `admin_audit_log` entry the same way.
 - **All payloads are validated against the expected schema before they reach the
   database.**

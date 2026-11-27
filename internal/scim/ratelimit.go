@@ -1,6 +1,7 @@
 package scim
 
 import (
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -65,6 +66,21 @@ func (l *limiter) allow(key string) bool {
 	return b.Allow()
 }
 
+// maxLoggedPathLen bounds the path on a 429 line: the path is caller input,
+// and a throttled caller is the one most likely to be sending a lot of it.
+const maxLoggedPathLen = 256
+
+// loggedMethod names a standard verb as itself and anything else "other": a
+// custom method token is caller input of any length.
+func loggedMethod(m string) string {
+	switch m {
+	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch,
+		http.MethodDelete, http.MethodHead, http.MethodOptions:
+		return m
+	}
+	return "other"
+}
+
 // throttle sits behind auth, so an unauthenticated flood never consumes a real
 // caller's budget, and so the key can be the caller's own resolved token
 // rather than one fixed value — every tenant's every token gets its own
@@ -78,6 +94,12 @@ func (l *limiter) throttle(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := identityFromContext(r.Context())
 		if !l.allow(id.TenantID + "/" + id.KeyID) {
+			path := r.URL.Path
+			if len(path) > maxLoggedPathLen {
+				path = path[:maxLoggedPathLen]
+			}
+			slog.Warn("rate limit exceeded", "key_id", id.KeyID, "tenant_id", id.TenantID,
+				"method", loggedMethod(r.Method), "path", path)
 			w.Header().Set("Retry-After", "1")
 			writeError(w, http.StatusTooManyRequests, "tooMany", "rate limit exceeded")
 			return

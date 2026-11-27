@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -102,14 +103,60 @@ func insertAudit(ctx context.Context, q querier, rec AuditRecord, resourceType, 
 	return nil
 }
 
-// auditRefusal records a mutation that didn't happen. It runs outside any
+// refusalAuditTimeout bounds a refusal insert, which no longer ends when the
+// request does: a stuck database must not hold the goroutine forever.
+const refusalAuditTimeout = 5 * time.Second
+
+// RecordRefusal records a mutation that didn't happen. It runs outside any
 // transaction because there is nothing to be atomic with — no row changed.
-// A failure here can't roll anything back, so it is logged and swallowed.
-func (s *Store) auditRefusal(ctx context.Context, rec AuditRecord, resourceType, action, targetID, detail string) {
+// The insert ignores ctx's cancellation, so a client hanging up on its refusal
+// can't drop the row. A failure here can't roll anything back, so it is logged
+// and swallowed.
+func (s *Store) RecordRefusal(ctx context.Context, rec AuditRecord, resourceType, action, targetID, detail string) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), refusalAuditTimeout)
+	defer cancel()
+
+	// target_id is a uuid column and a refused request's id is client input:
+	// keep the row without its target rather than lose it to a cast error.
+	if !isUUID(targetID) {
+		targetID = ""
+	}
+
 	if err := insertAudit(ctx, s.pool, rec, resourceType, action, targetID, ResultDenied, detail, nil, nil); err != nil {
 		slog.Error("could not record a refused mutation",
 			"resource_type", resourceType, "action", action, "target_id", targetID, "error", err)
 	}
+}
+
+// refuseTx ends tx before recording a refusal, so the insert never waits for a
+// second pool connection while tx holds one and maybe a row lock. The caller's
+// deferred Rollback is then a no-op.
+func (s *Store) refuseTx(ctx context.Context, tx pgx.Tx, rec AuditRecord, resourceType, action, targetID, detail string) {
+	// A failed Rollback has pgx close the connection, which ends tx just as
+	// well, so its error changes nothing here.
+	_ = tx.Rollback(ctx)
+	s.RecordRefusal(ctx, rec, resourceType, action, targetID, detail)
+}
+
+// isUUID accepts the canonical 8-4-4-4-12 hex form, a subset of what Postgres
+// parses, so anything it passes casts cleanly.
+func isUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i, c := range s {
+		switch i {
+		case 8, 13, 18, 23:
+			if c != '-' {
+				return false
+			}
+		default:
+			if !strings.ContainsRune("0123456789abcdefABCDEF", c) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // ListAuditEntries returns one tenant's most recent entries, newest first.

@@ -45,8 +45,19 @@ func identityFromContext(ctx context.Context) identity {
 func requireToken(tokens TokenStore) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			id, ok := authenticate(r, tokens)
-			if !ok {
+			id, keyID, failure := authenticate(r, tokens)
+			if failure != "" {
+				// The response stays uniform; the reason is for the operator.
+				// keyID is empty when the token didn't parse, and never the secret.
+				// The tenant comes from an unauthenticated path, so it's logged only
+				// when shaped like a real one: otherwise one request could write an
+				// arbitrarily long line.
+				tenantID := tenantIDFromPath(r.URL.EscapedPath())
+				if !store.IsTenantID(tenantID) {
+					tenantID = ""
+				}
+				slog.Warn("authentication failed", "reason", failure, "key_id", keyID,
+					"tenant_id", tenantID, "remote_addr", clientIP(r))
 				w.Header().Set("WWW-Authenticate", "Bearer")
 				writeError(w, http.StatusUnauthorized, "", "invalid or missing bearer token")
 				return
@@ -65,12 +76,26 @@ func requireToken(tokens TokenStore) func(http.Handler) http.Handler {
 	}
 }
 
+// Why authenticate refused a request: logged, never sent to the caller.
+const (
+	authMalformed      = "missing or malformed token"
+	authUnknownKey     = "unknown key"
+	authLookupError    = "lookup error"
+	authRevoked        = "revoked"
+	authExpired        = "expired"
+	authHashMismatch   = "wrong secret"
+	authTenantMismatch = "tenant mismatch"
+)
+
+// authenticate returns the caller's identity, or the reason it refused them
+// and, once the token parses, its key id.
+//
 // The verification order matters: cheap, non-secret checks (does the key
 // exist, is it revoked or expired) run before the constant-time comparison,
 // and the comparison runs before the tenant match — a caller can't learn
 // which check failed, but the order still keeps the one check that touches
 // secret material minimal and last among the lookups.
-func authenticate(r *http.Request, tokens TokenStore) (identity, bool) {
+func authenticate(r *http.Request, tokens TokenStore) (id identity, keyID, failure string) {
 	// r.PathValue isn't usable here: requireToken wraps the mux and runs
 	// before it matches a pattern, which is the only place {tenantID} gets
 	// populated. The path shape is fixed, so it's parsed directly instead.
@@ -78,38 +103,37 @@ func authenticate(r *http.Request, tokens TokenStore) (identity, bool) {
 
 	keyID, secret, ok := store.ParseToken(bearerToken(r))
 	if !ok {
-		return identity{}, false
+		return identity{}, "", authMalformed
 	}
 
 	tok, err := tokens.GetTokenByKeyID(r.Context(), keyID)
 	if err != nil {
-		// A missing key is an ordinary, attacker-triggerable outcome (a wrong
-		// or made-up token) and not worth logging. Anything else — the store
-		// unreachable, say — is an operational problem that must not vanish
-		// silently just because the response to the caller stays a flat 401.
-		if !errors.Is(err, store.ErrNotFound) {
-			slog.Error("look up token", "key_id", keyID, "error", err)
+		if errors.Is(err, store.ErrNotFound) {
+			return identity{}, keyID, authUnknownKey
 		}
-		return identity{}, false
+		// The store unreachable, say: an operational problem that must not
+		// vanish just because the caller's response stays a flat 401.
+		slog.Error("look up token", "key_id", keyID, "error", err)
+		return identity{}, keyID, authLookupError
 	}
 
 	if tok.RevokedAt != nil {
-		return identity{}, false
+		return identity{}, keyID, authRevoked
 	}
 	if tok.ExpiresAt != nil && !tok.ExpiresAt.After(time.Now()) {
-		return identity{}, false
+		return identity{}, keyID, authExpired
 	}
 
 	got := sha256.Sum256([]byte(secret))
 	if subtle.ConstantTimeCompare(got[:], tok.SecretHash) != 1 {
-		return identity{}, false
+		return identity{}, keyID, authHashMismatch
 	}
 
 	if tok.TenantID != tenantID {
-		return identity{}, false
+		return identity{}, keyID, authTenantMismatch
 	}
 
-	return identity{TenantID: tok.TenantID, KeyID: tok.KeyID}, true
+	return identity{TenantID: tok.TenantID, KeyID: tok.KeyID}, keyID, ""
 }
 
 // tenantIDFromPath pulls {tenantID} out of /scim/v2/{tenantID}/... directly,

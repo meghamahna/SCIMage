@@ -83,7 +83,12 @@ receiver. Each is an assumption listed at the end.
   writes an `audit_log` row (actor, action, resource type, target id, timestamp,
   before/after) **inside the transaction that makes the change**, so the record
   and the change commit together or not at all. Refused mutations are recorded
-  too, so a burst of denials is visible. The audit actor's IP comes from the
+  too, as `denied` rows written separately after any open transaction rolls
+  back, so a burst of denials is visible. That write is best-effort: it ignores
+  client disconnects, times out after 5 seconds, and logs a failure. A failed
+  authentication (`401`) or a rate-limited request (`429`) writes no audit row
+  and logs one warning with the key id, so those are visible
+  in the logs. The audit actor's IP comes from the
   connection, not a caller-supplied `X-Forwarded-For`, which would otherwise let a
   caller forge the recorded origin.
 - **Denial of service (authenticated).** Rate limiting is per authenticated

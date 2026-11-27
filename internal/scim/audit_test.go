@@ -7,6 +7,7 @@ package scim
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/meghamahna/SCIMage/internal/store"
@@ -167,7 +168,8 @@ func TestAuditDeactivate(t *testing.T) {
 }
 
 // A refused mutation is the interesting one — a burst of denials is a signal,
-// and it's invisible if only successes are recorded.
+// and it's invisible if only successes are recorded. Each refusal is recorded
+// exactly once, whether the handler or the store turned it away.
 func TestAuditRecordsRefusals(t *testing.T) {
 	requireDB(t)
 
@@ -176,32 +178,60 @@ func TestAuditRecordsRefusals(t *testing.T) {
 
 	dup := newUser()
 	dup.UserName = created.UserName
+	noSchema := newUser()
+	noSchema.Schemas = nil
+	groupNoSchema := newGroup()
+	groupNoSchema.Schemas = nil
 
 	for _, tc := range []struct {
 		name           string
 		method, target string
 		body           any
 		wantStatus     int
+		wantResource   string
 		wantAction     string
+		wantTarget     string
+		wantDetail     string
 	}{
-		{"duplicate create", http.MethodPost, "/Users", dup, http.StatusConflict, store.ActionCreate},
-		{"replace a missing user", http.MethodPut, "/Users/" + nonexistentID, newUser(), http.StatusNotFound, store.ActionReplace},
-		{"delete a missing user", http.MethodDelete, "/Users/" + nonexistentID, nil, http.StatusNotFound, store.ActionDeactivate},
+		// Refused by the store.
+		{"duplicate create", http.MethodPost, "/Users", dup, http.StatusConflict, store.ResourceUser, store.ActionCreate, "", "duplicate userName"},
+		{"replace a missing user", http.MethodPut, "/Users/" + nonexistentID, newUser(), http.StatusNotFound, store.ResourceUser, store.ActionReplace, nonexistentID, "no such user"},
+		{"replace a malformed id keeps the row, not the target", http.MethodPut, "/Users/not-a-uuid", newUser(), http.StatusNotFound, store.ResourceUser, store.ActionReplace, "", "no such user"},
+		{"delete a missing user", http.MethodDelete, "/Users/" + nonexistentID, nil, http.StatusNotFound, store.ResourceUser, store.ActionDeactivate, nonexistentID, "no such user"},
+		{"patch the operations refuse", http.MethodPatch, "/Users/" + created.ID, `{"Operations":[]}`, http.StatusBadRequest, store.ResourceUser, store.ActionReplace, created.ID, "invalid patch"},
+		// Refused by the handler before the store.
+		{"create with a body that is not JSON", http.MethodPost, "/Users", "{", http.StatusBadRequest, store.ResourceUser, store.ActionCreate, "", "invalid request body"},
+		{"create failing schema validation", http.MethodPost, "/Users", noSchema, http.StatusBadRequest, store.ResourceUser, store.ActionCreate, "", "schema validation failed"},
+		{"replace failing schema validation", http.MethodPut, "/Users/" + created.ID, noSchema, http.StatusBadRequest, store.ResourceUser, store.ActionReplace, created.ID, "schema validation failed"},
+		{"patch with a body that is not JSON", http.MethodPatch, "/Users/" + created.ID, "{", http.StatusBadRequest, store.ResourceUser, store.ActionReplace, created.ID, "invalid request body"},
+		{"patch with a body over the limit", http.MethodPatch, "/Users/" + created.ID, `"` + strings.Repeat("a", maxBodyBytes) + `"`, http.StatusRequestEntityTooLarge, store.ResourceUser, store.ActionReplace, created.ID, "request body too large"},
+		{"create a group failing schema validation", http.MethodPost, "/Groups", groupNoSchema, http.StatusBadRequest, store.ResourceGroup, store.ActionCreate, "", "schema validation failed"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			before := countEntries(t)
+
 			if rr := do(t, tc.method, tc.target, tc.body); rr.Code != tc.wantStatus {
-				t.Fatalf("status = %d, want %d", rr.Code, tc.wantStatus)
+				t.Fatalf("status = %d, want %d: %s", rr.Code, tc.wantStatus, rr.Body)
 			}
 
-			got := latestEntry(t)
-			if got.Action != tc.wantAction {
-				t.Errorf("action = %q, want %q", got.Action, tc.wantAction)
+			if after := countEntries(t); after != before+1 {
+				t.Fatalf("audit entries went %d -> %d, want exactly one refusal", before, after)
 			}
+			got := latestEntry(t)
 			if got.Result != store.ResultDenied {
 				t.Errorf("result = %q, want %q", got.Result, store.ResultDenied)
 			}
-			if got.Detail == "" {
-				t.Error("detail is empty — a refusal should say why")
+			if got.ResourceType != tc.wantResource || got.Action != tc.wantAction {
+				t.Errorf("resourceType/action = %q/%q, want %q/%q", got.ResourceType, got.Action, tc.wantResource, tc.wantAction)
+			}
+			if got.TargetID != tc.wantTarget {
+				t.Errorf("targetId = %q, want %q", got.TargetID, tc.wantTarget)
+			}
+			if got.Detail != tc.wantDetail {
+				t.Errorf("detail = %q, want %q", got.Detail, tc.wantDetail)
+			}
+			if got.Actor.ActorToken != testKeyID(t) || got.Actor.TenantID != testTenantID {
+				t.Errorf("actor = %+v, want the authenticated key id and tenant", got.Actor)
 			}
 		})
 	}

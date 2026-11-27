@@ -46,7 +46,7 @@ Enterprise buyers expect to run your SaaS from their own identity provider: a ne
 SCIMage is that receiving end, built to hold up:
 
 - **Win the deal without the build.** RFC 7644 `/Users` and `/Groups`, validated against Microsoft's Entra SCIM validator, so you can say yes to enterprise provisioning without writing and maintaining a spec-compliant server yourself.
-- **Prove it in an audit.** Every change, and every refusal, is written to an audit trail in the same transaction as the change itself, so the record can never drift from what happened. That is the answer a SOC 2 or access review is looking for.
+- **Prove it in an audit.** Every change is written to an audit trail in the same transaction as the change itself, so the record can never drift from what happened, and refused mutations are recorded as `denied` entries. That is the answer a SOC 2 or access review is looking for.
 - **Keep customers apart.** Each tenant has its own path, its own issued and rotatable token, and data isolation enforced in code and tested, not left to convention.
 - **Make provisioning reach your app.** Signed, retried webhooks turn each change into an event the rest of your system can act on, instead of a row that just sits in a table.
 
@@ -101,7 +101,7 @@ Set `SCIM_WEBHOOK_URL` to turn it on. [Architecture](docs/ARCHITECTURE.md#-chang
 
 ## 🔒 Security practices
 
-Each control is load-bearing and covered by tests: issued, tenant-scoped tokens compared with `crypto/subtle.ConstantTimeCompare` against a stored hash; auth applied by the router itself, so it covers the whole surface; cross-tenant isolation scoped on `tenant_id` in every query; audit logging in the same transaction as the change, refusals included; and privileged CLI actions audited to a named operator. Schema validation bounds attribute lengths before the database, outbound webhooks are signed with HMAC-SHA256 and verified with `hmac.Equal`, callers are rate-limited to a `429`, and secrets come from the environment, never hardcoded or logged. CI scans for both leaked credentials and vulnerable dependencies.
+Each control is load-bearing and covered by tests: issued, tenant-scoped tokens compared with `crypto/subtle.ConstantTimeCompare` against a stored hash; auth applied by the router itself, so it covers the whole surface; cross-tenant isolation scoped on `tenant_id` in every query; audit logging in the same transaction as the change, with refused mutations recorded as `denied` entries; and privileged CLI actions audited to a named operator. Schema validation bounds attribute lengths before the database, outbound webhooks are signed with HMAC-SHA256 and verified with `hmac.Equal`, callers are rate-limited to a `429`, and secrets come from the environment, never hardcoded or logged. CI scans for both leaked credentials and vulnerable dependencies.
 
 See [Threat model](docs/THREAT-MODEL.md) for the full threat-by-threat reasoning behind each of these, and [Configuration](docs/CONFIGURATION.md) for every environment variable.
 

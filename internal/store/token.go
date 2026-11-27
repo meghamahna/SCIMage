@@ -44,13 +44,16 @@ type Token struct {
 // ParseToken splits scimage_<keyID>_<secret> into its two halves. keyID is
 // fixed-length hex, so splitting on the first underscore after the prefix is
 // unambiguous even though the secret half also contains no underscores.
+// Anything not shaped like an issued key id is refused here, so caller input
+// that is too long, or a stray piece of secret, never reaches the lookup or
+// the auth-failure log.
 func ParseToken(raw string) (keyID, secret string, ok bool) {
 	rest, ok := strings.CutPrefix(raw, tokenPrefix)
 	if !ok {
 		return "", "", false
 	}
 	keyID, secret, ok = strings.Cut(rest, "_")
-	if !ok || keyID == "" || secret == "" {
+	if !ok || !isLowerHex(keyID, 2*keyIDBytes) || secret == "" {
 		return "", "", false
 	}
 	return keyID, secret, true
@@ -183,6 +186,21 @@ func (s *Store) RevokeToken(ctx context.Context, keyID, actor string) error {
 		return fmt.Errorf("revoke token %q: commit: %w", keyID, err)
 	}
 	return nil
+}
+
+// isLowerHex reports whether s is exactly n characters of the lowercase hex
+// that hex.EncodeToString produces.
+func isLowerHex(s string, n int) bool {
+	if len(s) != n {
+		return false
+	}
+	for i := range len(s) {
+		c := s[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func randomHex(n int) (string, error) {

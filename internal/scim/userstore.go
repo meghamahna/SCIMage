@@ -31,6 +31,10 @@ type UserStore interface {
 	// patch must come back wrapped, so errors.As still finds it.
 	PatchUser(ctx context.Context, tenantID, id string, patch func(*store.User) (*store.User, error), rec store.AuditRecord) (*store.Change, error)
 	DeactivateUser(ctx context.Context, tenantID, id string, rec store.AuditRecord) (*store.Change, error)
+	// RecordRefusal records a mutation the handler refused before calling any
+	// method above. It has no result: a refusal stands whether or not it was
+	// recorded.
+	RecordRefusal(ctx context.Context, rec store.AuditRecord, resourceType, action, targetID, detail string)
 }
 
 var _ UserStore = (*store.Store)(nil)

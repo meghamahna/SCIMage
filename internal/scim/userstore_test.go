@@ -27,8 +27,8 @@ import (
 // fakeTenantID/fakeToken authenticate every request the fake-store tests
 // send, without touching Postgres for auth any more than for the user store.
 const (
-	fakeTenantID = "tenant_fake"
-	fakeKeyID    = "fakekeyid00000000"
+	fakeTenantID = "tenant_fa4e000000000000"
+	fakeKeyID    = "fa4e00000000000a"
 	// fakePlaintext is the secret half of fakeToken, not a real credential —
 	// named to avoid the shape a hardcoded-secret scanner looks for.
 	fakePlaintext = "fakesecret0000000000000000000000000000000000000000000000000000"
@@ -110,6 +110,8 @@ func (f *fakeStore) DeactivateUser(_ context.Context, _, _ string, rec store.Aud
 	f.gotRec = rec
 	return &store.Change{Before: f.user, After: f.user}, f.fail("DeactivateUser")
 }
+
+func (*fakeStore) RecordRefusal(context.Context, store.AuditRecord, string, string, string, string) {}
 
 // The limiter and the base-URL override are cleared rather than left to the
 // environment, so these stay deterministic however SCIM_RATE_LIMIT and
