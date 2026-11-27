@@ -71,7 +71,7 @@ Nodes: 60
 
 ## Gotchas
 - **gotcha-bare-go-test-skips-postgres**: Running go test without POSTGRES_* or DATABASE_URL skips store and scim integration tests and can look green; use make test → `nodes/gotcha-bare-go-test-skips-postgres.md` · `internal/store/store_test.go:19-24`
-- **gotcha-console-docker-bind-address**: Loopback 127.0.0.1 for CONSOLE_ADDR is right on bare metal but unreachable through Docker port publishing; Docker runs use 0.0.0.0 inside the container → `nodes/gotcha-console-docker-bind-address.md` · `README.md:213-228`
+- **gotcha-console-docker-bind-address**: Loopback 127.0.0.1 for CONSOLE_ADDR is right on bare metal but unreachable through Docker port publishing; Docker runs use 0.0.0.0 inside the container → `nodes/gotcha-console-docker-bind-address.md` · `README.md:213-229`
 - **gotcha-container-log-dir**: The image sets no LOG_DIR, so the default writes a file under relative logs/ unless the runner sets LOG_DIR empty for stdout-only logging → `nodes/gotcha-container-log-dir.md` · `Dockerfile:19-28`
 - **gotcha-refused-mutation-audit-best-effort**: A denied mutation is audited outside any transaction and a failed insert is only logged, so a refusal can be missing from the trail while a success never is → `nodes/gotcha-refused-mutation-audit-best-effort.md` · `internal/store/audit.go:105-113`
 - **gotcha-request-body-logging-opt-in**: SCIM_LOG_REQUESTS=1 records request bodies (user attributes) to the normal log stream; Authorization is never logged → `nodes/gotcha-request-body-logging-opt-in.md` · `internal/scim/requestlog.go:15-27`
@@ -83,7 +83,7 @@ Nodes: 60
 
 ## Docs
 - **doc-contributing**: Sections of CONTRIBUTING.md → `nodes/doc-contributing.md` · `CONTRIBUTING.md`
-- **doc-readme**: Section map of README.md, including the Docker deploy and local-testing blocks → `nodes/doc-readme.md` · `README.md:5-269`
+- **doc-readme**: Section map of README.md, including the Docker deploy and local-testing blocks → `nodes/doc-readme.md` · `README.md:5-270`
 
 ## Glossary
 - **glossary-core-terms**: One-line definitions of SCIM, tenant, tokens, key id, externalId, soft delete, audit and admin audit logs, outbox, dead-letter, IdP and ARIA, each with its pointer → `nodes/glossary-core-terms.md` · `docs/IMPLEMENTATION_PLAN.md:5-7`

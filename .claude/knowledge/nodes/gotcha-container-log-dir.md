@@ -7,7 +7,7 @@ tags: [gotcha, docker, LOG_DIR, logs, container, stdout, logging, distroless, lo
 links: [related:workflow-docker, related:api-env-vars, related:module-logging]
 sources: [Dockerfile:19-28, internal/logging/logging.go:20-24, internal/logging/logging.go:27-29, internal/logging/logging.go:34-50, .env.example:49-52]
 updated: 2026-11-26
-verified_commit: ec35d99
+verified_commit: 9c8c600
 ---
 ## Facts
 - Logging default directory is the relative `logs`, used when LOG_DIR is unset → internal/logging/logging.go:20-24,34-36

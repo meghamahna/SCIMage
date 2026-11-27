@@ -42,6 +42,7 @@
     ".env.example",
     "settings",
     "POSTGRES_USER",
+    "POSTGRES_PORT",
     "DATABASE_URL",
     "SCIM_ADDR",
     "SCIM_WEBHOOK",
@@ -52,7 +53,9 @@
    ],
    "sources": [
     "docs/CONFIGURATION.md:1-6",
+    "docs/CONFIGURATION.md:130",
     ".env.example:1-91",
+    "docker-compose.yml:10",
     "scripts/with-env.sh:6-19",
     "internal/store/store.go:103-106",
     ".gitignore:2-4"
@@ -834,7 +837,7 @@
     "local testing"
    ],
    "sources": [
-    "README.md:5-269"
+    "README.md:5-270"
    ],
    "file": ".claude/knowledge/nodes/doc-readme.md"
   },
@@ -1006,7 +1009,7 @@
     "local testing"
    ],
    "sources": [
-    "README.md:213-228",
+    "README.md:213-229",
     "cmd/server/main.go:36-39"
    ],
    "file": ".claude/knowledge/nodes/gotcha-console-docker-bind-address.md"
@@ -1488,7 +1491,7 @@
     "docker-compose.yml:1-20",
     "scripts/migrate.sh:56-87",
     "scripts/with-env.sh:12-17",
-    "README.md:210-232"
+    "README.md:210-233"
    ],
    "file": ".claude/knowledge/nodes/workflow-docker.md"
   },
