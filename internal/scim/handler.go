@@ -114,11 +114,14 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	su.ExtendedAttributes = captureExtended(body, registered)
 	created, err := h.store.CreateUser(r.Context(), r.PathValue("tenantID"), &su, h.auditRecord(r))
 	if err != nil {
-		if errors.Is(err, store.ErrDuplicateUserName) {
+		switch {
+		case errors.Is(err, store.ErrDuplicateUserName):
 			writeError(w, http.StatusConflict, "uniqueness", "userName is already in use")
-			return
+		case errors.Is(err, store.ErrDuplicateExternalID):
+			writeError(w, http.StatusConflict, "uniqueness", "externalId is already in use")
+		default:
+			serverError(w, "create user", err)
 		}
-		serverError(w, "create user", err)
 		return
 	}
 
@@ -204,6 +207,8 @@ func (h *Handler) replace(w http.ResponseWriter, r *http.Request) {
 			notFound(w)
 		case errors.Is(err, store.ErrDuplicateUserName):
 			writeError(w, http.StatusConflict, "uniqueness", "userName is already in use")
+		case errors.Is(err, store.ErrDuplicateExternalID):
+			writeError(w, http.StatusConflict, "uniqueness", "externalId is already in use")
 		default:
 			serverError(w, "update user", err)
 		}
@@ -308,6 +313,8 @@ func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 			notFound(w)
 		case errors.Is(err, store.ErrDuplicateUserName):
 			writeError(w, http.StatusConflict, "uniqueness", "userName is already in use")
+		case errors.Is(err, store.ErrDuplicateExternalID):
+			writeError(w, http.StatusConflict, "uniqueness", "externalId is already in use")
 		default:
 			serverError(w, "patch user", err)
 		}
@@ -600,6 +607,7 @@ func validate(u User) string {
 		{"name.givenName", given},
 		{"name.familyName", family},
 		{"emails.value", primaryEmail(u.Emails)},
+		{"externalId", strings.TrimSpace(u.ExternalID)},
 	} {
 		if len(f[1]) > maxAttrLen {
 			return f[0] + " exceeds " + strconv.Itoa(maxAttrLen) + " characters"
@@ -644,14 +652,17 @@ func validateGroup(g Group) string {
 	if len(displayName) > maxAttrLen {
 		return "displayName exceeds " + strconv.Itoa(maxAttrLen) + " characters"
 	}
+	if len(strings.TrimSpace(g.ExternalID)) > maxAttrLen {
+		return "externalId exceeds " + strconv.Itoa(maxAttrLen) + " characters"
+	}
 
 	return ""
 }
 
 // writeGroupError maps the Group store's sentinels onto SCIM responses, the
 // same job the switch statements inline in each User handler do — pulled
-// into one function here since every Group handler needs the same three
-// cases (ErrGroupNotFound was ErrNotFound's own error text for Users, but
+// into one function here since every Group handler needs the same cases
+// (ErrGroupNotFound was ErrNotFound's own error text for Users, but
 // Groups get their own sentinel so a wrapped error reads correctly in logs).
 func writeGroupError(w http.ResponseWriter, op string, err error) {
 	switch {
@@ -659,6 +670,8 @@ func writeGroupError(w http.ResponseWriter, op string, err error) {
 		notFoundGroup(w)
 	case errors.Is(err, store.ErrDuplicateGroupName):
 		writeError(w, http.StatusConflict, "uniqueness", "displayName is already in use")
+	case errors.Is(err, store.ErrDuplicateExternalID):
+		writeError(w, http.StatusConflict, "uniqueness", "externalId is already in use")
 	case errors.Is(err, store.ErrInvalidMember):
 		writeError(w, http.StatusBadRequest, "invalidValue", "members references an unknown or foreign user")
 	default:

@@ -171,6 +171,54 @@ func TestCreateGroupSameNameDifferentTenants(t *testing.T) {
 	}
 }
 
+// Mirrors TestUserDuplicateExternalID: groups have their own externalId index.
+func TestGroupDuplicateExternalID(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	tenantID := newTestTenant(t, s)
+
+	ext := ptr("ext-taken")
+	createGroup(t, s, tenantID, &Group{DisplayName: uniqueGroupName(), ExternalID: ext})
+
+	t.Run("create is refused and audited", func(t *testing.T) {
+		_, err := s.CreateGroup(ctx, tenantID, &Group{DisplayName: uniqueGroupName(), ExternalID: ext}, testAudit(tenantID))
+		if !errors.Is(err, ErrDuplicateExternalID) {
+			t.Fatalf("error = %v, want ErrDuplicateExternalID", err)
+		}
+		assertRefusal(t, s, tenantID, ResourceGroup, ActionCreate, "externalId")
+	})
+
+	t.Run("replace is refused and audited", func(t *testing.T) {
+		mover := createGroup(t, s, tenantID, &Group{DisplayName: uniqueGroupName()})
+
+		_, err := s.UpdateGroup(ctx, tenantID, mover.ID, &Group{DisplayName: mover.DisplayName, ExternalID: ext}, testAudit(tenantID))
+		if !errors.Is(err, ErrDuplicateExternalID) {
+			t.Fatalf("error = %v, want ErrDuplicateExternalID", err)
+		}
+		assertRefusal(t, s, tenantID, ResourceGroup, ActionReplace, "externalId")
+	})
+
+	t.Run("patch is refused and audited", func(t *testing.T) {
+		mover := createGroup(t, s, tenantID, &Group{DisplayName: uniqueGroupName()})
+
+		_, err := s.PatchGroup(ctx, tenantID, mover.ID, func(g *Group) (*Group, error) {
+			g.ExternalID = ext
+			return g, nil
+		}, testAudit(tenantID))
+		if !errors.Is(err, ErrDuplicateExternalID) {
+			t.Fatalf("error = %v, want ErrDuplicateExternalID", err)
+		}
+		assertRefusal(t, s, tenantID, ResourceGroup, ActionReplace, "externalId")
+	})
+
+	t.Run("another tenant may use the same externalId", func(t *testing.T) {
+		other := newTestTenant(t, s)
+		if _, err := s.CreateGroup(ctx, other, &Group{DisplayName: uniqueGroupName(), ExternalID: ext}, testAudit(other)); err != nil {
+			t.Fatalf("CreateGroup in a different tenant: %v, want success", err)
+		}
+	})
+}
+
 func TestGetGroup(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

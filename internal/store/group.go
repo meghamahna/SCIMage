@@ -31,7 +31,10 @@ type Group struct {
 const groupColumns = `id, external_id, display_name, created_at, updated_at`
 
 // Named in migrations/000007_create_groups.up.sql.
-const uniqueGroupNameIndex = "idx_groups_tenant_displayname"
+const (
+	uniqueGroupNameIndex       = "idx_groups_tenant_displayname"
+	uniqueGroupExternalIDIndex = "idx_groups_tenant_external_id"
+)
 
 // GroupFilter narrows a listing the same way UserFilter does: the zero value
 // (besides tenantID) lists everything for that tenant.
@@ -225,6 +228,10 @@ func (s *Store) CreateGroup(ctx context.Context, tenantID string, g *Group, rec 
 			s.auditRefusal(ctx, rec, ResourceGroup, ActionCreate, "", "duplicate displayName")
 			return nil, fmt.Errorf("create group %q: %w", g.DisplayName, ErrDuplicateGroupName)
 		}
+		if isUniqueViolationOn(err, uniqueGroupExternalIDIndex) {
+			s.auditRefusal(ctx, rec, ResourceGroup, ActionCreate, "", "duplicate externalId")
+			return nil, fmt.Errorf("create group %q: %w", g.DisplayName, ErrDuplicateExternalID)
+		}
 		return nil, fmt.Errorf("create group %q: %w", g.DisplayName, err)
 	}
 
@@ -404,6 +411,10 @@ func (s *Store) replaceGroupTx(ctx context.Context, tx pgx.Tx, tenantID string, 
 		if isUniqueViolationOn(err, uniqueGroupNameIndex) {
 			s.auditRefusal(ctx, rec, ResourceGroup, ActionReplace, id, "duplicate displayName")
 			return nil, ErrDuplicateGroupName
+		}
+		if isUniqueViolationOn(err, uniqueGroupExternalIDIndex) {
+			s.auditRefusal(ctx, rec, ResourceGroup, ActionReplace, id, "duplicate externalId")
+			return nil, ErrDuplicateExternalID
 		}
 		return nil, err
 	}

@@ -98,9 +98,11 @@ func qualify(alias string) string {
 // RFC 7644 §3.4.2.4 allows a provider maximum.
 const MaxPageSize = 200
 
-// Named in migrations/000005_multi_tenancy.up.sql. Matching on it keeps a
-// unique index added later from being misreported as a userName clash.
-const uniqueUserNameIndex = "idx_users_tenant_username"
+// Named in migrations/000005_multi_tenancy.up.sql.
+const (
+	uniqueUserNameIndex       = "idx_users_tenant_username"
+	uniqueUserExternalIDIndex = "idx_users_tenant_external_id"
+)
 
 // pgx.Rows satisfies pgx.Row, so single- and multi-row queries share this.
 func scanUser(row pgx.Row) (*User, error) {
@@ -167,6 +169,10 @@ func (s *Store) CreateUser(ctx context.Context, tenantID string, u *User, rec Au
 		if isUniqueViolation(err) {
 			s.auditRefusal(ctx, rec, ResourceUser, ActionCreate, "", "duplicate userName")
 			return nil, fmt.Errorf("create user %q: %w", u.UserName, ErrDuplicateUserName)
+		}
+		if isUniqueViolationOn(err, uniqueUserExternalIDIndex) {
+			s.auditRefusal(ctx, rec, ResourceUser, ActionCreate, "", "duplicate externalId")
+			return nil, fmt.Errorf("create user %q: %w", u.UserName, ErrDuplicateExternalID)
 		}
 		return nil, fmt.Errorf("create user %q: %w", u.UserName, err)
 	}
@@ -355,6 +361,10 @@ func (s *Store) replaceUserTx(ctx context.Context, tx pgx.Tx, tenantID, id strin
 		if isUniqueViolation(err) {
 			s.auditRefusal(ctx, rec, ResourceUser, ActionReplace, id, "duplicate userName")
 			return nil, ErrDuplicateUserName
+		}
+		if isUniqueViolationOn(err, uniqueUserExternalIDIndex) {
+			s.auditRefusal(ctx, rec, ResourceUser, ActionReplace, id, "duplicate externalId")
+			return nil, ErrDuplicateExternalID
 		}
 		return nil, err
 	}

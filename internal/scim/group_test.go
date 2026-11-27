@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -478,4 +479,64 @@ func TestDeleteGroup(t *testing.T) {
 			t.Fatalf("status = %d, want 404: %s", rr.Code, rr.Body)
 		}
 	})
+}
+
+// Mirrors TestExternalIDRefusals for groups.
+func TestGroupExternalIDRefusals(t *testing.T) {
+	requireDB(t)
+
+	taken := newGroup()
+	taken.ExternalID = "ext-" + taken.DisplayName
+	createGroup(t, taken)
+
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch} {
+		t.Run(method+" with a taken externalId is 409 uniqueness", func(t *testing.T) {
+			rr := writeGroupExternalID(t, method, taken.ExternalID)
+			if rr.Code != http.StatusConflict {
+				t.Fatalf("status = %d, want 409: %s", rr.Code, rr.Body)
+			}
+			if got := decodeBody[Error](t, rr).ScimType; got != "uniqueness" {
+				t.Errorf("scimType = %q, want uniqueness", got)
+			}
+		})
+
+		t.Run(method+" at the length limit is accepted", func(t *testing.T) {
+			rr := writeGroupExternalID(t, method, padTo(uniqueGroupName(), maxAttrLen))
+			if want := successStatus(method); rr.Code != want {
+				t.Fatalf("status = %d, want %d: %s", rr.Code, want, rr.Body)
+			}
+		})
+
+		t.Run(method+" past the length limit is 400 invalidValue", func(t *testing.T) {
+			rr := writeGroupExternalID(t, method, padTo(uniqueGroupName(), maxAttrLen+1))
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400: %s", rr.Code, rr.Body)
+			}
+			if got := decodeBody[Error](t, rr).ScimType; got != "invalidValue" {
+				t.Errorf("scimType = %q, want invalidValue", got)
+			}
+		})
+	}
+}
+
+// writeGroupExternalID mirrors writeUserExternalID.
+func writeGroupExternalID(t *testing.T, method, ext string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	in := newGroup()
+	in.ExternalID = ext
+	if method == http.MethodPost {
+		rr := do(t, method, "/Groups", in)
+		if rr.Code == http.StatusCreated {
+			id := decodeBody[Group](t, rr).ID
+			t.Cleanup(func() { hardDeleteGroup(t, id) })
+		}
+		return rr
+	}
+
+	target := createGroup(t, newGroup())
+	if method == http.MethodPut {
+		return do(t, method, "/Groups/"+target.ID, in)
+	}
+	return do(t, method, "/Groups/"+target.ID, fmt.Sprintf(patchEnvelope, fmt.Sprintf(`{"op":"replace","path":"externalId","value":%q}`, ext)))
 }

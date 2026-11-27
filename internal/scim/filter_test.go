@@ -8,6 +8,7 @@ package scim
 import (
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -242,4 +243,85 @@ func TestExternalID(t *testing.T) {
 			t.Errorf("externalId = %q, want empty", created.ExternalID)
 		}
 	})
+}
+
+// A taken externalId is a 409 and an over-long one a 400 on every write path,
+// so neither reaches the database as a 500 an IdP would retry forever.
+func TestExternalIDRefusals(t *testing.T) {
+	requireDB(t)
+
+	taken := newUser()
+	taken.ExternalID = "ext-" + taken.UserName
+	createUser(t, taken)
+
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch} {
+		t.Run(method+" with a taken externalId is 409 uniqueness", func(t *testing.T) {
+			rr := writeUserExternalID(t, method, taken.ExternalID)
+			if rr.Code != http.StatusConflict {
+				t.Fatalf("status = %d, want 409: %s", rr.Code, rr.Body)
+			}
+			if got := decodeBody[Error](t, rr).ScimType; got != "uniqueness" {
+				t.Errorf("scimType = %q, want uniqueness", got)
+			}
+		})
+
+		t.Run(method+" at the length limit is accepted", func(t *testing.T) {
+			rr := writeUserExternalID(t, method, padTo(uniqueUserName(), maxAttrLen))
+			if want := successStatus(method); rr.Code != want {
+				t.Fatalf("status = %d, want %d: %s", rr.Code, want, rr.Body)
+			}
+		})
+
+		t.Run(method+" at the length limit with surrounding whitespace is accepted", func(t *testing.T) {
+			rr := writeUserExternalID(t, method, "  "+padTo(uniqueUserName(), maxAttrLen)+"\t")
+			if want := successStatus(method); rr.Code != want {
+				t.Fatalf("status = %d, want %d: %s", rr.Code, want, rr.Body)
+			}
+		})
+
+		t.Run(method+" past the length limit is 400 invalidValue", func(t *testing.T) {
+			rr := writeUserExternalID(t, method, padTo(uniqueUserName(), maxAttrLen+1))
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400: %s", rr.Code, rr.Body)
+			}
+			if got := decodeBody[Error](t, rr).ScimType; got != "invalidValue" {
+				t.Errorf("scimType = %q, want invalidValue", got)
+			}
+		})
+	}
+}
+
+// writeUserExternalID sets ext as a user's externalId through method: POST
+// creates a user, PUT and PATCH change one created for the call.
+func writeUserExternalID(t *testing.T, method, ext string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	in := newUser()
+	in.ExternalID = ext
+	if method == http.MethodPost {
+		rr := do(t, method, "/Users", in)
+		if rr.Code == http.StatusCreated {
+			id := decodeBody[User](t, rr).ID
+			t.Cleanup(func() { hardDelete(t, id) })
+		}
+		return rr
+	}
+
+	target := createUser(t, newUser())
+	if method == http.MethodPut {
+		return do(t, method, "/Users/"+target.ID, in)
+	}
+	return patchUser(t, target.ID, fmt.Sprintf(patchEnvelope, fmt.Sprintf(`{"op":"replace","path":"externalId","value":%q}`, ext)))
+}
+
+func successStatus(method string) int {
+	if method == http.MethodPost {
+		return http.StatusCreated
+	}
+	return http.StatusOK
+}
+
+// padTo fills s out to n bytes, keeping its unique prefix.
+func padTo(s string, n int) string {
+	return s + strings.Repeat("x", n-len(s))
 }

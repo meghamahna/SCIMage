@@ -48,7 +48,8 @@ confirms bearer auth, filtering and PATCH are advertised.
 On **Provisioning → To App**, enable:
 
 - **Create Users:** Okta `POST`s the new user; SCIMage returns `201` with a
-  `Location`. A duplicate `userName` (case-insensitive) is a `409`.
+  `Location`. A duplicate `userName` (case-insensitive) or `externalId` is a
+  `409`.
 - **Update User Attributes:** sent as `PUT`/`PATCH`.
 - **Deactivate Users:** sent as `PATCH {"op":"replace","path":"active","value":
   false}`, which emits a `user.deactivated` change event. SCIMage soft-deletes:
@@ -99,8 +100,9 @@ The discovery document is honest about the edges, so Okta won't offer these:
   path, the token is the full `scimage_…` string, and the tenant in the token
   matches the tenant in the URL (a token for one tenant is a `401` on another's
   path).
-- **A user won't create:** a `409` means the `userName` already exists for this
-  tenant (case-insensitively). Turn on `SCIM_LOG_REQUESTS=1` on the server to see
+- **A user won't create:** a `409` means the `userName` (case-insensitively) or
+  the `externalId` already exists for this tenant; the error detail names which.
+  An `externalId` over 256 characters is a `400`. Turn on `SCIM_LOG_REQUESTS=1` on the server to see
   exactly what Okta sent (the log path is `0600`; bodies carry user attributes).
 - **An attribute isn't persisting:** it's outside the core and not registered.
   Register it and set `SCIM_EXTENDED_ATTRIBUTES=1`.

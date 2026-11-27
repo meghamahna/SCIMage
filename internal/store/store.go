@@ -30,6 +30,9 @@ var (
 	// silently dropped, the same fail-closed reasoning every other
 	// cross-tenant check in this codebase uses.
 	ErrInvalidMember = errors.New("invalid member reference")
+	// ErrDuplicateExternalID serves users and groups alike: externalId is the
+	// IdP's reconciliation key, unique per tenant for either resource.
+	ErrDuplicateExternalID = errors.New("externalId already exists")
 
 	// ErrDuplicateAttribute and ErrReservedAttribute guard the extensible
 	// attribute registry: a tenant can't register the same name twice, nor

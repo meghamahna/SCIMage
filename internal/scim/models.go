@@ -52,7 +52,8 @@ type User struct {
 	ID      string   `json:"id,omitempty"`
 
 	// ExternalID is the client's own identifier for this user. It is stored and
-	// returned unchanged, so an identity provider can reconcile against it.
+	// returned trimmed but otherwise unchanged, so an identity provider can
+	// reconcile against it.
 	ExternalID string `json:"externalId,omitempty"`
 
 	UserName string  `json:"userName"`
@@ -86,7 +87,7 @@ type Group struct {
 	Schemas []string `json:"schemas"`
 	ID      string   `json:"id,omitempty"`
 
-	// ExternalID mirrors User's: stored and returned unchanged, for an
+	// ExternalID mirrors User's: stored and returned trimmed, for an
 	// identity provider's own reconciliation key.
 	ExternalID string `json:"externalId,omitempty"`
 

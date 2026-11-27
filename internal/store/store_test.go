@@ -225,6 +225,70 @@ func TestCreateUserSameNameDifferentTenants(t *testing.T) {
 	}
 }
 
+// externalId is unique per tenant. A clash must come back as the sentinel the
+// handler turns into a 409, with an audited refusal, not as a raw 23505.
+func TestUserDuplicateExternalID(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	tenantID := newTestTenant(t, s)
+
+	ext := ptr("ext-taken")
+	createUser(t, s, tenantID, &User{UserName: uniqueUserName(), ExternalID: ext, Active: true})
+
+	t.Run("create is refused and audited", func(t *testing.T) {
+		_, err := s.CreateUser(ctx, tenantID, &User{UserName: uniqueUserName(), ExternalID: ext, Active: true}, testAudit(tenantID))
+		if !errors.Is(err, ErrDuplicateExternalID) {
+			t.Fatalf("error = %v, want ErrDuplicateExternalID", err)
+		}
+		assertRefusal(t, s, tenantID, ResourceUser, ActionCreate, "externalId")
+	})
+
+	t.Run("replace is refused and audited", func(t *testing.T) {
+		mover := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
+
+		_, err := s.UpdateUser(ctx, tenantID, mover.ID, &User{UserName: mover.UserName, ExternalID: ext, Active: true}, testAudit(tenantID))
+		if !errors.Is(err, ErrDuplicateExternalID) {
+			t.Fatalf("error = %v, want ErrDuplicateExternalID", err)
+		}
+		assertRefusal(t, s, tenantID, ResourceUser, ActionReplace, "externalId")
+	})
+
+	t.Run("patch is refused and audited", func(t *testing.T) {
+		mover := createUser(t, s, tenantID, &User{UserName: uniqueUserName(), Active: true})
+
+		_, err := s.PatchUser(ctx, tenantID, mover.ID, func(u *User) (*User, error) {
+			u.ExternalID = ext
+			return u, nil
+		}, testAudit(tenantID))
+		if !errors.Is(err, ErrDuplicateExternalID) {
+			t.Fatalf("error = %v, want ErrDuplicateExternalID", err)
+		}
+		assertRefusal(t, s, tenantID, ResourceUser, ActionReplace, "externalId")
+	})
+
+	t.Run("another tenant may use the same externalId", func(t *testing.T) {
+		other := newTestTenant(t, s)
+		if _, err := s.CreateUser(ctx, other, &User{UserName: uniqueUserName(), ExternalID: ext, Active: true}, testAudit(other)); err != nil {
+			t.Fatalf("CreateUser in a different tenant: %v, want success", err)
+		}
+	})
+}
+
+// assertRefusal checks the newest audit entry is a denied action whose detail
+// names attr, so a reviewer can tell which rule refused the write.
+func assertRefusal(t *testing.T, s *Store, tenantID, resourceType, action, attr string) {
+	t.Helper()
+
+	got := entriesFor(t, s, tenantID)[0]
+	if got.ResourceType != resourceType || got.Action != action || got.Result != ResultDenied {
+		t.Errorf("resourceType/action/result = %q/%q/%q, want %q/%q/%q",
+			got.ResourceType, got.Action, got.Result, resourceType, action, ResultDenied)
+	}
+	if !strings.Contains(got.Detail, attr) {
+		t.Errorf("detail = %q, want it to name %s", got.Detail, attr)
+	}
+}
+
 func TestGetUser(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

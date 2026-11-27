@@ -56,13 +56,13 @@ SCIMage is the *service provider* side of SCIM: the endpoint an identity provide
 
 | Method | Endpoint                          | Behaviour                                                                       |
 |--------|-----------------------------------|----------------------------------------------------------------------------------|
-| POST   | `/scim/v2/{tenantID}/Users`       | Creates a user. `201` with a `Location` header, `409` on a duplicate `userName` |
+| POST   | `/scim/v2/{tenantID}/Users`       | Creates a user. `201` with a `Location` header, `409` on a duplicate `userName` or `externalId` |
 | GET    | `/scim/v2/{tenantID}/Users/{id}`  | Fetches one user                                                                |
 | GET    | `/scim/v2/{tenantID}/Users`       | Lists users, paginated with `startIndex` and `count`                            |
 | PUT    | `/scim/v2/{tenantID}/Users/{id}`  | Replaces a user's attributes                                                    |
 | PATCH  | `/scim/v2/{tenantID}/Users/{id}`  | Applies operations to a user (how identity providers deprovision)               |
 | DELETE | `/scim/v2/{tenantID}/Users/{id}`  | Deactivates a user, preserving the row and its history                          |
-| POST   | `/scim/v2/{tenantID}/Groups`      | Creates a group. `201` with a `Location` header, `409` on a duplicate `displayName` |
+| POST   | `/scim/v2/{tenantID}/Groups`      | Creates a group. `201` with a `Location` header, `409` on a duplicate `displayName` or `externalId` |
 | GET    | `/scim/v2/{tenantID}/Groups/{id}` | Fetches one group, with its members                                            |
 | GET    | `/scim/v2/{tenantID}/Groups`      | Lists groups, paginated with `startIndex` and `count`                           |
 | PUT    | `/scim/v2/{tenantID}/Groups/{id}` | Replaces a group's attributes and its whole membership set                     |
@@ -80,6 +80,8 @@ An interactive API reference (Swagger UI) is served, unauthenticated, at `GET /d
 Responses use `application/scim+json`, and errors use the SCIM Error schema with the appropriate `scimType`.
 
 `userName` uniqueness is enforced case-insensitively, matching the spec's `caseExact=false` characteristic, so `bjensen` and `BJensen` are one identity.
+
+`externalId` is unique within a tenant for users and for groups. A create, `PUT` or `PATCH` that reuses one answers `409` with `scimType: uniqueness`. The same `externalId` can exist in different tenants. An `externalId` longer than 256 characters answers `400` with `scimType: invalidValue`.
 
 **Validated against [Microsoft's Entra ID SCIM validator](https://scimvalidator.microsoft.com/).** Core CRUD, filtering, and PATCH all pass. The `User` schema is deliberately reduced to a minimal set of typed columns. `displayName`, `title`, `preferredLanguage`, `name.formatted`/`name.middleName`, the enterprise extension and typed multi-valued emails aren't modeled that way. When a provider needs them, an operator registers the extra attributes per tenant (`scimage-admin attribute register`, gated by `SCIM_EXTENDED_ATTRIBUTES`) and the server captures and returns them through a JSONB pass-through, which keeps the core minimal while still round-tripping whatever Okta or Entra maps. See [Configuration](docs/CONFIGURATION.md#-extensible-attributes).
 
