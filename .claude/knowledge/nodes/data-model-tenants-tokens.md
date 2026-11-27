@@ -5,9 +5,9 @@ title: Tenants, SCIM tokens, console tokens and tenant attributes
 summary: Tenant isolation root, hashed per-tenant bearer tokens, a system-wide console credential, and the per-tenant extra attribute registry
 tags: [tenant, tenants, scim_tokens, token, bearer, sha256, key_id, console_tokens, tenant_attributes, extensible attributes, revoke, rotation]
 links: [related:decision-token-hashing, related:decision-tenant-scoping, related:module-store, related:data-model-core-users-groups, related:data-model-audit-log]
-sources: [migrations/000005_multi_tenancy.up.sql:1-38, migrations/000006_admin_governance.up.sql:1-15, migrations/000010_extended_attributes.up.sql:14-25, migrations/000012_console_tokens.up.sql:1-21, internal/store/tenant.go:32-51, internal/store/token.go:17-30, internal/store/token.go:50-58, internal/store/token.go:67-77, internal/store/token.go:159-189, internal/store/consoletoken.go:18-24, internal/store/consoletoken.go:54-84, internal/store/attribute.go:27-44]
+sources: [migrations/000005_multi_tenancy.up.sql:1-38, migrations/000006_admin_governance.up.sql:1-15, migrations/000010_extended_attributes.up.sql:14-25, migrations/000012_console_tokens.up.sql:1-21, internal/store/tenant.go:32-51, internal/store/token.go:17-30, internal/store/token.go:50-58, internal/store/token.go:67-77, internal/store/token.go:159-189, internal/store/consoletoken.go:18-24, internal/store/consoletoken.go:35-48, internal/store/consoletoken.go:54-84, internal/store/attribute.go:27-44]
 updated: 2026-11-26
-verified_commit: 0761c5b
+verified_commit: b8c7070
 ---
 ## Facts
 - `tenants`: id TEXT (app-generated, not a UUID), name, created_at, created_by (nullable) → migrations/000005_multi_tenancy.up.sql:15-19
@@ -21,6 +21,7 @@ verified_commit: 0761c5b
 - Only sha256(secret) is stored; plaintext is returned once from IssueToken → internal/store/token.go:67-77
 - RevokeToken sets revoked_at and writes an admin audit row in the same transaction; a no-op revoke writes nothing → internal/store/token.go:159-189
 - `console_tokens`: same shape as scim_tokens but no tenant_id; system-wide operator credential → migrations/000012_console_tokens.up.sql:1-21
+- ParseConsoleToken applies the same 16-char lowercase hex key id check before any lookup → internal/store/consoletoken.go:35-47
 - Console token issue writes an admin audit row with NULL tenant_id → internal/store/consoletoken.go:54-84
 - `tenant_attributes`: PK (tenant_id, name), type default 'string', created_by → migrations/000010_extended_attributes.up.sql:18-25
 - Reserved core attribute names are rejected at registration → internal/store/attribute.go:27-44

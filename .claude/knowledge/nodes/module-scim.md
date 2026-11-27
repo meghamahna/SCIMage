@@ -7,7 +7,7 @@ tags: [scim, rfc7644, handler, users, groups, http, provisioning, internal/scim]
 links: [documented_in:architecture-overview, related:api-scim-routes, related:component-scim-auth, related:component-scim-ratelimit, related:component-scim-request-middleware, related:model-scim-resources, related:api-scim-filter, related:api-scim-patch, related:api-scim-errors, related:component-scim-extended-attributes, decided_by:decision-audit-in-transaction, related:decision-scim-strict-filter, related:decision-scim-uniform-401, related:gotcha-scim-tenant-path-parsing, related:gotcha-scim-idp-quirks, related:gotcha-scim-unauthenticated-not-limited]
 sources: [internal/scim/handler.go:20-98, internal/scim/auth.go:45-117, internal/scim/userstore.go:24-51, internal/scim/groupstore.go:13-26, internal/scim/attributestore.go:14-18]
 updated: 2026-11-26
-verified_commit: 0761c5b
+verified_commit: b8c7070
 ---
 ## Facts
 - Owns the SCIM HTTP layer: handlers, SCIM JSON models, auth, rate limit, request timeout, request logging → internal/scim/handler.go:101-790
@@ -18,7 +18,7 @@ verified_commit: 0761c5b
 - The limiter reads SCIM_RATE_LIMIT and SCIM_RATE_BURST → internal/scim/ratelimit.go:42-46
 - Routes() wraps the mux: logRequests → withTimeout → requireToken → limiter.throttle → mux → internal/scim/handler.go:63-98
 - Other env var names read here: SCIM_REQUEST_TIMEOUT, SCIM_LOG_REQUESTS → internal/scim/timeout.go:17-22, internal/scim/requestlog.go:19-22
-- Body cap is 1 MiB; attribute cap is 256 chars (userName is btree-indexed) → internal/scim/handler.go:20, internal/scim/handler.go:22-24
+- Body cap is 1 MiB; attribute cap is 256 bytes, counted in bytes (userName is btree-indexed) → internal/scim/handler.go:20, internal/scim/handler.go:22-24
 - Every user write takes the row lock (lockUserTx); PATCH hands the store a patch callback → internal/store/user.go:335-341, internal/scim/handler.go:307, internal/scim/handler.go:457
 - Health probes live in this package, mounted on the root mux outside auth → internal/scim/health.go:28-40, cmd/server/main.go:124-125
 ## File map

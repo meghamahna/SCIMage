@@ -101,7 +101,7 @@ Nodes: 60
 - 404 → api-scim-errors
 - 405 → api-scim-errors
 - 409 → api-scim-errors, gotcha-refused-mutation-audit-best-effort
-- 413 → api-scim-errors, gotcha-refused-mutation-audit-best-effort
+- 413 → api-scim-errors, gotcha-refused-mutation-audit-best-effort, module-apidocs
 - 429 → api-scim-errors, component-scim-ratelimit, decision-webhook-retry-classification, gotcha-scim-unauthenticated-not-limited
 - 4xx → decision-webhook-retry-classification
 - 500 → api-scim-errors
@@ -150,6 +150,7 @@ Nodes: 60
 - binaries → architecture-overview
 - bind → gotcha-console-docker-bind-address
 - body → gotcha-request-body-logging-opt-in
+- body limit → module-apidocs
 - bool → model-scim-resources
 - briefing → entrypoint-cmd-aria-main, module-aria
 - brute force → gotcha-scim-unauthenticated-not-limited
@@ -196,5 +197,4 @@ Nodes: 60
 - dead letter → data-model-webhook-outbox, decision-webhook-retry-classification, glossary-core-terms, module-webhook
 - dead_letter → decision-webhook-retry-classification
 - deadline → component-scim-request-middleware
-- debug logging → gotcha-request-body-logging-opt-in
-- … 314 more keywords (search with `kg.py query`)
+- … 315 more keywords (search with `kg.py query`)

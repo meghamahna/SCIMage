@@ -454,6 +454,7 @@
     "internal/store/token.go:67-77",
     "internal/store/token.go:159-189",
     "internal/store/consoletoken.go:18-24",
+    "internal/store/consoletoken.go:35-48",
     "internal/store/consoletoken.go:54-84",
     "internal/store/attribute.go:27-44"
    ],
@@ -1349,11 +1350,15 @@
     "spec",
     "embed",
     "specification",
-    "documentation"
+    "documentation",
+    "413",
+    "body limit"
    ],
    "sources": [
     "internal/apidocs/embed.go:1-66",
     "internal/apidocs/openapi.yaml:1-30",
+    "internal/apidocs/openapi.yaml:107-275",
+    "internal/apidocs/openapi.yaml:372-376",
     "cmd/server/main.go:127-132"
    ],
    "file": ".claude/knowledge/nodes/module-apidocs.md"
@@ -1715,6 +1720,11 @@
   {
    "from": "api-scim-errors",
    "to": "api-scim-routes",
+   "type": "related"
+  },
+  {
+   "from": "api-scim-errors",
+   "to": "module-apidocs",
    "type": "related"
   },
   {
@@ -2755,6 +2765,11 @@
   {
    "from": "module-apidocs",
    "to": "module-scim",
+   "type": "related"
+  },
+  {
+   "from": "module-apidocs",
+   "to": "api-scim-errors",
    "type": "related"
   },
   {

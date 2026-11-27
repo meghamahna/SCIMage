@@ -7,7 +7,7 @@ tags: [docs, readme, sections, docker, deploy, local testing, endpoints, externa
 links: [related:architecture-overview, related:workflow-docker, related:api-scim-errors, related:gotcha-console-docker-bind-address]
 sources: [README.md:5-272]
 updated: 2026-11-26
-verified_commit: 0761c5b
+verified_commit: b8c7070
 ---
 ## Facts
 - Tagline: SCIM 2.0 provisioning server with signed change delivery and an AI-advisory audit trail → README.md:5
@@ -16,7 +16,7 @@ verified_commit: 0761c5b
 - The problem it solves → README.md:42
 - What it does: endpoint table; duplicate userName and externalId answer 409 → README.md:53-65
 - Admin console and Swagger UI at /docs → README.md:76
-- externalId uniqueness per tenant and the 256-character limit → README.md:84
+- externalId uniqueness per tenant and the 256-byte limit → README.md:84
 - How it's built → README.md:88
 - Change delivery (SCIM_WEBHOOK_URL enables it) → README.md:96-100
 - Security practices and the threat model link → README.md:102-108

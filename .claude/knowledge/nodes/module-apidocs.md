@@ -3,11 +3,11 @@ id: module-apidocs
 kind: module
 title: API docs (internal/apidocs)
 summary: Embedded OpenAPI 3.0 spec and vendored Swagger UI served unauthenticated at /docs, with no runtime network fetch
-tags: [api docs, openapi, swagger, swagger ui, docs, spec, embed, specification, documentation]
-links: [documented_in:doc-readme, related:module-console, related:module-scim]
-sources: [internal/apidocs/embed.go:1-66, internal/apidocs/openapi.yaml:1-30, cmd/server/main.go:127-132]
+tags: [api docs, openapi, swagger, swagger ui, docs, spec, embed, specification, documentation, 413, body limit]
+links: [documented_in:doc-readme, related:module-console, related:module-scim, related:api-scim-errors]
+sources: [internal/apidocs/embed.go:1-66, internal/apidocs/openapi.yaml:1-30, internal/apidocs/openapi.yaml:107-275, internal/apidocs/openapi.yaml:372-376, cmd/server/main.go:127-132]
 updated: 2026-11-26
-verified_commit: 78e4d28
+verified_commit: b8c7070
 ---
 ## Facts
 - Package serves a hand-written OpenAPI spec and a vendored Swagger UI → internal/apidocs/embed.go:1-11
@@ -16,6 +16,8 @@ verified_commit: 78e4d28
 - Spec is OpenAPI 3.0.3, info title "SCIMage — SCIM 2.0 Provisioning API", version 1.0.0 → internal/apidocs/openapi.yaml:1-12
 - Spec servers URL is {scheme}://{host}/scim/v2/{tenantID} → internal/apidocs/openapi.yaml:30-31
 - Auth scheme is bearerAuth (HTTP bearer) → internal/apidocs/openapi.yaml:44, internal/apidocs/openapi.yaml:322-325
+- POST, PUT and PATCH on /Users, /Users/{id}, /Groups and /Groups/{id} each list a 413 response → internal/apidocs/openapi.yaml:107, internal/apidocs/openapi.yaml:146, internal/apidocs/openapi.yaml:165, internal/apidocs/openapi.yaml:223, internal/apidocs/openapi.yaml:256, internal/apidocs/openapi.yaml:275
+- The 413 response is the shared components/responses/TooLarge, body over 1 MiB → internal/apidocs/openapi.yaml:372-376
 - Handler serves GET /openapi.yaml as application/yaml, max-age 300 → internal/apidocs/embed.go:44-56
 - Other files come from the embedded swaggerui tree, max-age 3600 → internal/apidocs/embed.go:58-64
 - Mounted in cmd/server with the /docs prefix stripped; bare /docs redirects to /docs/ → cmd/server/main.go:127-132
