@@ -57,7 +57,10 @@
     ".env.example:1-91",
     "docker-compose.yml:10",
     "scripts/with-env.sh:6-19",
-    "internal/store/store.go:103-106",
+    "internal/store/store.go:51-55",
+    "internal/store/store.go:63-72",
+    "internal/store/store.go:104-113",
+    "internal/store/store.go:133-150",
     ".gitignore:2-4"
    ],
    "file": ".claude/knowledge/nodes/api-env-vars.md"
@@ -74,6 +77,7 @@
     "400",
     "401",
     "404",
+    "405",
     "409",
     "413",
     "429",
@@ -81,15 +85,28 @@
     "invalidValue",
     "invalidPath",
     "invalidFilter",
+    "invalidSyntax",
     "uniqueness",
     "mutability",
-    "tooMany"
+    "tooMany",
+    "externalId",
+    "duplicate",
+    "256"
    ],
    "sources": [
-    "internal/scim/handler.go:541-605",
-    "internal/scim/handler.go:648-660",
-    "internal/scim/handler.go:699-732",
-    "internal/scim/models.go:119-124"
+    "internal/scim/handler.go:101-131",
+    "internal/scim/handler.go:181-216",
+    "internal/scim/handler.go:232-246",
+    "internal/scim/handler.go:290-300",
+    "internal/scim/handler.go:576-612",
+    "internal/scim/handler.go:642-696",
+    "internal/scim/handler.go:707-790",
+    "internal/scim/models.go:14-17",
+    "internal/scim/models.go:120",
+    "internal/scim/mapper.go:14",
+    "internal/scim/mapper.go:87",
+    "internal/scim/ratelimit.go:103-104",
+    "internal/scim/auth.go:61-62"
    ],
    "file": ".claude/knowledge/nodes/api-scim-errors.md"
   },
@@ -97,7 +114,7 @@
    "id": "api-scim-filter",
    "kind": "api",
    "title": "SCIM filter support",
-   "summary": "Only `attribute eq \"value\"` on userName/externalId (users) or displayName/externalId (groups); everything else is a 400 invalidFilter",
+   "summary": "Only `attribute eq \"value\"` on userName or externalId (users) and displayName or externalId (groups); everything else is a 400 invalidFilter",
    "tags": [
     "filter",
     "query",
@@ -111,8 +128,9 @@
     "lookup"
    ],
    "sources": [
-    "internal/scim/filter.go:17-85",
-    "internal/scim/handler.go:144-160"
+    "internal/scim/filter.go:11-85",
+    "internal/scim/handler.go:148-160",
+    "internal/scim/discovery.go:112"
    ],
    "file": ".claude/knowledge/nodes/api-scim-filter.md"
   },
@@ -138,12 +156,12 @@
     "scim"
    ],
    "sources": [
-    "internal/scim/patch.go:1-413",
-    "internal/scim/handler.go:246-318",
-    "internal/scim/handler.go:422-457",
-    "internal/store/user.go:290-319",
-    "internal/store/group.go:359-391",
-    "docs/ARCHITECTURE.md:156-162"
+    "internal/scim/patch.go:14-413",
+    "internal/scim/handler.go:254-328",
+    "internal/scim/handler.go:433-466",
+    "internal/store/user.go:288-328",
+    "internal/store/group.go:362-402",
+    "docs/ARCHITECTURE.md:155-161"
    ],
    "file": ".claude/knowledge/nodes/api-scim-patch.md"
   },
@@ -166,10 +184,10 @@
     "rest"
    ],
    "sources": [
-    "internal/scim/handler.go:63-98",
-    "internal/scim/discovery.go:105-161",
-    "internal/scim/health.go:28-40",
-    "cmd/server/main.go:122-126"
+    "internal/scim/handler.go:60-98",
+    "internal/scim/discovery.go:105-117",
+    "internal/scim/health.go:17-40",
+    "cmd/server/main.go:122-134"
    ],
    "file": ".claude/knowledge/nodes/api-scim-routes.md"
   },
@@ -193,14 +211,23 @@
     "structure"
    ],
    "sources": [
-    "cmd/server/main.go:1-200",
-    "cmd/scimage-admin/main.go:1-100",
-    "cmd/aria/main.go:1-100",
-    "docs/ARCHITECTURE.md:1-433",
-    "internal/scim/handler.go:1-100",
-    "internal/store/store.go:1-80",
-    "internal/webhook/dispatcher.go:1-100",
-    "internal/console/server.go:1-100"
+    "cmd/server/main.go:36-44",
+    "cmd/server/main.go:58-113",
+    "cmd/server/main.go:122-134",
+    "cmd/server/main.go:147-197",
+    "cmd/scimage-admin/main.go:21-39",
+    "cmd/aria/main.go:24-29",
+    "docs/ARCHITECTURE.md:22-42",
+    "docs/ARCHITECTURE.md:63-70",
+    "docs/ARCHITECTURE.md:89-113",
+    "docs/ARCHITECTURE.md:234-272",
+    "docs/ARCHITECTURE.md:414-436",
+    "internal/scim/handler.go:63-98",
+    "internal/store/user.go:155-189",
+    "internal/webhook/dispatcher.go:82-106",
+    "internal/console/auth.go:38-42",
+    "internal/console/csrf.go:21-22",
+    "internal/logging/logging.go:20-34"
    ],
    "file": ".claude/knowledge/nodes/architecture-overview.md"
   },
@@ -240,22 +267,26 @@
    "id": "component-scim-auth",
    "kind": "module",
    "title": "SCIM bearer token auth",
-   "summary": "Per-tenant bearer token middleware; constant-time secret compare; uniform 401; token lookup via TokenStore",
+   "summary": "Per-tenant bearer token middleware; constant-time secret compare; uniform 401; every failure logged once with its reason",
    "tags": [
     "auth",
-    "authentication",
     "bearer",
     "token",
-    "constant-time",
-    "subtle",
-    "tenant",
-    "401",
     "middleware",
-    "api key"
+    "401",
+    "constant time",
+    "tenant",
+    "key id",
+    "scimage",
+    "login",
+    "logging"
    ],
    "sources": [
-    "internal/scim/auth.go:1-151",
-    "internal/scim/userstore.go:38-43"
+    "internal/scim/auth.go:20-31",
+    "internal/scim/auth.go:45-63",
+    "internal/scim/auth.go:98-136",
+    "internal/scim/auth.go:150-175",
+    "internal/scim/userstore.go:38-41"
    ],
    "file": ".claude/knowledge/nodes/component-scim-auth.md"
   },
@@ -275,9 +306,12 @@
     "enterprise extension"
    ],
    "sources": [
-    "internal/scim/extended.go:1-228",
-    "internal/scim/handler.go:30-53",
-    "internal/scim/attributestore.go:1-18"
+    "internal/scim/extended.go:12-80",
+    "internal/scim/extended.go:146-150",
+    "internal/scim/handler.go:34-52",
+    "internal/scim/handler.go:108-115",
+    "internal/scim/handler.go:269-291",
+    "internal/scim/attributestore.go:14-16"
    ],
    "file": ".claude/knowledge/nodes/component-scim-extended-attributes.md"
   },
@@ -285,7 +319,7 @@
    "id": "component-scim-ratelimit",
    "kind": "module",
    "title": "SCIM per-caller rate limiter",
-   "summary": "Token-bucket limiter keyed by tenant and key id, placed after auth; 429 tooMany on excess; env-tunable",
+   "summary": "Token-bucket limiter keyed by tenant and key id, placed after auth; 429 tooMany on excess with one Warn log line; env-tunable",
    "tags": [
     "rate limit",
     "ratelimit",
@@ -295,11 +329,14 @@
     "retry-after",
     "dos",
     "SCIM_RATE_LIMIT",
-    "burst"
+    "SCIM_RATE_BURST",
+    "burst",
+    "logging",
+    "warn"
    ],
    "sources": [
-    "internal/scim/ratelimit.go:1-87",
-    "internal/scim/handler.go:94-98"
+    "internal/scim/ratelimit.go:1-109",
+    "internal/scim/handler.go:93-98"
    ],
    "file": ".claude/knowledge/nodes/component-scim-ratelimit.md"
   },
@@ -349,8 +386,8 @@
     "migrations/000008_audit_log_resource_type.up.sql:1-6",
     "migrations/000009_audit_log_fault_injection.up.sql:1-17",
     "migrations/000012_console_tokens.up.sql:23-29",
-    "internal/store/audit.go:14-60",
-    "internal/store/adminaudit.go:9-52"
+    "internal/store/audit.go:14-99",
+    "internal/store/adminaudit.go:9-51"
    ],
    "file": ".claude/knowledge/nodes/data-model-audit-log.md"
   },
@@ -369,16 +406,21 @@
     "membership",
     "uniqueness",
     "externalId",
-    "userName"
+    "userName",
+    "duplicate externalId"
    ],
    "sources": [
-    "migrations/000001_create_users_table.up.sql:5-19",
+    "migrations/000001_create_users_table.up.sql:1-19",
     "migrations/000003_add_users_external_id.up.sql:5-11",
     "migrations/000005_multi_tenancy.up.sql:40-51",
     "migrations/000007_create_groups.up.sql:1-43",
     "migrations/000010_extended_attributes.up.sql:11",
     "internal/store/user.go:20-40",
-    "internal/store/group.go:142-166"
+    "internal/store/user.go:170-176",
+    "internal/store/user.go:388-410",
+    "internal/store/group.go:145-169",
+    "internal/store/group.go:189-193",
+    "internal/store/group.go:228-234"
    ],
    "file": ".claude/knowledge/nodes/data-model-core-users-groups.md"
   },
@@ -406,8 +448,14 @@
     "migrations/000006_admin_governance.up.sql:1-15",
     "migrations/000010_extended_attributes.up.sql:14-25",
     "migrations/000012_console_tokens.up.sql:1-21",
-    "internal/store/tenant.go:31-37",
-    "internal/store/token.go:23-47"
+    "internal/store/tenant.go:32-51",
+    "internal/store/token.go:17-30",
+    "internal/store/token.go:50-58",
+    "internal/store/token.go:67-77",
+    "internal/store/token.go:159-189",
+    "internal/store/consoletoken.go:18-24",
+    "internal/store/consoletoken.go:54-84",
+    "internal/store/attribute.go:27-44"
    ],
    "file": ".claude/knowledge/nodes/data-model-tenants-tokens.md"
   },
@@ -433,11 +481,12 @@
     "migrations/000004_create_webhook_deliveries.up.sql:8-42",
     "migrations/000005_multi_tenancy.up.sql:56",
     "migrations/000011_webhook_delivered_retention.up.sql:1-8",
-    "internal/store/outbox.go:24-40",
-    "internal/store/outbox.go:105-136",
-    "internal/store/outbox.go:180-226",
-    "internal/store/outbox.go:271-290",
-    "internal/store/outbox.go:340-377"
+    "internal/store/outbox.go:24-38",
+    "internal/store/outbox.go:77-83",
+    "internal/store/outbox.go:105-110",
+    "internal/store/outbox.go:179-226",
+    "internal/store/outbox.go:276-288",
+    "internal/store/outbox.go:343-377"
    ],
    "file": ".claude/knowledge/nodes/data-model-webhook-outbox.md"
   },
@@ -473,7 +522,7 @@
    "id": "decision-audit-in-transaction",
    "kind": "decision",
    "title": "Audit and outbox rows commit with the change they describe",
-   "summary": "Successful user and group mutations write their audit_log row and any webhook outbox row inside the change's transaction, so a committed change always has a record; refusals are recorded best-effort outside a transaction (see the gotcha)",
+   "summary": "Successful user and group mutations write their audit_log row and any webhook outbox row inside the change's transaction, so a committed change always has a record; refusals are recorded best-effort after rollback (see the gotcha)",
    "tags": [
     "decision",
     "audit",
@@ -494,16 +543,18 @@
    "sources": [
     "migrations/000002_create_audit_log.up.sql:1-4",
     "migrations/000004_create_webhook_deliveries.up.sql:1-7",
-    "internal/store/user.go:153-189",
-    "internal/store/user.go:290-319",
-    "internal/store/user.go:335-370",
-    "internal/store/group.go:211-256",
-    "internal/store/audit.go:46-113",
-    "internal/store/adminaudit.go:44",
+    "internal/store/user.go:155-195",
+    "internal/store/user.go:297-327",
+    "internal/store/user.go:335-386",
+    "internal/store/group.go:214-256",
+    "internal/store/group.go:366-401",
+    "internal/store/audit.go:81-139",
+    "internal/store/adminaudit.go:44-51",
     "internal/store/outbox.go:192-280",
-    "internal/scim/userstore.go:24-34",
+    "internal/scim/userstore.go:24-37",
     "internal/scim/groupstore.go:13-25",
-    "internal/scim/handler.go:528-541"
+    "internal/scim/handler.go:537-541",
+    "internal/scim/handler.go:560-566"
    ],
    "file": ".claude/knowledge/nodes/decision-audit-in-transaction.md"
   },
@@ -606,7 +657,7 @@
    "id": "decision-request-timeout-before-auth",
    "kind": "decision",
    "title": "Request timeout wraps auth; rate limiting runs after token verification",
-   "summary": "The timeout is the outermost wrapper so the token lookup (a DB call) is bounded, and the per-caller limiter keys on a verified token, so pre-auth flooding is a known gap",
+   "summary": "The timeout is the outermost wrapper so the token lookup (a DB call) is bounded; the per-caller limiter keys on a verified token, so pre-auth flooding is a known gap",
    "tags": [
     "decision",
     "timeout",
@@ -620,8 +671,9 @@
     "order"
    ],
    "sources": [
-    "docs/ARCHITECTURE.md:24-57",
-    "internal/scim/handler.go:63-98"
+    "docs/ARCHITECTURE.md:27-58",
+    "internal/scim/handler.go:63-98",
+    "internal/scim/timeout.go:15-22"
    ],
    "file": ".claude/knowledge/nodes/decision-request-timeout-before-auth.md"
   },
@@ -641,7 +693,8 @@
    ],
    "sources": [
     "internal/scim/filter.go:11-18",
-    "internal/scim/handler.go:144-151"
+    "internal/scim/handler.go:148-155",
+    "internal/scim/discovery.go:109-117"
    ],
    "file": ".claude/knowledge/nodes/decision-scim-strict-filter.md"
   },
@@ -649,20 +702,22 @@
    "id": "decision-scim-uniform-401",
    "kind": "decision",
    "title": "Every auth failure returns the same 401",
-   "summary": "Missing, unknown, revoked, expired, wrong-secret and wrong-tenant tokens all get one generic 401 so callers cannot probe tenants or key ids",
+   "summary": "Missing, unknown, revoked, expired, wrong-secret and wrong-tenant tokens all get one generic 401 so callers cannot probe tenants or key ids; the reason is logged server-side",
    "tags": [
     "decision",
     "401",
     "auth",
-    "enumeration",
-    "uniform error",
-    "security",
+    "uniform",
+    "probing",
+    "tenants",
+    "key id",
     "why",
-    "tenant"
+    "logging"
    ],
    "sources": [
-    "internal/scim/auth.go:29-52",
-    "internal/scim/auth.go:84-110"
+    "internal/scim/auth.go:29-44",
+    "internal/scim/auth.go:55-62",
+    "internal/scim/auth.go:98-136"
    ],
    "file": ".claude/knowledge/nodes/decision-scim-uniform-401.md"
   },
@@ -685,8 +740,8 @@
    ],
    "sources": [
     "docs/ARCHITECTURE.md:44-46",
-    "docs/ARCHITECTURE.md:402-404",
-    "docs/IMPLEMENTATION_PLAN.md:9-19"
+    "docs/ARCHITECTURE.md:55-56",
+    "docs/IMPLEMENTATION_PLAN.md:11-19"
    ],
    "file": ".claude/knowledge/nodes/decision-stdlib-and-raw-sql.md"
   },
@@ -709,16 +764,16 @@
    "sources": [
     "migrations/000005_multi_tenancy.up.sql:1-13",
     "migrations/000005_multi_tenancy.up.sql:44-56",
-    "internal/store/user.go:56-70",
-    "internal/store/user.go:188-195",
-    "internal/store/group.go:141-152",
-    "internal/store/tenant.go:31-37",
-    "internal/store/audit.go:151-159",
-    "internal/store/audit.go:186-191",
-    "internal/store/adminaudit.go:54-56",
-    "internal/scim/auth.go:84-108",
-    "internal/store/outbox.go:197-203",
-    "internal/store/outbox.go:281"
+    "internal/store/user.go:56-58",
+    "internal/store/user.go:197-203",
+    "internal/store/group.go:145-156",
+    "internal/store/tenant.go:32-38",
+    "internal/store/audit.go:198-206",
+    "internal/store/audit.go:233-241",
+    "internal/store/adminaudit.go:57-66",
+    "internal/scim/auth.go:109-132",
+    "internal/store/outbox.go:192-207",
+    "internal/store/outbox.go:280-282"
    ],
    "file": ".claude/knowledge/nodes/decision-tenant-scoping.md"
   },
@@ -736,13 +791,17 @@
     "secret",
     "key_id",
     "credential storage",
-    "kdf"
+    "kdf",
+    "bcrypt"
    ],
    "sources": [
     "internal/store/token.go:17-30",
-    "internal/store/token.go:64-74",
-    "migrations/000005_multi_tenancy.up.sql:20-22",
-    "migrations/000012_console_tokens.up.sql:8-11"
+    "internal/store/token.go:62-76",
+    "internal/store/token.go:28-31",
+    "internal/scim/auth.go:128",
+    "migrations/000005_multi_tenancy.up.sql:20-24",
+    "migrations/000012_console_tokens.up.sql:8-11",
+    "internal/store/consoletoken.go:50-63"
    ],
    "file": ".claude/knowledge/nodes/decision-token-hashing.md"
   },
@@ -766,7 +825,10 @@
    ],
    "sources": [
     "docs/ARCHITECTURE.md:80-82",
-    "internal/store/user.go:375-402"
+    "internal/store/user.go:385-402",
+    "internal/store/group.go:457",
+    "internal/scim/handler.go:328-329",
+    "internal/scim/handler.go:468-470"
    ],
    "file": ".claude/knowledge/nodes/decision-user-soft-delete.md"
   },
@@ -835,18 +897,23 @@
    "id": "doc-readme",
    "kind": "doc",
    "title": "README.md",
-   "summary": "Section map of README.md, including the Docker deploy and local-testing blocks",
+   "summary": "Section map of README.md, including the Docker deploy and local-testing blocks, the audit refusal note and the endpoint conflict rules",
    "tags": [
     "docs",
     "readme",
-    "seed",
     "sections",
     "docker",
     "deploy",
-    "local testing"
+    "local testing",
+    "endpoints",
+    "externalId",
+    "audit",
+    "denied",
+    "change delivery",
+    "getting started"
    ],
    "sources": [
-    "README.md:5-270"
+    "README.md:5-272"
    ],
    "file": ".claude/knowledge/nodes/doc-readme.md"
   },
@@ -964,14 +1031,18 @@
    ],
    "sources": [
     "docs/IMPLEMENTATION_PLAN.md:5-7",
-    "docs/ARCHITECTURE.md:74-134",
-    "docs/ARCHITECTURE.md:212-272",
-    "docs/ARCHITECTURE.md:390-393",
-    "docs/OKTA.md:1-2",
-    "docs/OKTA.md:61",
-    "docs/OKTA.md:92-93",
-    "docs/MS-ENTRA.md:1-2",
-    "docs/MS-ENTRA.md:48"
+    "docs/ARCHITECTURE.md:25",
+    "docs/ARCHITECTURE.md:74-87",
+    "docs/ARCHITECTURE.md:100-103",
+    "docs/ARCHITECTURE.md:119-139",
+    "docs/ARCHITECTURE.md:238-300",
+    "docs/ARCHITECTURE.md:414-427",
+    "docs/OKTA.md:1",
+    "docs/OKTA.md:61-62",
+    "docs/OKTA.md:93-95",
+    "docs/MS-ENTRA.md:1",
+    "docs/MS-ENTRA.md:48",
+    "internal/store/consoletoken.go:18"
    ],
    "file": ".claude/knowledge/nodes/glossary-core-terms.md"
   },
@@ -994,10 +1065,12 @@
     "DATABASE_URL"
    ],
    "sources": [
-    "internal/store/store_test.go:19-24",
+    "internal/store/store_test.go:21-24",
     "internal/scim/handler_test.go:44-48",
+    "internal/scim/handler_test.go:117-118",
     "Makefile:94-96",
-    "scripts/with-env.sh:12-19"
+    "scripts/with-env.sh:12-19",
+    "internal/store/store.go:106-113"
    ],
    "file": ".claude/knowledge/nodes/gotcha-bare-go-test-skips-postgres.md"
   },
@@ -1018,8 +1091,11 @@
     "local testing"
    ],
    "sources": [
-    "README.md:213-229",
-    "cmd/server/main.go:36-39"
+    "README.md:218",
+    "README.md:222",
+    "README.md:231",
+    "cmd/server/main.go:36-39",
+    "cmd/server/main.go:147-148"
    ],
    "file": ".claude/knowledge/nodes/gotcha-console-docker-bind-address.md"
   },
@@ -1053,7 +1129,7 @@
    "id": "gotcha-refused-mutation-audit-best-effort",
    "kind": "gotcha",
    "title": "Refusal audit entries are best-effort, success entries are not",
-   "summary": "A denied mutation is audited outside the mutation's transaction and a failed insert is only logged, so a refusal can be missing from the trail while a success never is; a PATCH refusal is written while its row lock is still held",
+   "summary": "A denied mutation is audited after its transaction is rolled back, outside any transaction, and a failed insert is only logged; success entries commit with the change",
    "tags": [
     "gotcha",
     "audit",
@@ -1063,22 +1139,31 @@
     "logging",
     "transaction",
     "duplicate",
-    "409",
+    "externalId",
     "row lock",
     "patch",
-    "connection pool"
+    "connection pool",
+    "409",
+    "413"
    ],
    "sources": [
-    "internal/store/audit.go:105-113",
-    "internal/store/user.go:168",
-    "internal/store/user.go:174-176",
-    "internal/store/user.go:265",
-    "internal/store/user.go:355-358",
-    "internal/store/user.go:391-394",
-    "internal/store/group.go:225",
-    "internal/store/group.go:233",
-    "internal/store/group.go:405",
-    "internal/store/group.go:413"
+    "internal/store/audit.go:110-139",
+    "internal/store/user.go:170-175",
+    "internal/store/user.go:180-181",
+    "internal/store/user.go:271",
+    "internal/store/user.go:307",
+    "internal/store/user.go:315",
+    "internal/store/user.go:365-370",
+    "internal/store/user.go:406",
+    "internal/store/group.go:228-240",
+    "internal/store/group.go:344",
+    "internal/store/group.go:376",
+    "internal/store/group.go:389",
+    "internal/store/group.go:417-429",
+    "internal/store/group.go:467",
+    "internal/scim/handler.go:546-558",
+    "internal/scim/userstore.go:34-37",
+    "internal/scim/groupstore.go:23"
    ],
    "file": ".claude/knowledge/nodes/gotcha-refused-mutation-audit-best-effort.md"
   },
@@ -1122,9 +1207,11 @@
    ],
    "sources": [
     "internal/scim/models.go:20-47",
-    "internal/scim/patch.go:44-49",
-    "internal/scim/handler.go:536-540",
-    "internal/scim/handler.go:186-190"
+    "internal/scim/models.go:71-73",
+    "internal/scim/models.go:99-108",
+    "internal/scim/patch.go:48-50",
+    "internal/scim/handler.go:573-575",
+    "internal/scim/handler.go:193"
    ],
    "file": ".claude/knowledge/nodes/gotcha-scim-idp-quirks.md"
   },
@@ -1137,17 +1224,17 @@
     "gotcha",
     "tenant",
     "path",
-    "escaping",
-    "PathValue",
-    "percent-encoding",
-    "security",
+    "escaped path",
+    "routing",
+    "auth",
     "mux",
-    "tenantID"
+    "PathValue"
    ],
    "sources": [
-    "internal/scim/auth.go:73-78",
-    "internal/scim/auth.go:118-139",
-    "internal/scim/handler.go:58-62"
+    "internal/scim/auth.go:99-102",
+    "internal/scim/auth.go:132-133",
+    "internal/scim/auth.go:150-165",
+    "internal/scim/handler.go:60-70"
    ],
    "file": ".claude/knowledge/nodes/gotcha-scim-tenant-path-parsing.md"
   },
@@ -1167,9 +1254,9 @@
     "429"
    ],
    "sources": [
-    "internal/scim/ratelimit.go:68-72",
-    "internal/scim/handler.go:94-98",
-    "internal/scim/auth.go:84-93"
+    "internal/scim/ratelimit.go:84-88",
+    "internal/scim/handler.go:93-98",
+    "internal/scim/auth.go:98-117"
    ],
    "file": ".claude/knowledge/nodes/gotcha-scim-unauthenticated-not-limited.md"
   },
@@ -1216,10 +1303,11 @@
     "batch"
    ],
    "sources": [
-    "internal/webhook/dispatcher.go:185-200",
-    "internal/webhook/dispatcher.go:254-258",
+    "internal/webhook/dispatcher.go:189-200",
+    "internal/webhook/dispatcher.go:254-265",
     "internal/store/outbox.go:77-83",
-    "internal/store/outbox.go:179-198"
+    "internal/store/outbox.go:189-198",
+    "internal/webhook/signer.go:20-22"
    ],
    "file": ".claude/knowledge/nodes/gotcha-webhook-lease-covers-batch.md"
   },
@@ -1242,7 +1330,7 @@
     "store mapping"
    ],
    "sources": [
-    "internal/scim/models.go:10-124",
+    "internal/scim/models.go:10-125",
     "internal/scim/mapper.go:11-116"
    ],
    "file": ".claude/knowledge/nodes/model-scim-resources.md"
@@ -1391,10 +1479,11 @@
     "internal/scim"
    ],
    "sources": [
-    "internal/scim/handler.go:1-104",
-    "internal/scim/auth.go:1-151",
-    "internal/scim/userstore.go:1-47",
-    "internal/scim/groupstore.go:1-25"
+    "internal/scim/handler.go:20-98",
+    "internal/scim/auth.go:45-117",
+    "internal/scim/userstore.go:24-51",
+    "internal/scim/groupstore.go:13-26",
+    "internal/scim/attributestore.go:14-18"
    ],
    "file": ".claude/knowledge/nodes/module-scim.md"
   },
@@ -1418,12 +1507,15 @@
     "FOR UPDATE",
     "FOR NO KEY UPDATE",
     "concurrency",
-    "patch"
+    "patch",
+    "externalId",
+    "duplicate",
+    "refusal"
    ],
    "sources": [
-    "internal/store/store.go:1-149",
+    "internal/store/store.go:1-152",
     "internal/store/user.go:1-99",
-    "internal/store/group.go:1-30",
+    "internal/store/group.go:1-36",
     "internal/store/audit.go:1-60",
     "internal/store/outbox.go:1-70",
     "internal/store/patch_test.go:1-50"
@@ -1513,9 +1605,10 @@
    "sources": [
     "Dockerfile:1-28",
     "docker-compose.yml:1-20",
+    "Makefile:32-56",
     "scripts/migrate.sh:56-87",
-    "scripts/with-env.sh:12-17",
-    "README.md:210-233"
+    "scripts/with-env.sh:12-21",
+    "README.md:212-235"
    ],
    "file": ".claude/knowledge/nodes/workflow-docker.md"
   },
@@ -1627,6 +1720,11 @@
   {
    "from": "api-scim-errors",
    "to": "gotcha-scim-idp-quirks",
+   "type": "related"
+  },
+  {
+   "from": "api-scim-errors",
+   "to": "gotcha-refused-mutation-audit-best-effort",
    "type": "related"
   },
   {
@@ -1890,6 +1988,11 @@
    "type": "related"
   },
   {
+   "from": "component-scim-auth",
+   "to": "data-model-tenants-tokens",
+   "type": "related"
+  },
+  {
    "from": "component-scim-extended-attributes",
    "to": "module-scim",
    "type": "implements"
@@ -1990,6 +2093,11 @@
    "type": "related"
   },
   {
+   "from": "data-model-core-users-groups",
+   "to": "api-scim-errors",
+   "type": "related"
+  },
+  {
    "from": "data-model-tenants-tokens",
    "to": "decision-token-hashing",
    "type": "related"
@@ -2022,6 +2130,11 @@
   {
    "from": "data-model-webhook-outbox",
    "to": "module-store",
+   "type": "related"
+  },
+  {
+   "from": "data-model-webhook-outbox",
+   "to": "gotcha-webhook-lease-covers-batch",
    "type": "related"
   },
   {
@@ -2240,6 +2353,11 @@
    "type": "related"
   },
   {
+   "from": "decision-token-hashing",
+   "to": "decision-credentials-issued-by-cli",
+   "type": "related"
+  },
+  {
    "from": "decision-user-soft-delete",
    "to": "data-model-core-users-groups",
    "type": "related"
@@ -2292,6 +2410,16 @@
   {
    "from": "doc-readme",
    "to": "workflow-docker",
+   "type": "related"
+  },
+  {
+   "from": "doc-readme",
+   "to": "api-scim-errors",
+   "type": "related"
+  },
+  {
+   "from": "doc-readme",
+   "to": "gotcha-console-docker-bind-address",
    "type": "related"
   },
   {
@@ -2505,6 +2633,16 @@
    "type": "related"
   },
   {
+   "from": "gotcha-refused-mutation-audit-best-effort",
+   "to": "api-scim-errors",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-refused-mutation-audit-best-effort",
+   "to": "module-scim",
+   "type": "related"
+  },
+  {
    "from": "gotcha-request-body-logging-opt-in",
    "to": "module-logging",
    "type": "related"
@@ -2536,12 +2674,12 @@
   },
   {
    "from": "gotcha-scim-tenant-path-parsing",
-   "to": "module-scim",
+   "to": "api-scim-routes",
    "type": "related"
   },
   {
    "from": "gotcha-scim-tenant-path-parsing",
-   "to": "api-scim-routes",
+   "to": "decision-tenant-scoping",
    "type": "related"
   },
   {
@@ -2582,11 +2720,6 @@
   {
    "from": "gotcha-webhook-lease-covers-batch",
    "to": "data-model-webhook-outbox",
-   "type": "related"
-  },
-  {
-   "from": "gotcha-webhook-lease-covers-batch",
-   "to": "decision-webhook-retry-classification",
    "type": "related"
   },
   {
@@ -2846,6 +2979,11 @@
   },
   {
    "from": "module-store",
+   "to": "api-scim-errors",
+   "type": "related"
+  },
+  {
+   "from": "module-store",
    "to": "workflow-migrations",
    "type": "related"
   },
@@ -2936,12 +3074,12 @@
   },
   {
    "from": "workflow-docker",
-   "to": "gotcha-container-log-dir",
+   "to": "gotcha-console-docker-bind-address",
    "type": "related"
   },
   {
    "from": "workflow-docker",
-   "to": "gotcha-console-docker-bind-address",
+   "to": "doc-readme",
    "type": "related"
   },
   {

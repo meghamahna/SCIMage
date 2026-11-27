@@ -2,20 +2,23 @@
 id: component-scim-ratelimit
 kind: module
 title: SCIM per-caller rate limiter
-summary: Token-bucket limiter keyed by tenant and key id, placed after auth; 429 tooMany on excess; env-tunable
-tags: [rate limit, ratelimit, throttle, token bucket, 429, retry-after, dos, SCIM_RATE_LIMIT, burst]
+summary: Token-bucket limiter keyed by tenant and key id, placed after auth; 429 tooMany on excess with one Warn log line; env-tunable
+tags: [rate limit, ratelimit, throttle, token bucket, 429, retry-after, dos, SCIM_RATE_LIMIT, SCIM_RATE_BURST, burst, logging, warn]
 links: [implements:module-scim, depends_on:component-scim-auth, related:gotcha-scim-unauthenticated-not-limited, related:api-scim-errors]
-sources: [internal/scim/ratelimit.go:1-87, internal/scim/handler.go:94-98]
+sources: [internal/scim/ratelimit.go:1-109, internal/scim/handler.go:93-98]
 updated: 2026-11-26
-verified_commit: 78e4d28
+verified_commit: 0761c5b
 ---
 ## Facts
-- Token bucket per caller using golang.org/x/time/rate, one bucket per map key → internal/scim/ratelimit.go:1-12, internal/scim/ratelimit.go:22-27, internal/scim/ratelimit.go:56-70
-- Key is TenantID + "/" + KeyID from the authenticated identity → internal/scim/ratelimit.go:80
-- Defaults: 20 requests/s sustained, burst 40 → internal/scim/ratelimit.go:14-17
-- SCIM_RATE_LIMIT sets the rate; a value of 0 or less disables limiting (nil limiter passes through) → internal/scim/ratelimit.go:37-46, internal/scim/ratelimit.go:73-76
-- SCIM_RATE_BURST sets burst (falls back to default when unset or invalid) → internal/scim/ratelimit.go:45, internal/scim/ratelimit.go:48-54
-- Over-limit requests get 429 with Retry-After: 1 and SCIM error tooMany → internal/scim/ratelimit.go:80-83
-- Sits after requireToken in the chain, so only authenticated callers consume budget → internal/scim/handler.go:94-98
-- Bucket map is never pruned; one entry per distinct tenant+key seen → internal/scim/ratelimit.go:56-62
-- Doc comment on the struct says "keyed by token fingerprint"; the code keys by tenant and key id → internal/scim/ratelimit.go:19-21, internal/scim/ratelimit.go:80
+- Token bucket per caller using golang.org/x/time/rate; one bucket per key, created on first use → internal/scim/ratelimit.go:23-36, internal/scim/ratelimit.go:57-67
+- Key is TenantID + "/" + KeyID of the authenticated identity → internal/scim/ratelimit.go:96
+- Defaults: 20 requests/s sustained, burst 40 → internal/scim/ratelimit.go:15-18
+- SCIM_RATE_LIMIT sets the rate; 0 or less disables limiting (nil limiter passes through) → internal/scim/ratelimit.go:38-46, internal/scim/ratelimit.go:90-92
+- SCIM_RATE_BURST sets burst; default when unset or invalid → internal/scim/ratelimit.go:46, internal/scim/ratelimit.go:49-55
+- Over-limit requests get 429 with Retry-After: 1 and SCIM error tooMany → internal/scim/ratelimit.go:103-104
+- Each 429 logs one slog Warn, "rate limit exceeded", with key_id, tenant_id, method and path → internal/scim/ratelimit.go:97-102
+- method is the verb when it is a standard one (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS), otherwise "other" → internal/scim/ratelimit.go:73-82
+- path is truncated to maxLoggedPathLen (256) before logging → internal/scim/ratelimit.go:69-71, internal/scim/ratelimit.go:97-100
+- The 429 path makes no store call, so it writes no audit row → internal/scim/ratelimit.go:96-105
+- Sits after requireToken in the chain, so only authenticated callers consume budget → internal/scim/handler.go:93-98
+- Bucket map is never pruned: one entry per distinct tenant and key seen → internal/scim/ratelimit.go:23-28, internal/scim/ratelimit.go:57-64
