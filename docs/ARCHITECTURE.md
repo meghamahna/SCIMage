@@ -148,8 +148,17 @@ empty while nothing is draining it.
 
 The before-image in an audit entry comes from a CTE reading the row in the same
 statement as the `UPDATE`, since `OLD` in `RETURNING` arrived in Postgres 18 and
-this runs on 16. Both halves see one snapshot, so there is no read-then-write gap
-where a concurrent update could slip between them.
+this runs on 16. Every update path locks the row first, inside the same
+transaction, scoped by `tenant_id`, so the before-image is the row as it stood
+when the lock was taken and no concurrent write can land before the commit.
+
+`PATCH` applies its operations after taking that lock. The store methods
+`PatchUser` and `PatchGroup` lock the row, read it, run the handler's patch
+function on what they read, and write the result, all in one transaction. The
+patch function does no I/O. Two concurrent `PATCH` requests to one resource run
+one after the other, so a deactivation or a removed group member is never
+overwritten by a request that read the older state. The server does not support
+`ETag` or `If-Match`.
 
 Refusals are recorded too (a duplicate `userName` or `displayName`, a missing
 user or group, an invalid group member reference), which makes

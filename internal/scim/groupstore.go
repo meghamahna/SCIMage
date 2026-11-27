@@ -15,6 +15,10 @@ type GroupStore interface {
 	GetGroup(ctx context.Context, tenantID, id string) (*store.Group, error)
 	ListGroups(ctx context.Context, tenantID string, limit, offset int, f store.GroupFilter) ([]store.Group, int, error)
 	UpdateGroup(ctx context.Context, tenantID, id string, g *store.Group, rec store.AuditRecord) (*store.GroupChange, error)
+	// PatchGroup has PatchUser's obligation: patch runs with the group,
+	// members included, locked against concurrent writers. An error from
+	// patch must come back wrapped, so errors.As still finds it.
+	PatchGroup(ctx context.Context, tenantID, id string, patch func(*store.Group) (*store.Group, error), rec store.AuditRecord) (*store.GroupChange, error)
 	DeleteGroup(ctx context.Context, tenantID, id string, rec store.AuditRecord) (*store.Group, error)
 }
 

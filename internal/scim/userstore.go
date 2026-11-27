@@ -26,6 +26,10 @@ type UserStore interface {
 	GetUser(ctx context.Context, tenantID, id string) (*store.User, error)
 	ListUsers(ctx context.Context, tenantID string, limit, offset int, f store.UserFilter) ([]store.User, int, error)
 	UpdateUser(ctx context.Context, tenantID, id string, u *store.User, rec store.AuditRecord) (*store.Change, error)
+	// PatchUser must call patch with the user locked against concurrent
+	// writers, and write its result in that same transaction. An error from
+	// patch must come back wrapped, so errors.As still finds it.
+	PatchUser(ctx context.Context, tenantID, id string, patch func(*store.User) (*store.User, error), rec store.AuditRecord) (*store.Change, error)
 	DeactivateUser(ctx context.Context, tenantID, id string, rec store.AuditRecord) (*store.Change, error)
 }
 

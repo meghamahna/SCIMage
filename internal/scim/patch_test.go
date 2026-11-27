@@ -4,9 +4,11 @@ package scim
 // operations real clients send.
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 )
 
@@ -224,4 +226,51 @@ func TestPatchRefusals(t *testing.T) {
 			t.Errorf("scimType = %q, want uniqueness", got)
 		}
 	})
+}
+
+// Member ops in one PATCH fold in order: survivors keep their place and their
+// other attributes, an add skips a value already present, and a value removed
+// then added back goes to the end.
+func TestApplyGroupPatchMemberOrder(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		current []Member
+		ops     string
+		want    []Member
+	}{
+		{"add, remove and add back",
+			[]Member{{Value: "a"}, {Value: "b", Ref: "ref-b"}},
+			`{"op":"add","path":"members","value":[{"value":"c"},{"value":"a"},{"value":"c"}]},
+			 {"op":"remove","path":"members[value eq \"a\"]"},
+			 {"op":"add","path":"members","value":"a"},
+			 {"op":"add","path":"members","value":{"value":"d"}}`,
+			[]Member{{Value: "b", Ref: "ref-b"}, {Value: "c"}, {Value: "a"}, {Value: "d"}}},
+		{"replace keeps repeats until a remove",
+			[]Member{{Value: "a"}},
+			`{"op":"replace","path":"members","value":[{"value":"x"},{"value":"y"},{"value":"x"}]},
+			 {"op":"add","path":"members","value":"x"},
+			 {"op":"remove","path":"members[value eq \"x\"]"},
+			 {"op":"add","path":"members","value":"z"}`,
+			[]Member{{Value: "y"}, {Value: "z"}}},
+		{"remove all, then add",
+			[]Member{{Value: "a"}, {Value: "b"}},
+			`{"op":"remove","path":"members"},
+			 {"op":"add","path":"members","value":"b"}`,
+			[]Member{{Value: "b"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var ops PatchOp
+			if err := json.Unmarshal([]byte(`{"Operations":[`+tc.ops+`]}`), &ops); err != nil {
+				t.Fatalf("decode ops: %v", err)
+			}
+
+			got, err := applyGroupPatch(Group{DisplayName: "eng", Members: tc.current}, ops)
+			if err != nil {
+				t.Fatalf("applyGroupPatch: %v", err)
+			}
+			if !slices.Equal(got.Members, tc.want) {
+				t.Errorf("members = %v, want %v", got.Members, tc.want)
+			}
+		})
+	}
 }

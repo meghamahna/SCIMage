@@ -58,11 +58,7 @@ func (fakeTokenStore) TouchToken(_ context.Context, _ string) error { return nil
 // fakeStore returns what it is told to and records how it was called.
 type fakeStore struct {
 	user *store.User
-
-	// err fails every method, unless failOn names one — a handler path that
-	// calls the store twice can then be driven to the second call.
-	err    error
-	failOn string
+	err  error
 
 	lastCall string
 	gotUser  *store.User
@@ -71,9 +67,6 @@ type fakeStore struct {
 
 func (f *fakeStore) fail(method string) error {
 	f.lastCall = method
-	if f.failOn != "" && f.failOn != method {
-		return nil
-	}
 	return f.err
 }
 
@@ -96,6 +89,21 @@ func (f *fakeStore) ListUsers(_ context.Context, _ string, _, _ int, _ store.Use
 func (f *fakeStore) UpdateUser(_ context.Context, _, _ string, u *store.User, rec store.AuditRecord) (*store.Change, error) {
 	f.gotUser, f.gotRec = u, rec
 	return &store.Change{Before: f.user, After: f.user}, f.fail("UpdateUser")
+}
+
+// PatchUser hands patch the canned user, as the real store hands it the locked
+// row, and records what patch returned.
+func (f *fakeStore) PatchUser(_ context.Context, _, _ string, patch func(*store.User) (*store.User, error), rec store.AuditRecord) (*store.Change, error) {
+	f.gotRec = rec
+	if err := f.fail("PatchUser"); err != nil {
+		return nil, err
+	}
+	u, err := patch(f.user)
+	if err != nil {
+		return nil, err
+	}
+	f.gotUser = u
+	return &store.Change{Before: f.user, After: f.user}, nil
 }
 
 func (f *fakeStore) DeactivateUser(_ context.Context, _, _ string, rec store.AuditRecord) (*store.Change, error) {
@@ -182,12 +190,8 @@ func TestStoreFailureIsAServerErrorWithoutTheCause(t *testing.T) {
 			&fakeStore{err: failure}, "ListUsers"},
 		{"replace", http.MethodPut, "/Users/" + nonexistentID, validUser,
 			&fakeStore{err: failure}, "UpdateUser"},
-		{"patch reading the user", http.MethodPatch, "/Users/" + nonexistentID, patchBody,
-			&fakeStore{err: failure}, "GetUser"},
-		// The read succeeds, so this reaches the write the first patch case
-		// never gets to.
-		{"patch writing the user", http.MethodPatch, "/Users/" + nonexistentID, patchBody,
-			&fakeStore{user: sampleStoreUser(), err: failure, failOn: "UpdateUser"}, "UpdateUser"},
+		{"patch", http.MethodPatch, "/Users/" + nonexistentID, patchBody,
+			&fakeStore{err: failure}, "PatchUser"},
 		{"deactivate", http.MethodDelete, "/Users/" + nonexistentID, "",
 			&fakeStore{err: failure}, "DeactivateUser"},
 	} {
@@ -262,5 +266,31 @@ func TestHandlerServesAUserStoreThatIsNotPostgres(t *testing.T) {
 	}
 	if loc := rr.Header().Get("Location"); loc != wantLocation {
 		t.Errorf("Location header = %q, want %q", loc, wantLocation)
+	}
+}
+
+// PATCH hands the store a callback rather than a user, so an implementation has
+// to run it on its current row and write what it returns, with the audit record.
+func TestHandlerPatchesThroughAUserStoreThatIsNotPostgres(t *testing.T) {
+	fake := &fakeStore{user: sampleStoreUser()}
+
+	rr := request(t, fakeHandler(fake), http.MethodPatch, "/Users/"+fake.user.ID,
+		`{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],`+
+			`"Operations":[{"op":"replace","path":"active","value":false}]}`)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body %s)", rr.Code, http.StatusOK, rr.Body)
+	}
+	if fake.gotUser == nil {
+		t.Fatal("patch did not return a user for the store to write")
+	}
+	if fake.gotUser.Active || fake.gotUser.UserName != fake.user.UserName {
+		t.Errorf("patched user active=%v userName=%q, want inactive %q", fake.gotUser.Active, fake.gotUser.UserName, fake.user.UserName)
+	}
+	if !fake.user.Active {
+		t.Error("patch modified the user it was handed")
+	}
+	if fake.gotRec.TenantID != fakeTenantID || fake.gotRec.ActorToken == "" {
+		t.Errorf("audit record reached the store incomplete: %+v", fake.gotRec)
 	}
 }

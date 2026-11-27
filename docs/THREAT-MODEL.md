@@ -182,10 +182,11 @@ boundary, noted here so an operator can close it.
   pool. That narrows the blast radius; it doesn't throttle the flood itself.
   `/readyz` is likewise unauthenticated and touches the pool on each hit. That
   is standard for a readiness probe, but a load source to be aware of.
-- **Concurrent updates to one user.** `PATCH` reads, folds operations, and writes
-  back in separate statements, so two concurrent changes to the same user could
-  lose one. Provisioning traffic for a single user is serial in practice; making
-  it airtight would require applying operations inside the store transaction.
+- **No optimistic concurrency.** `ETag` and `If-Match` are unsupported, so a
+  client that reads a resource and later sends a `PUT` can overwrite changes made
+  in between. Concurrent `PATCH` requests to one user or group run one after the
+  other, because the store locks the row and applies the operations in its own
+  transaction.
 - **Token and secret custody.** A token is shown once and never recoverable; its
   security after issuance is the holder's. Rotation with overlap exists so a
   suspected-leaked token can be revoked without downtime.

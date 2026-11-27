@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -206,15 +207,16 @@ func applyGroupPatch(current Group, patch PatchOp) (Group, error) {
 		return current, fmt.Errorf("Operations is required")
 	}
 
+	members := newMemberList(current.Members)
 	for _, op := range patch.Operations {
 		var err error
 		switch strings.ToLower(strings.TrimSpace(op.Op)) {
 		case "add":
-			current, err = applyGroupValue(current, op, true)
+			current, err = applyGroupValue(current, members, op, true)
 		case "replace":
-			current, err = applyGroupValue(current, op, false)
+			current, err = applyGroupValue(current, members, op, false)
 		case "remove":
-			current, err = clearGroupPath(current, op.Path)
+			current, err = clearGroupPath(current, members, op.Path)
 		default:
 			err = fmt.Errorf("unsupported op %q", op.Op)
 		}
@@ -223,10 +225,11 @@ func applyGroupPatch(current Group, patch PatchOp) (Group, error) {
 		}
 	}
 
+	current.Members = members.list()
 	return current, nil
 }
 
-func applyGroupValue(g Group, op Operation, isAdd bool) (Group, error) {
+func applyGroupValue(g Group, members *memberList, op Operation, isAdd bool) (Group, error) {
 	if strings.TrimSpace(op.Path) == "" {
 		var attrs map[string]json.RawMessage
 		if err := json.Unmarshal(op.Value, &attrs); err != nil {
@@ -235,17 +238,17 @@ func applyGroupValue(g Group, op Operation, isAdd bool) (Group, error) {
 
 		for path, raw := range attrs {
 			var err error
-			if g, err = setGroupPath(g, path, raw, isAdd); err != nil {
+			if g, err = setGroupPath(g, members, path, raw, isAdd); err != nil {
 				return g, err
 			}
 		}
 		return g, nil
 	}
 
-	return setGroupPath(g, op.Path, op.Value, isAdd)
+	return setGroupPath(g, members, op.Path, op.Value, isAdd)
 }
 
-func setGroupPath(g Group, path string, raw json.RawMessage, isAdd bool) (Group, error) {
+func setGroupPath(g Group, members *memberList, path string, raw json.RawMessage, isAdd bool) (Group, error) {
 	switch key := strings.ToLower(strings.TrimSpace(path)); {
 	case key == "displayname":
 		return g, assignString(&g.DisplayName, raw, path)
@@ -254,7 +257,7 @@ func setGroupPath(g Group, path string, raw json.RawMessage, isAdd bool) (Group,
 		return g, assignString(&g.ExternalID, raw, path)
 
 	case membersPath.MatchString(key):
-		return setMembers(g, raw, isAdd)
+		return g, setMembers(members, raw, isAdd)
 
 	default:
 		return g, fmt.Errorf("path %q: %w", path, errUnsupportedPath)
@@ -265,28 +268,18 @@ func setGroupPath(g Group, path string, raw json.RawMessage, isAdd bool) (Group,
 // either — clients send all these shapes depending on the path form used.
 // Adding dedupes against the existing set rather than erroring on a repeat,
 // since a re-push of the same membership is a common, harmless IdP retry.
-func setMembers(g Group, raw json.RawMessage, isAdd bool) (Group, error) {
+func setMembers(members *memberList, raw json.RawMessage, isAdd bool) error {
 	values, err := decodeMemberValues(raw)
 	if err != nil {
-		return g, err
+		return err
 	}
 
-	if !isAdd {
-		g.Members = toMembers(values)
-		return g, nil
+	if isAdd {
+		members.add(values)
+	} else {
+		members.replace(toMembers(values))
 	}
-
-	seen := make(map[string]bool, len(g.Members))
-	for _, m := range g.Members {
-		seen[m.Value] = true
-	}
-	for _, v := range values {
-		if !seen[v] {
-			seen[v] = true
-			g.Members = append(g.Members, Member{Value: v})
-		}
-	}
-	return g, nil
+	return nil
 }
 
 func toMembers(values []string) []Member {
@@ -331,7 +324,7 @@ func decodeMemberValues(raw json.RawMessage) ([]string, error) {
 // trimmed, not lowered, is what a member id is extracted from below — a
 // case-sensitive external identifier has to survive unchanged even though
 // the path keywords around it are matched case-insensitively.
-func clearGroupPath(g Group, path string) (Group, error) {
+func clearGroupPath(g Group, members *memberList, path string) (Group, error) {
 	trimmed := strings.TrimSpace(path)
 	key := strings.ToLower(trimmed)
 	switch {
@@ -340,13 +333,13 @@ func clearGroupPath(g Group, path string) (Group, error) {
 	case key == "externalid":
 		g.ExternalID = ""
 	case key == "members":
-		g.Members = nil
+		members.replace(nil)
 	case membersPath.MatchString(key):
 		value, ok := filteredMemberValue(trimmed)
 		if !ok {
 			return g, fmt.Errorf("path %q: %w", path, errUnsupportedPath)
 		}
-		g.Members = removeMember(g.Members, value)
+		members.remove(value)
 	default:
 		return g, fmt.Errorf("path %q: %w", path, errUnsupportedPath)
 	}
@@ -361,12 +354,60 @@ func filteredMemberValue(path string) (string, bool) {
 	return m[1], true
 }
 
-func removeMember(members []Member, value string) []Member {
-	var out []Member
+// memberList holds a group's members while one PATCH's ops fold in. A remove
+// records where the value was dropped instead of copying the slice, and list
+// compacts once, so a PATCH is O(ops + members + values), not O(ops x members).
+type memberList struct {
+	entries []Member
+	present map[string]bool
+	// removedAt is len(entries) when a value was last removed: its entries
+	// before that index are gone, and a later add of it lands after.
+	removedAt map[string]int
+}
+
+func newMemberList(members []Member) *memberList {
+	l := &memberList{}
+	l.replace(members)
+	return l
+}
+
+// replace clips members so a later add never writes into the caller's array.
+func (l *memberList) replace(members []Member) {
+	l.entries = slices.Clip(members)
+	l.present = make(map[string]bool, len(members))
 	for _, m := range members {
-		if m.Value != value {
-			out = append(out, m)
+		l.present[m.Value] = true
+	}
+	l.removedAt = nil
+}
+
+func (l *memberList) add(values []string) {
+	for _, v := range values {
+		if !l.present[v] {
+			l.present[v] = true
+			l.entries = append(l.entries, Member{Value: v})
 		}
+	}
+}
+
+func (l *memberList) remove(value string) {
+	if !l.present[value] {
+		return
+	}
+	delete(l.present, value)
+	if l.removedAt == nil {
+		l.removedAt = make(map[string]int)
+	}
+	l.removedAt[value] = len(l.entries)
+}
+
+func (l *memberList) list() []Member {
+	var out []Member
+	for i, m := range l.entries {
+		if at, removed := l.removedAt[m.Value]; removed && i < at {
+			continue
+		}
+		out = append(out, m)
 	}
 	return out
 }

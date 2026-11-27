@@ -77,9 +77,9 @@ type Change struct {
 }
 
 // Postgres only gained OLD/NEW in RETURNING at 18, so on 16 the before-image
-// comes from a CTE reading the row in the same statement as the UPDATE. Both
-// sub-statements see one snapshot, so this is atomic — no read-then-write gap
-// where a concurrent update could slip between the two halves of an audit entry.
+// comes from a CTE reading the row in the same statement as the UPDATE. Every
+// writer takes lockUserTx first, so that statement's snapshot already holds any
+// write it queued behind and the before-image is the row it actually replaces.
 var (
 	beforeColumns = qualify("b")
 	afterColumns  = qualify("a")
@@ -254,6 +254,84 @@ func (s *Store) ListUsers(ctx context.Context, tenantID string, limit, offset in
 // left alone; updated_at is set here rather than by a trigger. It returns both
 // images so the audit log records what actually changed.
 func (s *Store) UpdateUser(ctx context.Context, tenantID, id string, u *User, rec AuditRecord) (*Change, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("update user %q: begin: %w", id, err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
+
+	if _, err := lockUserTx(ctx, tx, tenantID, id); err != nil {
+		if isMissingRow(err) {
+			s.auditRefusal(ctx, rec, ResourceUser, ActionReplace, id, "no such user")
+			return nil, fmt.Errorf("update user %q: %w", id, ErrNotFound)
+		}
+		return nil, fmt.Errorf("update user %q: %w", id, err)
+	}
+
+	change, err := s.replaceUserTx(ctx, tx, tenantID, id, u, rec)
+	if err != nil {
+		return nil, fmt.Errorf("update user %q: %w", id, err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("update user %q: commit: %w", id, err)
+	}
+	return change, nil
+}
+
+// PatchUser is PATCH /Users/{id}: patch turns the current user into its full
+// replacement while the row is locked, so concurrent writes to one user apply
+// one after the other and none writes back a stale read (a lost active=false
+// would silently reactivate a deprovisioned user).
+//
+// patch runs inside the transaction: it must do no I/O and must not modify its
+// argument. An error from it refuses the PATCH and is returned wrapped, with
+// nothing written. A missing user is ErrNotFound with no refusal entry.
+func (s *Store) PatchUser(ctx context.Context, tenantID, id string, patch func(*User) (*User, error), rec AuditRecord) (*Change, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("patch user %q: begin: %w", id, err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
+
+	current, err := lockUserTx(ctx, tx, tenantID, id)
+	if err != nil {
+		if isMissingRow(err) {
+			return nil, fmt.Errorf("patch user %q: %w", id, ErrNotFound)
+		}
+		return nil, fmt.Errorf("patch user %q: %w", id, err)
+	}
+
+	u, err := patch(current)
+	if err != nil {
+		return nil, fmt.Errorf("patch user %q: %w", id, err)
+	}
+
+	change, err := s.replaceUserTx(ctx, tx, tenantID, id, u, rec)
+	if err != nil {
+		return nil, fmt.Errorf("patch user %q: %w", id, err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("patch user %q: commit: %w", id, err)
+	}
+	return change, nil
+}
+
+// lockUserTx reads a user and locks its row until the transaction ends. Every
+// user writer takes it before its UPDATE. FOR NO KEY UPDATE, not FOR UPDATE:
+// a group write key-share-locks each member's row through the group_members
+// foreign key, and FOR UPDATE would make user and group writes wait on each
+// other.
+func lockUserTx(ctx context.Context, tx pgx.Tx, tenantID, id string) (*User, error) {
+	const q = `SELECT ` + userColumns + ` FROM users WHERE tenant_id = $1 AND id = $2 FOR NO KEY UPDATE`
+	return scanUser(tx.QueryRow(ctx, q, tenantID, id))
+}
+
+// replaceUserTx writes u over the user the caller locked, with its audit entry
+// and change event, inside the caller's transaction. PATCH records the same
+// replace action a PUT does.
+func (s *Store) replaceUserTx(ctx context.Context, tx pgx.Tx, tenantID, id string, u *User, rec AuditRecord) (*Change, error) {
 	q := `WITH b AS (
 	          SELECT ` + userColumns + ` FROM users WHERE tenant_id = $1 AND id = $2
 	      ), a AS (
@@ -271,37 +349,22 @@ func (s *Store) UpdateUser(ctx context.Context, tenantID, id string, u *User, re
 	      )
 	      SELECT ` + beforeColumns + `, ` + afterColumns + ` FROM b, a`
 
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("update user %q: begin: %w", id, err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
-
 	change, err := scanChange(tx.QueryRow(ctx, q,
 		tenantID, id, u.UserName, u.ExternalID, u.GivenName, u.FamilyName, u.Email, u.Active, jsonbParam(u.ExtendedAttributes)))
 	if err != nil {
-		switch {
-		case isMissingRow(err):
-			s.auditRefusal(ctx, rec, ResourceUser, ActionReplace, id, "no such user")
-			return nil, fmt.Errorf("update user %q: %w", id, ErrNotFound)
-		case isUniqueViolation(err):
+		if isUniqueViolation(err) {
 			s.auditRefusal(ctx, rec, ResourceUser, ActionReplace, id, "duplicate userName")
-			return nil, fmt.Errorf("update user %q: %w", id, ErrDuplicateUserName)
-		default:
-			return nil, fmt.Errorf("update user %q: %w", id, err)
+			return nil, ErrDuplicateUserName
 		}
+		return nil, err
 	}
 
 	if err := insertAudit(ctx, tx, rec, ResourceUser, ActionReplace, id, ResultSuccess, "", change.Before, change.After); err != nil {
-		return nil, fmt.Errorf("update user %q: %w", id, err)
+		return nil, err
 	}
 
 	if err := s.enqueueChange(ctx, tx, tenantID, changeEventType(change.Before, change.After), id, change.Before, change.After); err != nil {
-		return nil, fmt.Errorf("update user %q: %w", id, err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("update user %q: commit: %w", id, err)
+		return nil, err
 	}
 	return change, nil
 }
@@ -325,12 +388,16 @@ func (s *Store) DeactivateUser(ctx context.Context, tenantID, id string, rec Aud
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
 
-	change, err := scanChange(tx.QueryRow(ctx, q, tenantID, id))
-	if err != nil {
+	if _, err := lockUserTx(ctx, tx, tenantID, id); err != nil {
 		if isMissingRow(err) {
 			s.auditRefusal(ctx, rec, ResourceUser, ActionDeactivate, id, "no such user")
 			return nil, fmt.Errorf("deactivate user %q: %w", id, ErrNotFound)
 		}
+		return nil, fmt.Errorf("deactivate user %q: %w", id, err)
+	}
+
+	change, err := scanChange(tx.QueryRow(ctx, q, tenantID, id))
+	if err != nil {
 		return nil, fmt.Errorf("deactivate user %q: %w", id, err)
 	}
 

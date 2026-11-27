@@ -29,8 +29,8 @@ const (
 
 // Group events. A membership PATCH rides on EventGroupReplaced the same way
 // PATCH active:false rides on EventUserReplaced/EventUserDeactivated above —
-// PATCH funnels through UpdateGroup's full replace, so there is no separate
-// membership-change event to classify.
+// PatchGroup writes the patched group as a full replace, so there is no
+// separate membership-change event to classify.
 const (
 	EventGroupCreated  = "group.created"
 	EventGroupReplaced = "group.replaced"

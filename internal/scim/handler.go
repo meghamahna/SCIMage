@@ -213,15 +213,36 @@ func (h *Handler) replace(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, shapeUser(fromStoreUser(changed.After, h.baseURL(r)), changed.After.ExtendedAttributes))
 }
 
-// PATCH applies a set of operations to the stored resource. It reads the
-// current row, folds the operations onto it, and writes the result back through
-// the same full-replace path a PUT uses — so a partial update still gets the
-// audit entry and the uniqueness checks.
-//
-// The read and the write are separate statements, so a concurrent change to the
-// same user between them would be overwritten. Provisioning traffic for one user
-// is serial in practice; making this airtight needs the operations applied
-// inside the store's transaction.
+// patchRefusal is a 400 decided inside a store PATCH callback. It travels back
+// through the store's wrapped error so the handler can write it unchanged.
+type patchRefusal struct {
+	scimType, detail string
+}
+
+func (e *patchRefusal) Error() string { return e.detail }
+
+func refuseOps(err error) *patchRefusal {
+	scimType := "invalidValue"
+	if errors.Is(err, errUnsupportedPath) {
+		scimType = "invalidPath"
+	}
+	return &patchRefusal{scimType: scimType, detail: err.Error()}
+}
+
+func writePatchRefusal(w http.ResponseWriter, err error) bool {
+	var refusal *patchRefusal
+	if !errors.As(err, &refusal) {
+		return false
+	}
+	writeError(w, http.StatusBadRequest, refusal.scimType, refusal.detail)
+	return true
+}
+
+// PATCH applies a set of operations to the stored resource and writes the
+// result through the same replace a PUT uses, so a partial update still gets
+// the audit entry and the uniqueness checks. The operations are applied to the
+// row the store has locked, so concurrent PATCHes to one user each see the
+// previous one's result and none is lost.
 func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 	tenantID, id := r.PathValue("tenantID"), r.PathValue("id")
 
@@ -230,16 +251,6 @@ func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 	var ops PatchOp
 	if err := json.NewDecoder(r.Body).Decode(&ops); err != nil {
 		writeError(w, http.StatusBadRequest, "invalidSyntax", "request body is not valid JSON")
-		return
-	}
-
-	existing, err := h.store.GetUser(r.Context(), tenantID, id)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			notFound(w)
-			return
-		}
-		serverError(w, "get user for patch", err)
 		return
 	}
 
@@ -258,38 +269,40 @@ func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	current := fromStoreUser(existing, h.baseURL(r))
-	patched := current
-	// Run the core PATCH when there are core ops, or when there are no
-	// extended ops either — the latter lets applyPatch report an empty
-	// Operations list, so an extended-only patch is the only case that skips it.
-	if len(coreOps.Operations) > 0 || len(extOps) == 0 {
-		patched, err = applyPatch(current, coreOps)
-		if err != nil {
-			scimType := "invalidValue"
-			if errors.Is(err, errUnsupportedPath) {
-				scimType = "invalidPath"
+	base := h.baseURL(r)
+	apply := func(existing *store.User) (*store.User, error) {
+		current := fromStoreUser(existing, base)
+		patched := current
+		// Run the core PATCH when there are core ops, or when there are no
+		// extended ops either — the latter lets applyPatch report an empty
+		// Operations list, so an extended-only patch is the only case that skips it.
+		if len(coreOps.Operations) > 0 || len(extOps) == 0 {
+			p, err := applyPatch(current, coreOps)
+			if err != nil {
+				return nil, refuseOps(err)
 			}
-			writeError(w, http.StatusBadRequest, scimType, err.Error())
+			patched = p
+		}
+
+		if detail := validate(patched); detail != "" {
+			return nil, &patchRefusal{scimType: "invalidValue", detail: detail}
+		}
+
+		newExtended, err := applyExtendedOps(existing.ExtendedAttributes, extOps)
+		if err != nil {
+			return nil, &patchRefusal{scimType: "invalidValue", detail: "an extended attribute value is not valid JSON"}
+		}
+
+		su := toStoreUser(patched)
+		su.ExtendedAttributes = newExtended
+		return &su, nil
+	}
+
+	changed, err := h.store.PatchUser(r.Context(), tenantID, id, apply, h.auditRecord(r))
+	if err != nil {
+		if writePatchRefusal(w, err) {
 			return
 		}
-	}
-
-	if detail := validate(patched); detail != "" {
-		writeError(w, http.StatusBadRequest, "invalidValue", detail)
-		return
-	}
-
-	newExtended, err := applyExtendedOps(existing.ExtendedAttributes, extOps)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalidValue", "an extended attribute value is not valid JSON")
-		return
-	}
-
-	su := toStoreUser(patched)
-	su.ExtendedAttributes = newExtended
-	changed, err := h.store.UpdateUser(r.Context(), tenantID, id, &su, h.auditRecord(r))
-	if err != nil {
 		switch {
 		case errors.Is(err, store.ErrNotFound):
 			notFound(w)
@@ -301,7 +314,7 @@ func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, shapeUser(fromStoreUser(changed.After, h.baseURL(r)), changed.After.ExtendedAttributes))
+	writeJSON(w, http.StatusOK, shapeUser(fromStoreUser(changed.After, base), changed.After.ExtendedAttributes))
 }
 
 // DELETE is a soft delete: the row survives with active=false.
@@ -402,10 +415,10 @@ func (h *Handler) replaceGroup(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, shapeGroup(fromStoreGroup(changed.After, h.baseURL(r)), !membersExcluded(r)))
 }
 
-// patchGroup mirrors patch: read the current resource, fold the operations
-// onto it, and write the result back through the same full-replace path a
-// PUT uses — membership included, so a member add/remove gets the same
-// audit entry and uniqueness checks a whole-resource replace does.
+// patchGroup mirrors patch: the operations are folded onto the group the
+// store has locked, membership included, and written through the same replace
+// a PUT uses. Concurrent member adds and removes on one group therefore apply
+// in turn, and a removed member cannot be written back by a stale read.
 func (h *Handler) patchGroup(w http.ResponseWriter, r *http.Request) {
 	tenantID, id := r.PathValue("tenantID"), r.PathValue("id")
 
@@ -417,35 +430,30 @@ func (h *Handler) patchGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	existing, err := h.groups.GetGroup(r.Context(), tenantID, id)
-	if err != nil {
-		writeGroupError(w, "get group for patch", err)
-		return
-	}
-
-	patched, err := applyGroupPatch(fromStoreGroup(existing, h.baseURL(r)), ops)
-	if err != nil {
-		scimType := "invalidValue"
-		if errors.Is(err, errUnsupportedPath) {
-			scimType = "invalidPath"
+	base := h.baseURL(r)
+	apply := func(existing *store.Group) (*store.Group, error) {
+		patched, err := applyGroupPatch(fromStoreGroup(existing, base), ops)
+		if err != nil {
+			return nil, refuseOps(err)
 		}
-		writeError(w, http.StatusBadRequest, scimType, err.Error())
-		return
+
+		if detail := validateGroup(patched); detail != "" {
+			return nil, &patchRefusal{scimType: "invalidValue", detail: detail}
+		}
+
+		sg := toStoreGroup(patched)
+		return &sg, nil
 	}
 
-	if detail := validateGroup(patched); detail != "" {
-		writeError(w, http.StatusBadRequest, "invalidValue", detail)
-		return
-	}
-
-	sg := toStoreGroup(patched)
-	changed, err := h.groups.UpdateGroup(r.Context(), tenantID, id, &sg, h.auditRecord(r))
+	changed, err := h.groups.PatchGroup(r.Context(), tenantID, id, apply, h.auditRecord(r))
 	if err != nil {
-		writeGroupError(w, "patch group", err)
+		if !writePatchRefusal(w, err) {
+			writeGroupError(w, "patch group", err)
+		}
 		return
 	}
 
-	writeJSON(w, http.StatusOK, shapeGroup(fromStoreGroup(changed.After, h.baseURL(r)), !membersExcluded(r)))
+	writeJSON(w, http.StatusOK, shapeGroup(fromStoreGroup(changed.After, base), !membersExcluded(r)))
 }
 
 // deleteGroup is a hard delete: unlike Users, the Group schema has no active

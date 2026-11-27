@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -178,9 +179,15 @@ func dedupeNonEmpty(in []string) []string {
 }
 
 // getGroupTx reads a group and its membership inside an already-open
-// transaction, for the before-image UpdateGroup and DeleteGroup need.
+// transaction, for the before-image UpdateGroup, PatchGroup and DeleteGroup
+// need. It locks the group row first: every membership writer goes through
+// here, so the lock serializes them and the members read after it stay current
+// until commit. The membership write then key-share-locks each member's users
+// row through the foreign key, which user writers' FOR NO KEY UPDATE does not
+// conflict with; with one group row per transaction, taken first, no lock
+// cycle can form.
 func getGroupTx(ctx context.Context, tx pgx.Tx, tenantID, id string) (*Group, error) {
-	const q = `SELECT ` + groupColumns + ` FROM groups WHERE tenant_id = $1 AND id = $2`
+	const q = `SELECT ` + groupColumns + ` FROM groups WHERE tenant_id = $1 AND id = $2 FOR UPDATE`
 
 	g, err := scanGroup(tx.QueryRow(ctx, q, tenantID, id))
 	if err != nil {
@@ -316,8 +323,7 @@ func (s *Store) ListGroups(ctx context.Context, tenantID string, limit, offset i
 
 // UpdateGroup is the full replace behind PUT /Groups/{id}: it replaces
 // displayName/externalId and the entire membership set in one transaction,
-// so a PATCH funnelled through here (the same pattern PATCH /Users/{id}
-// uses) gets one audit entry covering both.
+// so one audit entry covers both.
 func (s *Store) UpdateGroup(ctx context.Context, tenantID, id string, g *Group, rec AuditRecord) (*GroupChange, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -333,42 +339,94 @@ func (s *Store) UpdateGroup(ctx context.Context, tenantID, id string, g *Group, 
 		return nil, fmt.Errorf("update group %q: %w", id, err)
 	}
 
+	change, err := s.replaceGroupTx(ctx, tx, tenantID, before, g, rec)
+	if err != nil {
+		return nil, fmt.Errorf("update group %q: %w", id, err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("update group %q: commit: %w", id, err)
+	}
+	return change, nil
+}
+
+// PatchGroup is PATCH /Groups/{id}, with PatchUser's contract: patch turns the
+// locked current group, members included, into its full replacement, so
+// concurrent membership PATCHes apply one after the other and a removed member
+// is never written back by a request that read the old list. A missing group
+// is ErrGroupNotFound with no refusal entry. patch is handed a copy, so nothing
+// it does can alter the audit before-image.
+func (s *Store) PatchGroup(ctx context.Context, tenantID, id string, patch func(*Group) (*Group, error), rec AuditRecord) (*GroupChange, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("patch group %q: begin: %w", id, err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
+
+	before, err := getGroupTx(ctx, tx, tenantID, id)
+	if err != nil {
+		return nil, fmt.Errorf("patch group %q: %w", id, err)
+	}
+
+	current := *before
+	current.Members = slices.Clone(before.Members)
+	if before.ExternalID != nil {
+		externalID := *before.ExternalID
+		current.ExternalID = &externalID
+	}
+	g, err := patch(&current)
+	if err != nil {
+		return nil, fmt.Errorf("patch group %q: %w", id, err)
+	}
+
+	change, err := s.replaceGroupTx(ctx, tx, tenantID, before, g, rec)
+	if err != nil {
+		return nil, fmt.Errorf("patch group %q: %w", id, err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("patch group %q: commit: %w", id, err)
+	}
+	return change, nil
+}
+
+// replaceGroupTx writes g over before, the group getGroupTx locked, with its
+// audit entry and change event, inside the caller's transaction. PATCH records
+// the same replace action a PUT does.
+func (s *Store) replaceGroupTx(ctx context.Context, tx pgx.Tx, tenantID string, before, g *Group, rec AuditRecord) (*GroupChange, error) {
 	const q = `UPDATE groups SET display_name = $3, external_id = $4, updated_at = now()
 	           WHERE tenant_id = $1 AND id = $2
 	           RETURNING ` + groupColumns
 
+	id := before.ID
 	after, err := scanGroup(tx.QueryRow(ctx, q, tenantID, id, g.DisplayName, g.ExternalID))
 	if err != nil {
 		if isUniqueViolationOn(err, uniqueGroupNameIndex) {
 			s.auditRefusal(ctx, rec, ResourceGroup, ActionReplace, id, "duplicate displayName")
-			return nil, fmt.Errorf("update group %q: %w", id, ErrDuplicateGroupName)
+			return nil, ErrDuplicateGroupName
 		}
-		return nil, fmt.Errorf("update group %q: %w", id, err)
+		return nil, err
 	}
 
 	if err := replaceMembers(ctx, tx, tenantID, id, g.Members); err != nil {
 		if errors.Is(err, ErrInvalidMember) {
 			s.auditRefusal(ctx, rec, ResourceGroup, ActionReplace, id, "invalid member reference")
 		}
-		return nil, fmt.Errorf("update group %q: %w", id, err)
+		return nil, err
 	}
 
 	members, err := fetchMembers(ctx, tx, id)
 	if err != nil {
-		return nil, fmt.Errorf("update group %q: %w", id, err)
+		return nil, err
 	}
 	after.Members = members
 
 	if err := insertAudit(ctx, tx, rec, ResourceGroup, ActionReplace, id, ResultSuccess, "", before, after); err != nil {
-		return nil, fmt.Errorf("update group %q: %w", id, err)
+		return nil, err
 	}
 
 	if err := s.enqueueGroupChange(ctx, tx, tenantID, EventGroupReplaced, id, before, after); err != nil {
-		return nil, fmt.Errorf("update group %q: %w", id, err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("update group %q: commit: %w", id, err)
+		return nil, err
 	}
 	return &GroupChange{Before: before, After: after}, nil
 }
