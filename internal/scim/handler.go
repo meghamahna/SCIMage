@@ -93,9 +93,9 @@ func (h *Handler) Routes() http.Handler {
 	// Throttle inside auth, so each authenticated caller has its own budget.
 	// The timeout wraps auth too, so a hung token lookup can't hold a
 	// connection (and this goroutine) open forever. Request logging wraps the
-	// outside, to record what a client actually sent including the calls auth
-	// rejects.
-	return logRequests(withTimeout(requestTimeoutFromEnv())(requireToken(h.tokens)(h.limiter.throttle(mux))))
+	// outside, so calls auth rejects still get a line; the body is captured
+	// inside auth, so only an authenticated caller's body is ever logged.
+	return logRequests(withTimeout(requestTimeoutFromEnv())(requireToken(h.tokens)(captureBody(h.limiter.throttle(mux)))))
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {

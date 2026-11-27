@@ -82,10 +82,21 @@ transaction as the requeue.
 | `LOG_LEVEL` | `debug`, `info`, `warn` or `error`. Defaults to `info`. |
 | `SCIM_LOG_REQUESTS` | Set to `1` to record request bodies. Off by default. |
 
-`SCIM_LOG_REQUESTS=1` records full request bodies, which is how a client's actual
-behaviour gets diagnosed. Those entries carry user attributes, so the directory
-is created `0700` and files `0600`. In a container, set `LOG_DIR=` empty and let
-the runtime collect stdout.
+`SCIM_LOG_REQUESTS=1` records the body, query string and user agent of each
+authenticated request, which is how a client's actual behaviour gets diagnosed.
+Attribute names are compared ignoring case and punctuation, and values of
+attributes whose names contain `password`, `passwd`, `pwd`, `passphrase`,
+`secret`, `token`, `apikey`, `privatekey` or `credential` are replaced with
+`[redacted]`, as is every value in a PATCH operation that targets one or whose
+`path` isn't a string. A body that isn't valid JSON or is over 64 KiB is
+recorded by size only, a body over the request limit is recorded as
+`body_over_limit` with no content, and each logged body is cut at 2 KB. Query
+strings are recorded as sent, without redaction. A request that fails
+authentication gets its method, path and status only, with the method cut at 16
+bytes and the path at 256 bytes. The `Authorization` header is never recorded.
+Entries carry user attributes, so
+treat the logs as sensitive: the directory is created `0700` and files `0600`.
+In a container, set `LOG_DIR=` empty and let the runtime collect stdout.
 
 ## 🧬 Extensible attributes
 
