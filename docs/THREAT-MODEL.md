@@ -153,9 +153,14 @@ receiver. Each is an assumption listed at the end.
   token and stored only as `sha256(secret)`. It's compared with
   `crypto/subtle.ConstantTimeCompare` and accepted as an HTTP Basic password or a
   Bearer header. Issue, list and revoke it with `scimage-admin console-token`.
-- **Cross-site request forgery.** Every mutating route carries a stateless signed
-  CSRF token, so a request the operator didn't initiate can't drive a change
-  through their authenticated session.
+- **Cross-site request forgery.** Browsers re-send Basic credentials on any
+  request to the console, so a browser POST must come from a console page
+  (checked with `Sec-Fetch-Site`, or `Origin` against the request's host), and
+  clients that send neither header are checked by the token alone. Every POST
+  must carry a stateless signed form token tied to the signed-in console key. A
+  request the operator didn't initiate can't drive a change through their
+  session. A reverse proxy in front of the console must forward the original
+  `Host` header.
 - **Repudiation of console actions.** Console mutations reuse the exact audited
   `store.*` functions the CLI calls, so each one writes its `admin_audit_log`
   entry in the same transaction as the change, no different from a CLI action.

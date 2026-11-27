@@ -224,7 +224,11 @@ so those audit rows carry no tenant. Open `http://<CONSOLE_ADDR>/console` and
 supply the token as the HTTP Basic password (what a browser's login dialog
 prompts for) or an `Authorization: Bearer` header. Every mutating action reuses
 the same `scimage-admin` code paths, so it is audit-logged in the same
-transaction as the change, and carries a stateless CSRF token.
+transaction as the change. A browser POST must come from a console page
+(checked with `Sec-Fetch-Site`, or `Origin` against the request's host), and
+clients that send neither header are checked by the token alone. Every POST
+must carry a form token tied to the signed-in console key. A reverse proxy in
+front of the console must forward the original `Host` header.
 
 ## 🔀 Console UI or CLI
 

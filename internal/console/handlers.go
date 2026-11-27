@@ -680,7 +680,7 @@ func (srv *Server) attachARIADeltas(ctx context.Context, in ariaInputs, data *ar
 // stays on /console/aria instead of navigating to /aria/narrate. It's buffered
 // so a template error is a clean 500, not a half-written fragment.
 func (srv *Server) renderARIABrief(w http.ResponseWriter, r *http.Request, in ariaInputs, narrativeErr string) {
-	view := pageView{CSRF: srv.csrf.token(time.Now()), Data: srv.assembleARIAData(in, narrativeErr)}
+	view := pageView{CSRF: srv.csrf.token(identityFrom(r.Context()).KeyID, time.Now()), Data: srv.assembleARIAData(in, narrativeErr)}
 	var buf bytes.Buffer
 	if err := srv.tmpl.ExecuteTemplate(&buf, "aria-brief", view); err != nil {
 		srv.serverError(w, r, fmt.Errorf("render aria-brief: %w", err))
@@ -849,11 +849,23 @@ func byActor(actor string) string {
 // ---- helpers ----
 
 func (srv *Server) checkCSRF(w http.ResponseWriter, r *http.Request) bool {
+	keyID := identityFrom(r.Context()).KeyID
+	// The origin check needs only headers, so a cross-site POST is refused
+	// before its body is parsed.
+	if !sameOrigin(r) {
+		slog.Warn("console csrf refused", "check", "origin", "key_id", keyID, "path", r.URL.Path,
+			"sec_fetch_site", clipHeader(strings.Join(r.Header.Values("Sec-Fetch-Site"), ", ")),
+			"origin", clipHeader(strings.Join(r.Header.Values("Origin"), ", ")),
+			"host", clipHeader(r.Host))
+		http.Error(w, "this request did not come from a console page", http.StatusForbidden)
+		return false
+	}
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "could not parse form", http.StatusBadRequest)
 		return false
 	}
-	if !srv.csrf.valid(r.PostFormValue("csrf"), time.Now()) {
+	if !srv.csrf.valid(r.PostFormValue("csrf"), keyID, time.Now()) {
+		slog.Warn("console csrf refused", "check", "token", "key_id", keyID, "path", r.URL.Path)
 		http.Error(w, "invalid or expired form token — reload the page and try again", http.StatusForbidden)
 		return false
 	}

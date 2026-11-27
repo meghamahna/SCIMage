@@ -23,6 +23,7 @@ type consoleIT struct {
 	srv     *Server
 	store   *store.Store
 	auth    string
+	keyID   string
 	cleanup *pgxpool.Pool
 }
 
@@ -64,7 +65,12 @@ func newConsoleIT(t *testing.T) *consoleIT {
 		pool.Exec(ctx, `DELETE FROM console_tokens WHERE key_id = $1`, tok.KeyID)
 	})
 
-	return &consoleIT{srv: srv, store: s, auth: bearer(plaintext), cleanup: pool}
+	return &consoleIT{srv: srv, store: s, auth: bearer(plaintext), keyID: tok.KeyID, cleanup: pool}
+}
+
+// csrfToken is the form token the console would render for this test's operator.
+func (it *consoleIT) csrfToken() string {
+	return it.srv.csrf.token(it.keyID, time.Now())
 }
 
 // cleanupTenant removes a tenant created during a test and everything under it.
@@ -156,11 +162,51 @@ func TestConsoleCreateTenantRequiresCSRF(t *testing.T) {
 	}
 }
 
+// End to end through the auth middleware: a form token rendered for another
+// operator, or a POST from another site, is refused before the store is touched.
+func TestConsoleCreateTenantRefusesForeignTokenAndOrigin(t *testing.T) {
+	it := newConsoleIT(t)
+
+	for _, tc := range []struct {
+		name   string
+		tok    string
+		origin string
+	}{
+		{"another operator's token", it.srv.csrf.token("ck_someone_else", time.Now()), ""},
+		{"cross-site origin", it.csrfToken(), "https://evil.example.com"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			name := fmt.Sprintf("should-not-be-created-%d", time.Now().UnixNano())
+			form := url.Values{"name": {name}, "csrf": {tc.tok}}
+			req := httptest.NewRequest("POST", "/console/tenants", strings.NewReader(form.Encode()))
+			req.Header.Set("Authorization", it.auth)
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			if tc.origin != "" {
+				req.Header.Set("Origin", tc.origin)
+			}
+			if rec := do(it.srv, req); rec.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, want 403", rec.Code)
+			}
+
+			tenants, err := it.store.ListTenants(context.Background())
+			if err != nil {
+				t.Fatalf("ListTenants: %v", err)
+			}
+			for _, tn := range tenants {
+				if tn.Name == name {
+					it.cleanupTenant(t, tn.ID)
+					t.Fatal("a refused POST created the tenant")
+				}
+			}
+		})
+	}
+}
+
 func TestConsoleCreateTenantSucceeds(t *testing.T) {
 	it := newConsoleIT(t)
 	name := fmt.Sprintf("console-created-%d", time.Now().UnixNano())
 
-	form := url.Values{"name": {name}, "csrf": {it.srv.csrf.token(time.Now())}}
+	form := url.Values{"name": {name}, "csrf": {it.csrfToken()}}
 	rec := authedPost(it.srv, it.auth, "/console/tenants", form)
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("POST create tenant status = %d, want 303", rec.Code)
@@ -204,7 +250,7 @@ func TestConsoleIssueAndRevokeToken(t *testing.T) {
 	it.cleanupTenant(t, tn.ID)
 
 	// Issue: the plaintext is revealed once in the response body.
-	form := url.Values{"tenant": {tn.ID}, "label": {"okta"}, "csrf": {it.srv.csrf.token(time.Now())}}
+	form := url.Values{"tenant": {tn.ID}, "label": {"okta"}, "csrf": {it.csrfToken()}}
 	rec := authedPost(it.srv, it.auth, "/console/tokens/issue", form)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("issue token status = %d, want 200", rec.Code)
@@ -223,7 +269,7 @@ func TestConsoleIssueAndRevokeToken(t *testing.T) {
 	keyID := tokens[0].KeyID
 
 	// Revoke.
-	revForm := url.Values{"tenant": {tn.ID}, "key_id": {keyID}, "csrf": {it.srv.csrf.token(time.Now())}}
+	revForm := url.Values{"tenant": {tn.ID}, "key_id": {keyID}, "csrf": {it.csrfToken()}}
 	rec = authedPost(it.srv, it.auth, "/console/tokens/revoke", revForm)
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("revoke token status = %d, want 303", rec.Code)
@@ -299,7 +345,7 @@ func TestConsoleReplayRequiresCSRF(t *testing.T) {
 func TestConsoleReplayUnknownDelivery(t *testing.T) {
 	it := newConsoleIT(t)
 
-	form := url.Values{"id": {"999999999"}, "csrf": {it.srv.csrf.token(time.Now())}}
+	form := url.Values{"id": {"999999999"}, "csrf": {it.csrfToken()}}
 	rec := authedPost(it.srv, it.auth, "/console/webhooks/replay", form)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("replay of an unknown delivery status = %d, want 404", rec.Code)
@@ -321,7 +367,7 @@ func TestConsoleARIANarrateReturnsFragment(t *testing.T) {
 	}
 	it.cleanupTenant(t, tn.ID)
 
-	form := url.Values{"tenant": {tn.ID}, "since": {"24h"}, "csrf": {it.srv.csrf.token(time.Now())}}
+	form := url.Values{"tenant": {tn.ID}, "since": {"24h"}, "csrf": {it.csrfToken()}}
 	req := httptest.NewRequest("POST", "/console/aria/narrate", strings.NewReader(form.Encode()))
 	req.Header.Set("Authorization", it.auth)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -357,7 +403,7 @@ func TestConsoleDeliveryStatusUnknown(t *testing.T) {
 func TestConsoleReplayJSONUnknown(t *testing.T) {
 	it := newConsoleIT(t)
 
-	form := url.Values{"id": {"999999999"}, "csrf": {it.srv.csrf.token(time.Now())}}
+	form := url.Values{"id": {"999999999"}, "csrf": {it.csrfToken()}}
 	req := httptest.NewRequest("POST", "/console/webhooks/replay", strings.NewReader(form.Encode()))
 	req.Header.Set("Authorization", it.auth)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

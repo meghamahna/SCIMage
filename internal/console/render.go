@@ -38,7 +38,7 @@ type pageView struct {
 func (srv *Server) render(w http.ResponseWriter, r *http.Request, status int, page string, view pageView) {
 	view.Identity = identityFrom(r.Context())
 	view.EnvLabel = srv.env
-	view.CSRF = srv.csrf.token(time.Now())
+	view.CSRF = srv.csrf.token(view.Identity.KeyID, time.Now())
 	view.RenderedAt = time.Now()
 	view.ARIAEnabled = aria.Enabled()
 
