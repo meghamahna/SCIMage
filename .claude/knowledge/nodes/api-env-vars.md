@@ -7,7 +7,7 @@ tags: [env, environment variables, config, configuration, .env, .env.example, se
 links: [related:command-dev-commands, related:workflow-docker, related:module-logging, related:module-webhook, related:module-aria, related:module-console, related:gotcha-container-log-dir]
 sources: [docs/CONFIGURATION.md:1-6, .env.example:1-91, scripts/with-env.sh:6-19, internal/store/store.go:103-106, .gitignore:2-4]
 updated: 2026-11-26
-verified_commit: 78e4d28
+verified_commit: ec35d99
 ---
 ## Facts
 - Authoritative env reference is docs/CONFIGURATION.md; this node is a name-only index → docs/CONFIGURATION.md:1-6

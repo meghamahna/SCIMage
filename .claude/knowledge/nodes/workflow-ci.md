@@ -7,7 +7,7 @@ tags: [ci, continuous integration, github actions, workflow, pipeline, gate, gov
 links: [related:command-dev-commands, related:workflow-migrations, related:workflow-precommit-hook, related:workflow-docker, related:decision-real-postgres-tests, related:gotcha-bare-go-test-skips-postgres]
 sources: [.github/workflows/ci.yml:1-80]
 updated: 2026-11-26
-verified_commit: 78e4d28
+verified_commit: ec35d99
 ---
 ## Facts
 - Triggers: push to main and every pull_request → .github/workflows/ci.yml:3-6
@@ -21,4 +21,4 @@ verified_commit: 78e4d28
 - Job `govulncheck` is separate, needs no database, and runs `govulncheck ./...` → .github/workflows/ci.yml:69-80
 - Gotcha: govulncheck is installed at `@latest`, so the scanner version is unpinned → .github/workflows/ci.yml:79
 - Gotcha: CI has no secret-scan step; the scan runs only in the local pre-commit hook and the Claude commit hook → .github/workflows/ci.yml:38-80, .githooks/pre-commit:11-14
-- Dockerfile pins golang:1.26.6 separately from go.mod; keep the two in step → Dockerfile:2, go.mod:3
+- Dockerfile pins golang:1.26.11 separately from go.mod; keep the two in step → Dockerfile:2, go.mod:3

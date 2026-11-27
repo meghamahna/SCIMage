@@ -45,7 +45,7 @@ Nodes: 60
 
 ## Workflows
 - **workflow-ci**: ci.yml runs gofmt, go vet, migrations and go test -p 1 against a Postgres 16 service on pushes to main and on PRs, plus govulncheck → `nodes/workflow-ci.md` · `.github/workflows/ci.yml:1-80`
-- **workflow-docker**: Multi-stage Dockerfile builds a static nonroot scimage binary; docker-compose runs only Postgres 16 on a configurable host port → `nodes/workflow-docker.md` · `Dockerfile:1-28`
+- **workflow-docker**: Multi-stage Dockerfile builds a static nonroot scimage binary; docker-compose runs only Postgres 16, published on a configurable 127.0.0.1 port; local-testing docker run joins the compose network → `nodes/workflow-docker.md` · `Dockerfile:1-28`
 - **workflow-migrations**: Numbered up/down SQL files in migrations/ applied through make migrate; additive changes, partial indexes for optional values, and one test-only trigger → `nodes/workflow-migrations.md` · `migrations/000001_create_users_table.up.sql:1-19`
 - **workflow-precommit-hook**: .githooks/pre-commit, enabled by make hooks-install, blocks commits with staged secrets, unformatted or unvetted Go, or failing tests → `nodes/workflow-precommit-hook.md` · `.githooks/pre-commit:1-57`
 
@@ -71,7 +71,7 @@ Nodes: 60
 
 ## Gotchas
 - **gotcha-bare-go-test-skips-postgres**: Running go test without POSTGRES_* or DATABASE_URL skips store and scim integration tests and can look green; use make test → `nodes/gotcha-bare-go-test-skips-postgres.md` · `internal/store/store_test.go:19-24`
-- **gotcha-console-docker-bind-address**: Loopback 127.0.0.1 for CONSOLE_ADDR is right on bare metal but unreachable through Docker port publishing → `nodes/gotcha-console-docker-bind-address.md` · `README.md:216-221`
+- **gotcha-console-docker-bind-address**: Loopback 127.0.0.1 for CONSOLE_ADDR is right on bare metal but unreachable through Docker port publishing; Docker runs use 0.0.0.0 inside the container → `nodes/gotcha-console-docker-bind-address.md` · `README.md:213-228`
 - **gotcha-container-log-dir**: The image sets no LOG_DIR, so the default writes a file under relative logs/ unless the runner sets LOG_DIR empty for stdout-only logging → `nodes/gotcha-container-log-dir.md` · `Dockerfile:19-28`
 - **gotcha-refused-mutation-audit-best-effort**: A denied mutation is audited outside any transaction and a failed insert is only logged, so a refusal can be missing from the trail while a success never is → `nodes/gotcha-refused-mutation-audit-best-effort.md` · `internal/store/audit.go:105-113`
 - **gotcha-request-body-logging-opt-in**: SCIM_LOG_REQUESTS=1 records request bodies (user attributes) to the normal log stream; Authorization is never logged → `nodes/gotcha-request-body-logging-opt-in.md` · `internal/scim/requestlog.go:15-27`
@@ -83,7 +83,7 @@ Nodes: 60
 
 ## Docs
 - **doc-contributing**: Sections of CONTRIBUTING.md → `nodes/doc-contributing.md` · `CONTRIBUTING.md`
-- **doc-readme**: Sections of README.md → `nodes/doc-readme.md` · `README.md`
+- **doc-readme**: Section map of README.md, including the Docker deploy and local-testing blocks → `nodes/doc-readme.md` · `README.md:5-269`
 
 ## Glossary
 - **glossary-core-terms**: One-line definitions of SCIM, tenant, tokens, key id, externalId, soft delete, audit and admin audit logs, outbox, dead-letter, IdP and ARIA, each with its pointer → `nodes/glossary-core-terms.md` · `docs/IMPLEMENTATION_PLAN.md:5-7`
@@ -94,6 +94,7 @@ Nodes: 60
 - .env.example → api-env-vars
 - 0.0.0.0 → gotcha-console-docker-bind-address
 - 000005 → gotcha-tenant-migration-needs-empty-tables
+- 127.0.0.1 → workflow-docker
 - 400 → api-scim-errors
 - 401 → api-scim-errors, component-scim-auth, decision-scim-uniform-401
 - 404 → api-scim-errors
@@ -184,7 +185,7 @@ Nodes: 60
 - dashboard → module-console
 - data model → model-scim-resources
 - database → module-store
-- database_url → api-env-vars, gotcha-bare-go-test-skips-postgres
+- database_url → api-env-vars, gotcha-bare-go-test-skips-postgres, workflow-docker
 - ddl → workflow-migrations
 - deactivate → decision-user-soft-delete, glossary-core-terms
 - deactivation → decision-user-soft-delete
@@ -196,5 +197,4 @@ Nodes: 60
 - decision → decision-audit-in-transaction, decision-console-separate-listener, decision-console-token-csrf, decision-credentials-issued-by-cli, decision-real-postgres-tests, decision-request-timeout-before-auth, decision-scim-strict-filter, decision-scim-uniform-401, decision-stdlib-and-raw-sql, decision-tenant-scoping, decision-token-hashing, decision-user-soft-delete
 - defaults → api-env-vars
 - definitions → glossary-core-terms
-- delete → decision-user-soft-delete
-- … 296 more keywords (search with `kg.py query`)
+- … 303 more keywords (search with `kg.py query`)

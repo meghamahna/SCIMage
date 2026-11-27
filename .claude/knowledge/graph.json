@@ -823,14 +823,18 @@
    "id": "doc-readme",
    "kind": "doc",
    "title": "README.md",
-   "summary": "Sections of README.md",
+   "summary": "Section map of README.md, including the Docker deploy and local-testing blocks",
    "tags": [
     "docs",
     "readme",
-    "seed"
+    "seed",
+    "sections",
+    "docker",
+    "deploy",
+    "local testing"
    ],
    "sources": [
-    "README.md"
+    "README.md:5-269"
    ],
    "file": ".claude/knowledge/nodes/doc-readme.md"
   },
@@ -989,7 +993,7 @@
    "id": "gotcha-console-docker-bind-address",
    "kind": "gotcha",
    "title": "Console bind address differs in Docker",
-   "summary": "Loopback 127.0.0.1 for CONSOLE_ADDR is right on bare metal but unreachable through Docker port publishing",
+   "summary": "Loopback 127.0.0.1 for CONSOLE_ADDR is right on bare metal but unreachable through Docker port publishing; Docker runs use 0.0.0.0 inside the container",
    "tags": [
     "gotcha",
     "docker",
@@ -998,10 +1002,11 @@
     "loopback",
     "0.0.0.0",
     "port publish",
-    "console"
+    "console",
+    "local testing"
    ],
    "sources": [
-    "README.md:216-221",
+    "README.md:213-228",
     "cmd/server/main.go:36-39"
    ],
    "file": ".claude/knowledge/nodes/gotcha-console-docker-bind-address.md"
@@ -1454,7 +1459,7 @@
    "id": "workflow-docker",
    "kind": "workflow",
    "title": "Docker image and compose stack",
-   "summary": "Multi-stage Dockerfile builds a static nonroot scimage binary; docker-compose runs only Postgres 16 on a configurable host port",
+   "summary": "Multi-stage Dockerfile builds a static nonroot scimage binary; docker-compose runs only Postgres 16, published on a configurable 127.0.0.1 port; local-testing docker run joins the compose network",
    "tags": [
     "docker",
     "dockerfile",
@@ -1467,13 +1472,23 @@
     "nonroot",
     "postgres container",
     "port",
+    "loopback",
+    "127.0.0.1",
+    "POSTGRES_PORT",
     "volume",
-    "deploy"
+    "deploy",
+    "local testing",
+    "docker run",
+    "network",
+    "env-file",
+    "DATABASE_URL"
    ],
    "sources": [
     "Dockerfile:1-28",
     "docker-compose.yml:1-20",
-    "scripts/migrate.sh:56-87"
+    "scripts/migrate.sh:56-87",
+    "scripts/with-env.sh:12-17",
+    "README.md:210-232"
    ],
    "file": ".claude/knowledge/nodes/workflow-docker.md"
   },
@@ -2233,6 +2248,11 @@
    "type": "related"
   },
   {
+   "from": "doc-readme",
+   "to": "workflow-docker",
+   "type": "related"
+  },
+  {
    "from": "entrypoint-cmd-aria-main",
    "to": "module-aria",
    "type": "calls"
@@ -2400,6 +2420,11 @@
   {
    "from": "gotcha-console-docker-bind-address",
    "to": "decision-console-separate-listener",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-console-docker-bind-address",
+   "to": "workflow-docker",
    "type": "related"
   },
   {

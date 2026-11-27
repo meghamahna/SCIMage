@@ -7,7 +7,7 @@ tags: [build, commands, install, lint, run, test, make, makefile, format, gofmt,
 links: [related:architecture-overview, related:workflow-docker, related:workflow-migrations, related:workflow-ci, related:workflow-precommit-hook, related:gotcha-bare-go-test-skips-postgres, related:api-env-vars]
 sources: [Makefile:12-168, scripts/with-env.sh:1-21, CLAUDE.md:34-42]
 updated: 2026-11-26
-verified_commit: 78e4d28
+verified_commit: ec35d99
 ---
 ## Facts
 - Bare `make` prints the target list; `help` is the default goal → Makefile:16,19-24
