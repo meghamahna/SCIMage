@@ -102,7 +102,7 @@ The discovery document is honest about the edges, so Okta won't offer these:
   path).
 - **A user won't create:** a `409` means the `userName` (case-insensitively) or
   the `externalId` already exists for this tenant; the error detail names which.
-  An `externalId` over 256 characters is a `400`. Turn on `SCIM_LOG_REQUESTS=1` on the server to see
+  An `externalId` over 256 bytes is a `400`. Turn on `SCIM_LOG_REQUESTS=1` on the server to see
   exactly what Okta sent (the log path is `0600`; bodies carry user attributes).
 - **An attribute isn't persisting:** it's outside the core and not registered.
   Register it and set `SCIM_EXTENDED_ATTRIBUTES=1`.

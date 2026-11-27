@@ -284,8 +284,13 @@ func TestExternalIDRefusals(t *testing.T) {
 			if rr.Code != http.StatusBadRequest {
 				t.Fatalf("status = %d, want 400: %s", rr.Code, rr.Body)
 			}
-			if got := decodeBody[Error](t, rr).ScimType; got != "invalidValue" {
-				t.Errorf("scimType = %q, want invalidValue", got)
+			e := decodeBody[Error](t, rr)
+			if e.ScimType != "invalidValue" {
+				t.Errorf("scimType = %q, want invalidValue", e.ScimType)
+			}
+			// The limit counts bytes, so the message must say so.
+			if want := "externalId exceeds 256 bytes"; e.Detail != want {
+				t.Errorf("detail = %q, want %q", e.Detail, want)
 			}
 		})
 	}

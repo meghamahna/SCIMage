@@ -630,7 +630,7 @@ func validate(u User) string {
 		{"externalId", strings.TrimSpace(u.ExternalID)},
 	} {
 		if len(f[1]) > maxAttrLen {
-			return f[0] + " exceeds " + strconv.Itoa(maxAttrLen) + " characters"
+			return f[0] + " exceeds " + strconv.Itoa(maxAttrLen) + " bytes"
 		}
 	}
 
@@ -688,10 +688,10 @@ func validateGroup(g Group) string {
 		return "displayName is required"
 	}
 	if len(displayName) > maxAttrLen {
-		return "displayName exceeds " + strconv.Itoa(maxAttrLen) + " characters"
+		return "displayName exceeds " + strconv.Itoa(maxAttrLen) + " bytes"
 	}
 	if len(strings.TrimSpace(g.ExternalID)) > maxAttrLen {
-		return "externalId exceeds " + strconv.Itoa(maxAttrLen) + " characters"
+		return "externalId exceeds " + strconv.Itoa(maxAttrLen) + " bytes"
 	}
 
 	return ""

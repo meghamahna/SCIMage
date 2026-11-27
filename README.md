@@ -81,7 +81,7 @@ Responses use `application/scim+json`, and errors use the SCIM Error schema with
 
 `userName` uniqueness is enforced case-insensitively, matching the spec's `caseExact=false` characteristic, so `bjensen` and `BJensen` are one identity.
 
-`externalId` is unique within a tenant for users and for groups. A create, `PUT` or `PATCH` that reuses one answers `409` with `scimType: uniqueness`. The same `externalId` can exist in different tenants. An `externalId` longer than 256 characters answers `400` with `scimType: invalidValue`.
+`externalId` is unique within a tenant for users and for groups. A create, `PUT` or `PATCH` that reuses one answers `409` with `scimType: uniqueness`. The same `externalId` can exist in different tenants. An `externalId` longer than 256 bytes answers `400` with `scimType: invalidValue`.
 
 **Validated against [Microsoft's Entra ID SCIM validator](https://scimvalidator.microsoft.com/).** Core CRUD, filtering, and PATCH all pass. The `User` schema is deliberately reduced to a minimal set of typed columns. `displayName`, `title`, `preferredLanguage`, `name.formatted`/`name.middleName`, the enterprise extension and typed multi-valued emails aren't modeled that way. When a provider needs them, an operator registers the extra attributes per tenant (`scimage-admin attribute register`, gated by `SCIM_EXTENDED_ATTRIBUTES`) and the server captures and returns them through a JSONB pass-through, which keeps the core minimal while still round-tripping whatever Okta or Entra maps. See [Configuration](docs/CONFIGURATION.md#-extensible-attributes).
 
