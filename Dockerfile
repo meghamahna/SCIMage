@@ -1,5 +1,5 @@
 # Build the server binary.
-FROM golang:1.26.6 AS build
+FROM golang:1.26.11 AS build
 
 WORKDIR /src
 
