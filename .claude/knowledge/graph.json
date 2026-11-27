@@ -120,7 +120,7 @@
    "id": "api-scim-patch",
    "kind": "api",
    "title": "SCIM PATCH support",
-   "summary": "PATCH for Users (core attributes plus registered extensions) and Groups (members add/replace/remove); op names are case-insensitive; no bulk",
+   "summary": "PATCH for Users (core attributes plus registered extensions) and Groups (members add/replace/remove); each PATCH runs under the resource's row lock; op names are case-insensitive; no bulk",
    "tags": [
     "patch",
     "PATCH",
@@ -132,12 +132,18 @@
     "emails",
     "operations",
     "partial update",
+    "row lock",
+    "serialize",
+    "concurrency",
     "scim"
    ],
    "sources": [
-    "internal/scim/patch.go:1-372",
-    "internal/scim/handler.go:225-306",
-    "internal/scim/handler.go:409-452"
+    "internal/scim/patch.go:1-413",
+    "internal/scim/handler.go:246-318",
+    "internal/scim/handler.go:422-457",
+    "internal/store/user.go:290-319",
+    "internal/store/group.go:359-391",
+    "docs/ARCHITECTURE.md:156-162"
    ],
    "file": ".claude/knowledge/nodes/api-scim-patch.md"
   },
@@ -372,7 +378,7 @@
     "migrations/000007_create_groups.up.sql:1-43",
     "migrations/000010_extended_attributes.up.sql:11",
     "internal/store/user.go:20-40",
-    "internal/store/group.go:141-165"
+    "internal/store/group.go:142-166"
    ],
    "file": ".claude/knowledge/nodes/data-model-core-users-groups.md"
   },
@@ -481,20 +487,23 @@
     "store",
     "compliance",
     "actor",
-    "admin_audit_log"
+    "admin_audit_log",
+    "patch",
+    "row lock"
    ],
    "sources": [
     "migrations/000002_create_audit_log.up.sql:1-4",
     "migrations/000004_create_webhook_deliveries.up.sql:1-7",
     "internal/store/user.go:153-189",
-    "internal/store/user.go:295-305",
-    "internal/store/group.go:204-250",
+    "internal/store/user.go:290-319",
+    "internal/store/user.go:335-370",
+    "internal/store/group.go:211-256",
     "internal/store/audit.go:46-113",
     "internal/store/adminaudit.go:44",
     "internal/store/outbox.go:192-280",
-    "internal/scim/userstore.go:24-30",
-    "internal/scim/groupstore.go:13-19",
-    "internal/scim/handler.go:516-531"
+    "internal/scim/userstore.go:24-34",
+    "internal/scim/groupstore.go:13-25",
+    "internal/scim/handler.go:528-541"
    ],
    "file": ".claude/knowledge/nodes/decision-audit-in-transaction.md"
   },
@@ -757,7 +766,7 @@
    ],
    "sources": [
     "docs/ARCHITECTURE.md:80-82",
-    "internal/store/user.go:312"
+    "internal/store/user.go:375-402"
    ],
    "file": ".claude/knowledge/nodes/decision-user-soft-delete.md"
   },
@@ -1044,7 +1053,7 @@
    "id": "gotcha-refused-mutation-audit-best-effort",
    "kind": "gotcha",
    "title": "Refusal audit entries are best-effort, success entries are not",
-   "summary": "A denied mutation is audited outside any transaction and a failed insert is only logged, so a refusal can be missing from the trail while a success never is",
+   "summary": "A denied mutation is audited outside the mutation's transaction and a failed insert is only logged, so a refusal can be missing from the trail while a success never is; a PATCH refusal is written while its row lock is still held",
    "tags": [
     "gotcha",
     "audit",
@@ -1054,13 +1063,22 @@
     "logging",
     "transaction",
     "duplicate",
-    "409"
+    "409",
+    "row lock",
+    "patch",
+    "connection pool"
    ],
    "sources": [
     "internal/store/audit.go:105-113",
-    "internal/store/user.go:164-170",
-    "internal/store/user.go:281-290",
-    "internal/store/group.go:214-228"
+    "internal/store/user.go:168",
+    "internal/store/user.go:174-176",
+    "internal/store/user.go:265",
+    "internal/store/user.go:355-358",
+    "internal/store/user.go:391-394",
+    "internal/store/group.go:225",
+    "internal/store/group.go:233",
+    "internal/store/group.go:405",
+    "internal/store/group.go:413"
    ],
    "file": ".claude/knowledge/nodes/gotcha-refused-mutation-audit-best-effort.md"
   },
@@ -1373,10 +1391,10 @@
     "internal/scim"
    ],
    "sources": [
-    "internal/scim/handler.go:1-100",
+    "internal/scim/handler.go:1-104",
     "internal/scim/auth.go:1-151",
-    "internal/scim/userstore.go:1-43",
-    "internal/scim/groupstore.go:1-21"
+    "internal/scim/userstore.go:1-47",
+    "internal/scim/groupstore.go:1-25"
    ],
    "file": ".claude/knowledge/nodes/module-scim.md"
   },
@@ -1384,7 +1402,7 @@
    "id": "module-store",
    "kind": "module",
    "title": "Store (Postgres persistence layer)",
-   "summary": "internal/store owns every SQL query, pgx pool setup, tenant scoping and the same-transaction audit and outbox writes",
+   "summary": "internal/store owns every SQL query, pgx pool setup, tenant scoping, row locks for user and group writes, and the same-transaction audit and outbox writes",
    "tags": [
     "store",
     "postgres",
@@ -1395,14 +1413,20 @@
     "database",
     "tenant",
     "audit",
-    "outbox"
+    "outbox",
+    "row lock",
+    "FOR UPDATE",
+    "FOR NO KEY UPDATE",
+    "concurrency",
+    "patch"
    ],
    "sources": [
     "internal/store/store.go:1-149",
     "internal/store/user.go:1-99",
     "internal/store/group.go:1-30",
     "internal/store/audit.go:1-60",
-    "internal/store/outbox.go:1-70"
+    "internal/store/outbox.go:1-70",
+    "internal/store/patch_test.go:1-50"
    ],
    "file": ".claude/knowledge/nodes/module-store.md"
   },
@@ -1629,6 +1653,16 @@
    "from": "api-scim-patch",
    "to": "module-scim",
    "type": "implements"
+  },
+  {
+   "from": "api-scim-patch",
+   "to": "module-store",
+   "type": "related"
+  },
+  {
+   "from": "api-scim-patch",
+   "to": "decision-audit-in-transaction",
+   "type": "related"
   },
   {
    "from": "api-scim-patch",
@@ -2028,6 +2062,11 @@
   {
    "from": "decision-audit-in-transaction",
    "to": "module-scim",
+   "type": "related"
+  },
+  {
+   "from": "decision-audit-in-transaction",
+   "to": "api-scim-patch",
    "type": "related"
   },
   {
@@ -2461,6 +2500,11 @@
    "type": "related"
   },
   {
+   "from": "gotcha-refused-mutation-audit-best-effort",
+   "to": "api-scim-patch",
+   "type": "related"
+  },
+  {
    "from": "gotcha-request-body-logging-opt-in",
    "to": "module-logging",
    "type": "related"
@@ -2793,6 +2837,11 @@
   {
    "from": "module-store",
    "to": "module-scim",
+   "type": "related"
+  },
+  {
+   "from": "module-store",
+   "to": "api-scim-patch",
    "type": "related"
   },
   {

@@ -19,8 +19,8 @@ Nodes: 60
 - **module-console**: Opt-in loopback web UI for the SCIMage operator on its own listener; reuses store.* calls, token-authenticated → `nodes/module-console.md` · `internal/console/server.go:1-143`
 - **module-console-auth**: Console login is a console_tokens credential sent as Bearer or Basic; CSRF is a stateless per-process HMAC over an hourly bucket → `nodes/module-console-auth.md` · `internal/console/auth.go:1-126`
 - **module-logging**: Sets the default slog JSON logger to stdout plus one dated file under LOG_DIR; the audit trail is separate → `nodes/module-logging.md` · `internal/logging/logging.go:1-74`
-- **module-scim**: SCIM 2.0 HTTP handlers, bearer auth, rate limit, filter/PATCH parsing and SCIM models for /Users and /Groups → `nodes/module-scim.md` · `internal/scim/handler.go:1-100`
-- **module-store**: internal/store owns every SQL query, pgx pool setup, tenant scoping and the same-transaction audit and outbox writes → `nodes/module-store.md` · `internal/store/store.go:1-149`
+- **module-scim**: SCIM 2.0 HTTP handlers, bearer auth, rate limit, filter/PATCH parsing and SCIM models for /Users and /Groups → `nodes/module-scim.md` · `internal/scim/handler.go:1-104`
+- **module-store**: internal/store owns every SQL query, pgx pool setup, tenant scoping, row locks for user and group writes, and the same-transaction audit and outbox writes → `nodes/module-store.md` · `internal/store/store.go:1-149`
 - **module-webhook**: Drains the webhook outbox to one configured HTTPS endpoint with HMAC-signed POSTs, retries, dead letters and retention pruning → `nodes/module-webhook.md` · `internal/webhook/dispatcher.go:21-30`
 
 ## Entry points
@@ -33,7 +33,7 @@ Nodes: 60
 - **api-env-vars**: Catalogue of env var names grouped by purpose (database, server, console, rate limit, logging, webhooks, ARIA, tooling); names and defaults only; docs/CONFIGURATION.md is the authoritative reference → `nodes/api-env-vars.md` · `docs/CONFIGURATION.md:1-6`
 - **api-scim-errors**: Shape of SCIM error bodies, scimType values in use, and which status each failure maps to → `nodes/api-scim-errors.md` · `internal/scim/handler.go:541-605`
 - **api-scim-filter**: Only `attribute eq "value"` on userName/externalId (users) or displayName/externalId (groups); everything else is a 400 invalidFilter → `nodes/api-scim-filter.md` · `internal/scim/filter.go:17-85`
-- **api-scim-patch**: PATCH for Users (core attributes plus registered extensions) and Groups (members add/replace/remove); op names are case-insensitive; no bulk → `nodes/api-scim-patch.md` · `internal/scim/patch.go:1-372`
+- **api-scim-patch**: PATCH for Users (core attributes plus registered extensions) and Groups (members add/replace/remove); each PATCH runs under the resource's row lock; op names are case-insensitive; no bulk → `nodes/api-scim-patch.md` · `internal/scim/patch.go:1-413`
 - **api-scim-routes**: Route table for /scim/v2/{tenantID} Users, Groups and discovery, plus unauthenticated health probes and middleware order → `nodes/api-scim-routes.md` · `internal/scim/handler.go:63-98`
 
 ## Data models
@@ -73,7 +73,7 @@ Nodes: 60
 - **gotcha-bare-go-test-skips-postgres**: Running go test without POSTGRES_* or DATABASE_URL skips store and scim integration tests and can look green; use make test → `nodes/gotcha-bare-go-test-skips-postgres.md` · `internal/store/store_test.go:19-24`
 - **gotcha-console-docker-bind-address**: Loopback 127.0.0.1 for CONSOLE_ADDR is right on bare metal but unreachable through Docker port publishing; Docker runs use 0.0.0.0 inside the container → `nodes/gotcha-console-docker-bind-address.md` · `README.md:213-229`
 - **gotcha-container-log-dir**: The image sets no LOG_DIR, so the default writes a file under relative logs/ unless the runner sets LOG_DIR empty for stdout-only logging → `nodes/gotcha-container-log-dir.md` · `Dockerfile:19-28`
-- **gotcha-refused-mutation-audit-best-effort**: A denied mutation is audited outside any transaction and a failed insert is only logged, so a refusal can be missing from the trail while a success never is → `nodes/gotcha-refused-mutation-audit-best-effort.md` · `internal/store/audit.go:105-113`
+- **gotcha-refused-mutation-audit-best-effort**: A denied mutation is audited outside the mutation's transaction and a failed insert is only logged, so a refusal can be missing from the trail while a success never is; a PATCH refusal is written while its row lock is still held → `nodes/gotcha-refused-mutation-audit-best-effort.md` · `internal/store/audit.go:105-113`
 - **gotcha-request-body-logging-opt-in**: SCIM_LOG_REQUESTS=1 records request bodies (user attributes) to the normal log stream; Authorization is never logged → `nodes/gotcha-request-body-logging-opt-in.md` · `internal/scim/requestlog.go:15-27`
 - **gotcha-scim-idp-quirks**: Entra sends string booleans and capitalised ops; unknown attributes are dropped, not rejected; these leniencies are deliberate → `nodes/gotcha-scim-idp-quirks.md` · `internal/scim/models.go:20-47`
 - **gotcha-scim-tenant-path-parsing**: Auth reads the tenant from the raw escaped path before the mux runs; a mismatch with the mux would authenticate as one tenant and route as another → `nodes/gotcha-scim-tenant-path-parsing.md` · `internal/scim/auth.go:73-78`
@@ -163,8 +163,10 @@ Nodes: 60
 - commit gate → workflow-precommit-hook
 - compliance → decision-audit-in-transaction
 - compose → workflow-docker
+- concurrency → api-scim-patch, module-store
 - config → api-env-vars
 - configuration → api-env-vars
+- connection pool → gotcha-refused-mutation-audit-best-effort
 - console → architecture-overview, decision-aria-advisory-only, decision-console-separate-listener, gotcha-console-docker-bind-address, module-console
 - console routes → api-console-routes
 - console token → module-console-auth
@@ -195,6 +197,4 @@ Nodes: 60
 - debug logging → gotcha-request-body-logging-opt-in
 - debugging → component-scim-request-middleware
 - decision → decision-audit-in-transaction, decision-console-separate-listener, decision-console-token-csrf, decision-credentials-issued-by-cli, decision-real-postgres-tests, decision-request-timeout-before-auth, decision-scim-strict-filter, decision-scim-uniform-401, decision-stdlib-and-raw-sql, decision-tenant-scoping, decision-token-hashing, decision-user-soft-delete
-- defaults → api-env-vars
-- definitions → glossary-core-terms
-- … 303 more keywords (search with `kg.py query`)
+- … 309 more keywords (search with `kg.py query`)
