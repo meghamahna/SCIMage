@@ -64,8 +64,9 @@ func serveWithAuth(tokens ConsoleTokenStore, req *http.Request) *httptest.Respon
 func bearer(token string) string { return "Bearer " + token }
 
 func TestConsoleAuthAcceptsBearer(t *testing.T) {
-	tok, plaintext := makeToken("k1", "s3cr3t")
-	tokens := &fakeTokens{byKeyID: map[string]*store.ConsoleToken{"k1": tok}}
+	const keyID = "00000000000000a1"
+	tok, plaintext := makeToken(keyID, "s3cr3t")
+	tokens := &fakeTokens{byKeyID: map[string]*store.ConsoleToken{keyID: tok}}
 
 	req := httptest.NewRequest("GET", "/console/tenants", nil)
 	req.Header.Set("Authorization", bearer(plaintext))
@@ -73,14 +74,15 @@ func TestConsoleAuthAcceptsBearer(t *testing.T) {
 	if rec := serveWithAuth(tokens, req); rec.Code != http.StatusOK {
 		t.Fatalf("Bearer auth: status = %d, want 200", rec.Code)
 	}
-	if len(tokens.touched) != 1 || tokens.touched[0] != "k1" {
+	if len(tokens.touched) != 1 || tokens.touched[0] != keyID {
 		t.Errorf("expected the token to be touched once, got %v", tokens.touched)
 	}
 }
 
 func TestConsoleAuthAcceptsBasicPassword(t *testing.T) {
-	tok, plaintext := makeToken("k2", "hunter2")
-	tokens := &fakeTokens{byKeyID: map[string]*store.ConsoleToken{"k2": tok}}
+	const keyID = "00000000000000a2"
+	tok, plaintext := makeToken(keyID, "hunter2")
+	tokens := &fakeTokens{byKeyID: map[string]*store.ConsoleToken{keyID: tok}}
 
 	req := httptest.NewRequest("GET", "/console/tenants", nil)
 	// Browser dialog: token in the password field, username left blank.
@@ -92,8 +94,9 @@ func TestConsoleAuthAcceptsBasicPassword(t *testing.T) {
 }
 
 func TestConsoleAuthAcceptsBasicUsername(t *testing.T) {
-	tok, plaintext := makeToken("k3", "abc")
-	tokens := &fakeTokens{byKeyID: map[string]*store.ConsoleToken{"k3": tok}}
+	const keyID = "00000000000000a3"
+	tok, plaintext := makeToken(keyID, "abc")
+	tokens := &fakeTokens{byKeyID: map[string]*store.ConsoleToken{keyID: tok}}
 
 	req := httptest.NewRequest("GET", "/console/tenants", nil)
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(plaintext+":")))
@@ -107,22 +110,30 @@ func TestConsoleAuthRejects(t *testing.T) {
 	past := time.Now().Add(-time.Hour)
 	future := time.Now().Add(time.Hour)
 
-	valid, _ := makeToken("k", "right-secret")
-	_, wrongSecret := makeToken("k", "wrong-secret")
+	const (
+		validID   = "00000000000000b0"
+		revokedID = "00000000000000b1"
+		expiredID = "00000000000000b2"
+		liveID    = "00000000000000b3"
+		unknownID = "00000000000000ff" // well-formed, so the miss is the lookup's
+	)
 
-	revoked, revokedPlain := makeToken("kr", "s")
+	valid, _ := makeToken(validID, "right-secret")
+	_, wrongSecret := makeToken(validID, "wrong-secret")
+
+	revoked, revokedPlain := makeToken(revokedID, "s")
 	revoked.RevokedAt = &past
-	expired, expiredPlain := makeToken("ke", "s")
+	expired, expiredPlain := makeToken(expiredID, "s")
 	expired.ExpiresAt = &past
-	live, livePlain := makeToken("kl", "s")
+	live, livePlain := makeToken(liveID, "s")
 	live.ExpiresAt = &future
 
 	tokens := &fakeTokens{byKeyID: map[string]*store.ConsoleToken{
-		"k": valid, "kr": revoked, "ke": expired, "kl": live,
+		validID: valid, revokedID: revoked, expiredID: expired, liveID: live,
 	}}
 
 	// Tokens are built from parts, never written as flat literals.
-	_, unknownKey := makeToken("nope", "whatever-secret-value")
+	_, unknownKey := makeToken(unknownID, "whatever-secret-value")
 	scimNotConsole := "scimage_" + "abcdef01" + "_notaconsoletoken"
 
 	for _, tc := range []struct {

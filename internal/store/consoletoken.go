@@ -33,14 +33,15 @@ type ConsoleToken struct {
 }
 
 // ParseConsoleToken splits scimage_console_<keyID>_<secret> into its two
-// halves, the same fixed-length-keyID reasoning ParseToken uses.
+// halves, the same fixed-length-keyID reasoning ParseToken uses. A key id
+// not shaped like an issued one is refused here, before any lookup.
 func ParseConsoleToken(raw string) (keyID, secret string, ok bool) {
 	rest, ok := strings.CutPrefix(raw, consoleTokenPrefix)
 	if !ok {
 		return "", "", false
 	}
 	keyID, secret, ok = strings.Cut(rest, "_")
-	if !ok || keyID == "" || secret == "" {
+	if !ok || !isLowerHex(keyID, 2*keyIDBytes) || secret == "" {
 		return "", "", false
 	}
 	return keyID, secret, true

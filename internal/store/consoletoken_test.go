@@ -42,13 +42,17 @@ func TestParseConsoleToken(t *testing.T) {
 		wantSec string
 		wantOK  bool
 	}{
-		{"well formed", "scimage_console_abc123_def456", "abc123", "def456", true},
-		{"secret with underscores", "scimage_console_abc123_de_f4_56", "abc123", "de_f4_56", true},
-		{"a scim token is not a console token", "scimage_abc123_def456", "", "", false},
-		{"missing prefix", "abc123_def456", "", "", false},
-		{"no separator", "scimage_console_abc123", "", "", false},
-		{"empty secret", "scimage_console_abc123_", "", "", false},
+		{"well formed", "scimage_console_0123456789abcdef_def456", "0123456789abcdef", "def456", true},
+		{"secret with underscores", "scimage_console_0123456789abcdef_de_f4_56", "0123456789abcdef", "de_f4_56", true},
+		{"a scim token is not a console token", "scimage_0123456789abcdef_def456", "", "", false},
+		{"missing prefix", "0123456789abcdef_def456", "", "", false},
+		{"no separator", "scimage_console_0123456789abcdef", "", "", false},
+		{"empty secret", "scimage_console_0123456789abcdef_", "", "", false},
 		{"empty key id", "scimage_console__def456", "", "", false},
+		{"key id one short", "scimage_console_0123456789abcde_def456", "", "", false},
+		{"key id one long", "scimage_console_0123456789abcdef0_def456", "", "", false},
+		{"uppercase key id", "scimage_console_0123456789ABCDEF_def456", "", "", false},
+		{"non-hex key id", "scimage_console_0123456789abcdeg_def456", "", "", false},
 		{"empty string", "", "", "", false},
 	}
 
