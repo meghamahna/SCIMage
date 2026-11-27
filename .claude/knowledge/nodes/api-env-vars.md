@@ -5,9 +5,9 @@ title: Environment variables
 summary: Catalogue of env var names grouped by purpose (database, server, console, rate limit, logging, webhooks, ARIA, tooling); names and defaults only; docs/CONFIGURATION.md is the authoritative reference
 tags: [env, environment variables, config, configuration, .env, .env.example, settings, POSTGRES_USER, POSTGRES_PORT, DATABASE_URL, SCIM_ADDR, SCIM_WEBHOOK, ARIA_LLM, LOG_DIR, flags, defaults]
 links: [related:command-dev-commands, related:workflow-docker, related:module-logging, related:module-webhook, related:module-aria, related:module-console, related:gotcha-container-log-dir]
-sources: [docs/CONFIGURATION.md:1-6, docs/CONFIGURATION.md:130, .env.example:1-91, docker-compose.yml:10, scripts/with-env.sh:6-19, internal/store/store.go:51-55, internal/store/store.go:63-72, internal/store/store.go:104-113, internal/store/store.go:133-150, .gitignore:2-4]
+sources: [docs/CONFIGURATION.md:1-6, docs/CONFIGURATION.md:141, .env.example:1-91, docker-compose.yml:10, scripts/with-env.sh:6-19, internal/store/store.go:51-55, internal/store/store.go:63-72, internal/store/store.go:104-113, internal/store/store.go:133-150, .gitignore:2-4]
 updated: 2026-11-26
-verified_commit: 0761c5b
+verified_commit: 794ebee
 ---
 ## Facts
 - Authoritative env reference is docs/CONFIGURATION.md; this node is a name-only index → docs/CONFIGURATION.md:1-6
@@ -15,7 +15,7 @@ verified_commit: 0761c5b
 - Secrets come from env only; .env is gitignored, .env.example is the exception → .gitignore:2-4, .env.example:1-3
 - Tenant SCIM tokens are not env vars; they are issued with scimage-admin → .env.example:31-32
 - **Database:** POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB, POSTGRES_PORT (compose, migrations, tests) → .env.example:5-9
-- **Database:** POSTGRES_PORT is the host port the Compose Postgres publishes on 127.0.0.1 (default 5432); the container port stays 5432 → docs/CONFIGURATION.md:130, docker-compose.yml:10
+- **Database:** POSTGRES_PORT is the host port the Compose Postgres publishes on 127.0.0.1 (default 5432); the container port stays 5432 → docs/CONFIGURATION.md:141, docker-compose.yml:10
 - **Database:** DATABASE_URL is preferred over POSTGRES_* when set → internal/store/store.go:106-111, .env.example:11-13
 - **Database:** DATABASE_MAX_CONNS (pool ceiling) and DATABASE_MAX_CONN_LIFETIME; unset means pgx defaults → internal/store/store.go:68-72, internal/store/store.go:133-150, .env.example:15-17
 - **Server:** SCIM_ADDR (default :8080) → .env.example:19-20

@@ -7,7 +7,7 @@ tags: [decision, token, credential, cli, scimage-admin, console-token, attack-su
 links: [related:entrypoint-cmd-scimage-admin-main, related:module-console-auth, related:data-model-tenants-tokens, related:decision-token-hashing, related:decision-scim-uniform-401]
 sources: [docs/ARCHITECTURE.md:119-133, internal/console/server.go:8-12, cmd/scimage-admin/main.go:81-93, cmd/scimage-admin/main.go:141-226, cmd/scimage-admin/main.go:229-302]
 updated: 2026-11-26
-verified_commit: 0761c5b
+verified_commit: 794ebee
 ---
 ## Decision
 - cmd/scimage-admin creates tenants and issues, lists and revokes tokens by talking to Postgres directly → docs/ARCHITECTURE.md:119-122

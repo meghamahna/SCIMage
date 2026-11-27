@@ -5,9 +5,9 @@ title: Architecture overview
 summary: Three binaries over one Postgres database; SCIM listener with auth, rate limit, handlers and transactional store; outbox to webhook dispatcher; optional admin console and ARIA
 tags: [architecture, overview, go, binaries, request path, multi-tenancy, outbox, console, aria, layout, design, structure]
 links: [depends_on:module-scim, depends_on:module-store, depends_on:module-webhook, depends_on:module-console, depends_on:module-console-auth, depends_on:module-apidocs, depends_on:module-logging, depends_on:module-aria, related:entrypoint-cmd-server-main, related:entrypoint-cmd-scimage-admin-main, related:entrypoint-cmd-aria-main, related:workflow-migrations, related:workflow-docker, related:workflow-ci, related:workflow-precommit-hook, decided_by:decision-audit-in-transaction, decided_by:decision-tenant-scoping, decided_by:decision-request-timeout-before-auth, decided_by:decision-credentials-issued-by-cli, decided_by:decision-console-separate-listener, decided_by:decision-aria-advisory-only, decided_by:decision-stdlib-and-raw-sql, related:glossary-core-terms]
-sources: [cmd/server/main.go:36-44, cmd/server/main.go:58-113, cmd/server/main.go:122-134, cmd/server/main.go:147-197, cmd/scimage-admin/main.go:21-39, cmd/aria/main.go:24-29, docs/ARCHITECTURE.md:22-42, docs/ARCHITECTURE.md:63-70, docs/ARCHITECTURE.md:89-113, docs/ARCHITECTURE.md:234-272, docs/ARCHITECTURE.md:414-436, internal/scim/handler.go:63-98, internal/store/user.go:155-189, internal/webhook/dispatcher.go:82-106, internal/console/auth.go:38-42, internal/console/csrf.go:21-22, internal/logging/logging.go:20-34]
+sources: [cmd/server/main.go:36-44, cmd/server/main.go:58-113, cmd/server/main.go:122-134, cmd/server/main.go:147-197, cmd/scimage-admin/main.go:21-39, cmd/aria/main.go:24-29, docs/ARCHITECTURE.md:22-42, docs/ARCHITECTURE.md:63-70, docs/ARCHITECTURE.md:89-113, docs/ARCHITECTURE.md:234-272, docs/ARCHITECTURE.md:414-436, internal/scim/handler.go:63-98, internal/store/user.go:155-189, internal/webhook/dispatcher.go:82-106, internal/console/auth.go:38-42, internal/console/csrf.go:18-30, internal/logging/logging.go:20-34]
 updated: 2026-11-26
-verified_commit: 0761c5b
+verified_commit: 794ebee
 ---
 ## Binaries
 - cmd/server: SCIM listener, optional admin console, webhook dispatcher → cmd/server/main.go:58-113
@@ -31,7 +31,7 @@ verified_commit: 0761c5b
 ## Admin console (optional)
 - Started only when CONSOLE_ADDR is set, as a second http.Server beside the SCIM listener → cmd/server/main.go:36-44, cmd/server/main.go:147-167
 - Own listener so it never shares a socket with tenant SCIM traffic → docs/ARCHITECTURE.md:63-70
-- Authentication is a system-wide console token with no sessions or cookies; mutating forms carry a CSRF token → internal/console/auth.go:38-42, internal/console/csrf.go:21-22
+- Authentication is a system-wide console token with no sessions or cookies; mutating forms carry a CSRF token → internal/console/auth.go:38-42, internal/console/csrf.go:18-30
 - Admin surface only; tenant self-service is not offered → internal/console/server.go:1-16
 ## Multi-tenancy
 - One process and one Postgres database serve every tenant; a tenant is a row plus tenant_id on each table → docs/ARCHITECTURE.md:89-94

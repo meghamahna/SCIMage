@@ -7,7 +7,7 @@ tags: [decision, console, listener, CONSOLE_ADDR, loopback, separate port, admin
 links: [decided_by:module-console, related:module-console, related:module-scim]
 sources: [cmd/server/main.go:36-44, cmd/server/main.go:145-158, internal/console/server.go:1-16]
 updated: 2026-11-26
-verified_commit: 78e4d28
+verified_commit: 794ebee
 ---
 ## Facts
 - Console is off unless CONSOLE_ADDR is set; consoleServer returns nil otherwise → cmd/server/main.go:36-44

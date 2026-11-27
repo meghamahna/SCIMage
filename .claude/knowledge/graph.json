@@ -22,9 +22,12 @@
     "audit"
    ],
    "sources": [
-    "internal/console/server.go:114-142",
-    "internal/console/handlers.go:31-41",
-    "internal/console/handlers.go:424-426"
+    "internal/console/server.go:114-143",
+    "internal/console/handlers.go:196-213",
+    "internal/console/handlers.go:424-426",
+    "internal/console/handlers.go:493-495",
+    "internal/console/handlers.go:706-744",
+    "internal/console/handlers.go:876-878"
    ],
    "file": ".claude/knowledge/nodes/api-console-routes.md"
   },
@@ -53,7 +56,7 @@
    ],
    "sources": [
     "docs/CONFIGURATION.md:1-6",
-    "docs/CONFIGURATION.md:130",
+    "docs/CONFIGURATION.md:141",
     ".env.example:1-91",
     "docker-compose.yml:10",
     "scripts/with-env.sh:6-19",
@@ -226,7 +229,7 @@
     "internal/store/user.go:155-189",
     "internal/webhook/dispatcher.go:82-106",
     "internal/console/auth.go:38-42",
-    "internal/console/csrf.go:21-22",
+    "internal/console/csrf.go:18-30",
     "internal/logging/logging.go:20-34"
    ],
    "file": ".claude/knowledge/nodes/architecture-overview.md"
@@ -344,7 +347,7 @@
    "id": "component-scim-request-middleware",
    "kind": "module",
    "title": "SCIM request timeout and request logging",
-   "summary": "Per-request 10s context deadline covering auth and handler, and an opt-in request body logger that never logs Authorization",
+   "summary": "Per-request 10s context deadline covering auth and handler, and an opt-in request logger that records bodies only for authenticated calls",
    "tags": [
     "timeout",
     "deadline",
@@ -353,12 +356,13 @@
     "logging",
     "SCIM_REQUEST_TIMEOUT",
     "SCIM_LOG_REQUESTS",
-    "audit",
-    "debugging"
+    "debugging",
+    "middleware"
    ],
    "sources": [
     "internal/scim/timeout.go:1-43",
-    "internal/scim/requestlog.go:1-70"
+    "internal/scim/requestlog.go:1-265",
+    "internal/scim/handler.go:93-98"
    ],
    "file": ".claude/knowledge/nodes/component-scim-request-middleware.md"
   },
@@ -514,7 +518,7 @@
     "internal/aria/client.go:100-102",
     "internal/aria/prompt.go:9-13",
     "cmd/aria/main.go:1-7",
-    "internal/console/handlers.go:705-762",
+    "internal/console/handlers.go:706-762",
     ".claude/CLAUDE.md:92-96"
    ],
    "file": ".claude/knowledge/nodes/decision-aria-advisory-only.md"
@@ -584,8 +588,8 @@
   {
    "id": "decision-console-token-csrf",
    "kind": "decision",
-   "title": "Console uses bearer/basic tokens and stateless CSRF, not sessions",
-   "summary": "No login session or cookie; each request presents a console token, and CSRF is a keyed HMAC over an hourly bucket",
+   "title": "Console uses bearer/basic tokens and origin-checked, operator-bound CSRF, not sessions",
+   "summary": "No login session or cookie; each request presents a console token, and each POST passes an origin check plus a keyed HMAC form token bound to the operator's key id",
    "tags": [
     "decision",
     "session",
@@ -595,12 +599,15 @@
     "bearer",
     "basic auth",
     "stateless",
+    "origin check",
     "why"
    ],
    "sources": [
-    "internal/console/csrf.go:21-31",
+    "internal/console/csrf.go:18-30",
+    "internal/console/csrf.go:44-62",
     "internal/console/auth.go:38-42",
-    "internal/console/server.go:8-12"
+    "internal/console/server.go:8-12",
+    "internal/console/server.go:161-163"
    ],
    "file": ".claude/knowledge/nodes/decision-console-token-csrf.md"
   },
@@ -1171,8 +1178,8 @@
   {
    "id": "gotcha-request-body-logging-opt-in",
    "kind": "gotcha",
-   "title": "Request body logging is opt-in and lives in internal/scim",
-   "summary": "SCIM_LOG_REQUESTS=1 records request bodies (user attributes) to the normal log stream; Authorization is never logged",
+   "title": "Request body logging is opt-in and only for authenticated calls",
+   "summary": "SCIM_LOG_REQUESTS=1 records bodies, query and user agent of authenticated requests only; secret-like values are redacted and oversize or non-JSON bodies are logged by size",
    "tags": [
     "gotcha",
     "logging",
@@ -1181,11 +1188,17 @@
     "body",
     "PII",
     "user attributes",
+    "redaction",
+    "secrets",
     "debug logging"
    ],
    "sources": [
-    "internal/scim/requestlog.go:15-27",
-    "internal/scim/requestlog.go:29-56"
+    "internal/scim/requestlog.go:15-30",
+    "internal/scim/requestlog.go:54-87",
+    "internal/scim/requestlog.go:98-161",
+    "internal/scim/requestlog.go:167-253",
+    "internal/scim/handler.go:93-98",
+    "docs/CONFIGURATION.md:85-100"
    ],
    "file": ".claude/knowledge/nodes/gotcha-request-body-logging-opt-in.md"
   },
@@ -1400,7 +1413,7 @@
    "id": "module-console-auth",
    "kind": "module",
    "title": "Console auth and CSRF",
-   "summary": "Console login is a console_tokens credential sent as Bearer or Basic; CSRF is a stateless per-process HMAC over an hourly bucket",
+   "summary": "Console login is a console_tokens credential sent as Bearer or Basic; POSTs pass an origin check, then a stateless per-process HMAC form token bound to the operator's key id",
    "tags": [
     "auth",
     "authentication",
@@ -1409,14 +1422,16 @@
     "bearer",
     "basic auth",
     "csrf",
+    "origin check",
+    "sec-fetch-site",
     "session",
     "hmac",
     "constant time"
    ],
    "sources": [
     "internal/console/auth.go:1-126",
-    "internal/console/csrf.go:1-80",
-    "internal/console/handlers.go:851-863"
+    "internal/console/csrf.go:1-128",
+    "internal/console/handlers.go:851-870"
    ],
    "file": ".claude/knowledge/nodes/module-console-auth.md"
   },
@@ -1424,7 +1439,7 @@
    "id": "module-console",
    "kind": "module",
    "title": "Admin console (internal/console)",
-   "summary": "Opt-in loopback web UI for the SCIMage operator on its own listener; reuses store.* calls, token-authenticated",
+   "summary": "Opt-in loopback web UI for the SCIMage operator on its own listener; reuses store calls, token-authenticated, with security headers and a strict CSP",
    "tags": [
     "console",
     "admin console",
@@ -1435,12 +1450,20 @@
     "CONSOLE_ADDR",
     "templates",
     "ARIA",
-    "webhooks"
+    "webhooks",
+    "CSP",
+    "security headers"
    ],
    "sources": [
-    "internal/console/server.go:1-143",
-    "internal/console/render.go:1-94",
-    "internal/console/static.go:1-76",
+    "internal/console/server.go:1-16",
+    "internal/console/server.go:35-62",
+    "internal/console/server.go:64-98",
+    "internal/console/server.go:114-165",
+    "internal/console/render.go:38-43",
+    "internal/console/render.go:70-76",
+    "internal/console/static.go:12-32",
+    "internal/console/static.go:67-86",
+    "internal/console/handlers.go:792-816",
     "cmd/server/main.go:36-56",
     "cmd/server/main.go:145-167"
    ],
@@ -2063,6 +2086,11 @@
    "type": "related"
   },
   {
+   "from": "component-scim-request-middleware",
+   "to": "gotcha-request-body-logging-opt-in",
+   "type": "related"
+  },
+  {
    "from": "data-model-audit-log",
    "to": "decision-audit-in-transaction",
    "type": "decided_by"
@@ -2660,6 +2688,16 @@
   {
    "from": "gotcha-request-body-logging-opt-in",
    "to": "module-scim",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-request-body-logging-opt-in",
+   "to": "component-scim-request-middleware",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-request-body-logging-opt-in",
+   "to": "api-env-vars",
    "type": "related"
   },
   {

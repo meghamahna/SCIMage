@@ -7,11 +7,11 @@ tags: [decision, timeout, rate limit, ratelimit, auth, middleware, dos, token bu
 links: [related:module-scim, related:component-scim-ratelimit, related:component-scim-auth, related:gotcha-scim-unauthenticated-not-limited]
 sources: [docs/ARCHITECTURE.md:27-58, internal/scim/handler.go:63-98, internal/scim/timeout.go:15-22]
 updated: 2026-11-26
-verified_commit: 0761c5b
+verified_commit: 794ebee
 ---
 ## Decision
 - Middleware order: request timeout (outermost), auth, rate limiter, router → docs/ARCHITECTURE.md:27-35
-- Routes() chains logRequests → withTimeout → requireToken → limiter.throttle → mux → internal/scim/handler.go:98
+- Routes() chains logRequests → withTimeout → requireToken → captureBody → limiter.throttle → mux → internal/scim/handler.go:98
 - Default SCIM_REQUEST_TIMEOUT is 10s → internal/scim/timeout.go:15, docs/ARCHITECTURE.md:27-29
 - Auth is applied by Routes(), so unregistered paths get the same 401 as real ones → docs/ARCHITECTURE.md:55-58
 - The limiter is a token bucket keyed by tenant and key id → internal/scim/ratelimit.go:96
