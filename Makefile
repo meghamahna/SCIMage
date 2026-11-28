@@ -156,7 +156,7 @@ attr-unregister: ## Remove a registered attribute from a tenant
 ##@ Audit review
 
 # Usage: make aria  |  make aria TENANT=tenant_xxx SINCE=7d TZ=America/Vancouver
-# Needs the ARIA_LLM_* variables set (see docs/CONFIGURATION.md#audit-review-aria)
+# Needs the ARIA_LLM_* variables set (see docs/CONFIGURATION.md#-audit-review-aria)
 # only when the window actually has something to summarise.
 aria: ## Run ARIA, the advisory audit reviewer
 	@scripts/with-env.sh go run ./cmd/aria $(if $(TENANT),-tenant "$(TENANT)") $(if $(SINCE),-since "$(SINCE)") $(if $(TZ),-timezone "$(TZ)")

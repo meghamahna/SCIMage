@@ -2,7 +2,7 @@
 
 <img src="docs/assets/scimage_logo.png" alt="SCIMage: SCIM Audit and Governance Engine" width="200">
 
-### A SCIM 2.0 provisioning server with signed change delivery and an AI-advisory audit trail
+<h1 align="center">🧭 A SCIM 2.0 provisioning server with signed change delivery and an AI-advisory audit trail</h1>
 
 [![CI](https://github.com/meghamahna/SCIMage/actions/workflows/ci.yml/badge.svg)](https://github.com/meghamahna/SCIMage/actions/workflows/ci.yml)
 [![govulncheck](https://img.shields.io/github/actions/workflow/status/meghamahna/SCIMage/ci.yml?label=govulncheck)](https://github.com/meghamahna/SCIMage/actions/workflows/ci.yml)
@@ -14,6 +14,9 @@
 </div>
 
 SCIMage is a focused SCIM 2.0 server written in Go. It implements the core `/Users` and `/Groups` resources from [RFC 7644](https://datatracker.ietf.org/doc/html/rfc7644), backed by real Postgres, with security practices that are load-bearing and covered by tests.
+
+<!-- toc -->
+## 📑 Contents
 
 - [Why SCIMage](#-why-scimage)
 - [The problem it solves](#-the-problem-it-solves)
@@ -29,6 +32,8 @@ SCIMage is a focused SCIM 2.0 server written in Go. It implements the core `/Use
 - [Documentation](#-documentation)
 - [Tech](#-tech)
 - [License](#-license)
+
+<!-- /toc -->
 
 ## ✨ Why SCIMage
 
@@ -47,10 +52,10 @@ SCIMage is that receiving end, built to hold up:
 
 - **Win the deal without the build.** RFC 7644 `/Users` and `/Groups`, validated against Microsoft's Entra SCIM validator, so you can say yes to enterprise provisioning without writing and maintaining a spec-compliant server yourself.
 - **Prove it in an audit.** Every change is written to an audit trail in the same transaction as the change itself, so the record can never drift from what happened, and refused mutations are recorded as `denied` entries. That is the answer a SOC 2 or access review is looking for.
-- **Keep customers apart.** Each tenant has its own path, its own issued and rotatable token, and data isolation enforced in code and tested, not left to convention.
+- **Keep customers apart.** Each tenant has its own path, its own issued and rotatable token, and data isolation enforced in code and covered by tests.
 - **Make provisioning reach your app.** Signed, retried webhooks turn each change into an event the rest of your system can act on, instead of a row that just sits in a table.
 
-## ⚙️ What it does
+## 📡 What it does
 
 SCIMage is the *service provider* side of SCIM: the endpoint an identity provider provisions into. One deployment serves many customer organizations at once: each is a **tenant**, addressed under its own `/scim/v2/{tenantID}` path with its own issued token, isolated from every other tenant's data.
 
@@ -85,9 +90,11 @@ Responses use `application/scim+json`, and errors use the SCIM Error schema with
 
 **Validated against [Microsoft's Entra ID SCIM validator](https://scimvalidator.microsoft.com/).** Core CRUD, filtering, and PATCH all pass. The `User` schema is deliberately reduced to a minimal set of typed columns. `displayName`, `title`, `preferredLanguage`, `name.formatted`/`name.middleName`, the enterprise extension and typed multi-valued emails aren't modeled that way. When a provider needs them, an operator registers the extra attributes per tenant (`scimage-admin attribute register`, gated by `SCIM_EXTENDED_ATTRIBUTES`) and the server captures and returns them through a JSONB pass-through, which keeps the core minimal while still round-tripping whatever Okta or Entra maps. See [Configuration](docs/CONFIGURATION.md#-extensible-attributes).
 
-## 🏗️ How it's built
+## 🧱 How it's built
 
 ![SCIMage architecture](docs/assets/SCIMAGE_architecture.png)
+
+*The diagram shows the SCIM request path, the webhook dispatcher and ARIA. The admin console and the admin CLI are described in [Architecture](docs/ARCHITECTURE.md).*
 
 Everything lives in **one Postgres database**, with every query scoped by `tenant_id` and each mutation writing its row, audit entry and outbound event in one transaction. ARIA is the one advisory branch, reading `audit_log` off to the side, clear of the store and the auth path.
 
@@ -101,7 +108,7 @@ Set `SCIM_WEBHOOK_URL` to turn it on. [Architecture](docs/ARCHITECTURE.md#-chang
 
 ## 🔒 Security practices
 
-Each control is load-bearing and covered by tests: issued, tenant-scoped tokens compared with `crypto/subtle.ConstantTimeCompare` against a stored hash; auth applied by the router itself, so it covers the whole surface; cross-tenant isolation scoped on `tenant_id` in every query; audit logging in the same transaction as the change, with refused mutations recorded as `denied` entries; and privileged CLI actions audited to a named operator. Schema validation bounds attribute lengths before the database, outbound webhooks are signed with HMAC-SHA256 and verified with `hmac.Equal`, callers are rate-limited to a `429`, and secrets come from the environment, never hardcoded or logged. CI scans for both leaked credentials and vulnerable dependencies.
+Each control is load-bearing and covered by tests: issued, tenant-scoped tokens compared with `crypto/subtle.ConstantTimeCompare` against a stored hash; auth applied by the router itself, so it covers the whole surface; cross-tenant isolation scoped on `tenant_id` in every query; audit logging in the same transaction as the change, with refused mutations recorded as `denied` entries; and privileged CLI actions audited to a named operator. Schema validation bounds attribute lengths before the database, outbound webhooks are signed with HMAC-SHA256 and verified with `hmac.Equal`, callers are rate-limited to a `429`, and secrets come from the environment, never hardcoded or logged. CI scans dependencies for known vulnerabilities, and the pre-commit hook scans staged changes for leaked credentials.
 
 See [Threat model](docs/THREAT-MODEL.md) for the full threat-by-threat reasoning behind each of these, and [Configuration](docs/CONFIGURATION.md) for every environment variable.
 
@@ -109,9 +116,9 @@ Operational logs are structured JSON on stdout and in a dated file under `LOG_DI
 
 ## 🤖 ARIA: The AI advisory audit reviewer
 
-`aria` (**A**udit **R**isk **I**ntelligence **A**dvisor) reads the audit trail and prints a plain-English briefing a reviewer can read in under a minute: clustered deactivations, changes landing off-hours, callers spiking in volume or racking up denials. The name is deliberate: it advises, it never decides.
+`aria` (**A**udit **R**isk **I**ntelligence **A**dvisor) reads the audit trail and prints a plain-English briefing a reviewer can read in under a minute: clustered deactivations, changes landing off-hours, callers spiking in volume or racking up denials. The name is deliberate: it advises, and the decision stays with the reviewer.
 
-Deterministic Go computes every signal (the thresholds live in `internal/aria` as constants: five deactivations inside ten minutes, activity outside business hours), the LLM only narrates them, and the code gives it no path into the store or the auth layer. ARIA advises; the human decides.
+Deterministic Go computes every signal (the thresholds live in `internal/aria` as constants: five deactivations inside ten minutes, activity outside business hours), the LLM only narrates them, and the code gives it no path into the store or the auth layer.
 
 ARIA works with **any OpenAI-compatible chat-completions endpoint** (Anthropic's compat endpoint, OpenAI, OpenRouter, a local Ollama or vLLM). Point it there with `ARIA_LLM_BASE_URL`, `ARIA_LLM_API_KEY` and `ARIA_LLM_MODEL`.
 
@@ -152,7 +159,7 @@ make console-token LABEL="my laptop"          # sign-in credential, shown once
 make run                                       # SCIM API :8080, console UI :8090
 ```
 
-Open `http://127.0.0.1:8090/console`, sign in with the token as the password (leave the username blank), and create a tenant and its token by clicking. 🎉
+Open `http://127.0.0.1:8090/console`, sign in with the token as the password (leave the username blank), and create a tenant and its token by clicking.
 
 *Option B, the CLI.* Create the tenant and token from the shell, then start the server.
 
@@ -162,11 +169,15 @@ make token TENANT=<tenant-id> LABEL="Okta prod"  # prints the token, shown once
 make run                                          # SCIM API :8080
 ```
 
+With `SCIM_BASE_URL` unset, the CLI and the console print the literal `<SCIM_BASE_URL>` in place of the host. Set it in `.env` to your external URL to see a usable one.
+
 Either way, `CREATED BY` defaults to `$USER`, and every tenant and token action is recorded in `admin_audit_log` (`make audit-list`). The full CLI, rotation, and the console-vs-CLI command map are in [Configuration](docs/CONFIGURATION.md#-console-ui-or-cli).
 
-**4. Make your first request** with the tenant id and token from step 3:
+**4. Make your first request** with the tenant id and token from step 3. Export them first (the [first-request walkthrough](docs/LOCAL-DEVELOPMENT.md#-send-your-first-request) shows how to capture them from the CLI):
 
 ```bash
+export TENANT_ID=<tenant-id> TOKEN=<token>
+
 curl localhost:8080/healthz   # {"status":"ok"} once the server is up
 
 curl -X POST "http://localhost:8080/scim/v2/$TENANT_ID/Users" \
@@ -202,14 +213,26 @@ docker build -t scimage .
 docker run --rm -p 8080:8080 \
   -e DATABASE_URL="postgres://user:pass@your-db:5432/scimage?sslmode=require" \
   -e SCIM_BASE_URL="https://scim.yourcompany.com" \
+  -e LOG_DIR= \
   scimage
 ```
 
-The container needs a Postgres you already operate, with the migrations applied. Apply them with `make migrate` against that database, or run the `golang-migrate` image over the files in [`migrations/`](migrations/).
+The container needs a Postgres you already operate, with the migrations applied. `make migrate` only reaches the Compose Postgres (it builds its connection from the `POSTGRES_*` values in `.env` and never reads `DATABASE_URL`), so for another database run the `golang-migrate` image over the files in [`migrations/`](migrations/):
+
+```bash
+docker run --rm \
+  --volume "$PWD/migrations:/migrations:ro" \
+  migrate/migrate:v4.18.1 \
+  -path=/migrations \
+  -database "postgres://user:pass@your-db:5432/scimage?sslmode=require" \
+  up
+```
+
+The `golang-migrate` CLI takes the same `-path`, `-database` and `up` arguments. Add `--network` to the `docker run` if the database is reachable only from a Docker network.
 
 Run it behind a proxy that terminates TLS, and set `SCIM_BASE_URL` to the public HTTPS URL so the links the server returns stay `https`. For an orchestrator, `GET /healthz` is the liveness check and `GET /readyz` is the readiness check. Every setting is an environment variable; see [Configuration](docs/CONFIGURATION.md).
 
-**Local testing**, against the same Postgres and `.env` that `make run` uses. This assumes you've already done the [Getting started](#-getting-started) setup: `.env` filled in and `make up` run, so Postgres is up with migrations applied. `--env-file .env` passes every variable in the file to the container. Docker reads it literally, so keep values unquoted and comments on their own lines. If a value needs quotes for the shell, such as a URL containing `&`, add `-e NAME` for it after `--env-file` so the container gets the value the shell loaded. Inside the container, `localhost` and `127.0.0.1` point at the container itself, so the command overrides `DATABASE_URL` and `CONSOLE_ADDR`. A webhook URL in `.env` that points at `localhost` fails to connect for the same reason.
+**Local testing**, against the same Postgres and `.env` that `make run` uses. This assumes you've already done the [Getting started](#-getting-started) setup: `.env` filled in and `make up` run, so Postgres is up with migrations applied. `--env-file .env` passes every variable in the file to the container. Docker reads it literally, so keep values unquoted and comments on their own lines. If a value needs quotes for the shell, such as a URL containing `&`, add `-e NAME` for it after `--env-file` so the container gets the value the shell loaded. Inside the container, `localhost` and `127.0.0.1` point at the container itself, so the command overrides `DATABASE_URL` and `CONSOLE_ADDR`. It also sets `LOG_DIR` empty, which keeps logs on stdout (see [Configuration](docs/CONFIGURATION.md#-logging)). A webhook URL in `.env` that points at `localhost` fails to connect for the same reason.
 
 ```bash
 (
@@ -220,6 +243,7 @@ Run it behind a proxy that terminates TLS, and set `SCIM_BASE_URL` to the public
     --env-file .env \
     -e DATABASE_URL \
     -e CONSOLE_ADDR="0.0.0.0:8090" \
+    -e LOG_DIR= \
     scimage
 )
 ```
@@ -245,7 +269,7 @@ make test
 
 Store and audit tests hit real SQL and constraints in Postgres. Handlers run through `httptest`, and the webhook dispatcher against a real `httptest` receiver. Every suite cleans up after itself.
 
-## 🗺️ Roadmap
+## 🎯 Roadmap
 
 `v1.0.0` is tagged, covering phases 1 through 13. Phase 14 (the admin console and the OpenAPI spec with Swagger UI) is complete on top of that and ships in the next release.
 

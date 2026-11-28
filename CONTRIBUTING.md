@@ -1,11 +1,21 @@
-# Contributing to SCIMage
+# 🙋 Contributing to SCIMage
 
 Thanks for your interest. SCIMage is a focused SCIM 2.0 server, and the bar for a
 change is correctness, tests, and keeping the security properties intact, more
 than feature breadth. This guide covers how to get set up and what a good change
 looks like.
 
-## Getting set up
+<!-- toc -->
+## 📑 Contents
+
+- [Getting set up](#-getting-set-up)
+- [Conventions](#-conventions)
+- [The security principles are non-negotiable](#-the-security-principles-are-non-negotiable)
+- [Submitting a change](#-submitting-a-change)
+
+<!-- /toc -->
+
+## 🚀 Getting set up
 
 You need Go (see [`go.mod`](go.mod) for the version) and Docker for the Postgres
 the integration tests run against.
@@ -27,7 +37,7 @@ and has to be run again on every fresh clone. The hook runs a secret scan,
 [docs/CONFIGURATION.md](docs/CONFIGURATION.md) documents every environment
 variable.
 
-## Conventions
+## 📋 Conventions
 
 The full house style lives in [.claude/CLAUDE.md](.claude/CLAUDE.md). The parts
 that matter most:
@@ -42,13 +52,13 @@ that matter most:
   against real Postgres for store integration tests.
   Every query is scoped by `tenant_id`, which is what lets the suites run
   concurrently without racing on shared tables.
-- **Formatting** is `gofmt` / `goimports` before every commit. The hook enforces
-  it.
+- **Formatting** is `gofmt` / `goimports` before every commit (`make fmt` runs
+  both). The hook enforces `gofmt`, and `goimports` when it is installed.
 - **Comments** explain *why* where it isn't obvious: a spec requirement, a schema
   choice, a non-obvious failure mode. They don't narrate what the code already
   says.
 
-## The security principles are non-negotiable
+## 🔒 The security principles are non-negotiable
 
 Some invariants are load-bearing and enforced mechanically. A change must not
 weaken them, and the hooks will fight you if it tries:
@@ -69,7 +79,7 @@ If a hook blocks something that is genuinely fine, fix the hook in
 [.claude/hooks/](.claude/hooks/) rather than working around it, and say so in the
 PR.
 
-## Submitting a change
+## 🔀 Submitting a change
 
 1. Branch off `main`.
 2. Keep commits small and focused. Message format is `phase-N: short description`

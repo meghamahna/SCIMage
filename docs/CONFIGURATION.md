@@ -1,4 +1,4 @@
-# ⚙️ Configuration
+# 🔧 Configuration
 
 Every setting comes from an environment variable. Copy `.env.example` to `.env`
 and fill it in; `.env` is gitignored, and `make` targets load it for you.
@@ -27,8 +27,8 @@ characters for `SCIM_WEBHOOK_SECRET`.
 
 | Variable | Purpose |
 | --- | --- |
-| `DATABASE_URL` | Postgres connection string. Assembled from `POSTGRES_*` when absent. |
-| `DATABASE_MAX_CONNS` | Pool size ceiling. Unset leaves pgx's own default (4). |
+| `DATABASE_URL` | Postgres connection string. When absent, it is assembled from `POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB` (all three required, `POSTGRES_PORT` optional), pointing at `localhost` with `sslmode=disable`. |
+| `DATABASE_MAX_CONNS` | Pool size ceiling. Unset leaves pgx's own default, the larger of 4 and the CPU count. |
 | `DATABASE_MAX_CONN_LIFETIME` | Go duration (e.g. `30m`) after which a pooled connection is recycled. Unset leaves pgx's own default (1h). |
 | `SCIM_ADDR` | Listen address. Defaults to `:8080`. |
 | `SCIM_BASE_URL` | External base URL, used for `Location`, `meta.location`, and the SCIM base URL that `scimage-admin tenant create` and the console's Tenants page show, behind a proxy. |
@@ -72,8 +72,8 @@ is signed. `SCIM_WEBHOOK_ALLOW_HTTP=1` is meant for a local receiver during
 development: events carry user attributes, and the signature protects
 authenticity rather than confidentiality.
 
-Six attempts on the default doubling backoff spans roughly five minutes of
-receiver downtime. See [ARCHITECTURE.md](ARCHITECTURE.md#retry-and-dead-letter)
+Six attempts on the default backoff (5s, doubling, with up to 20% jitter, capped
+at 5m) span roughly three minutes of receiver downtime. See [ARCHITECTURE.md](ARCHITECTURE.md#-retry-and-dead-letter)
 for what retries and what parks immediately.
 
 A parked (dead-lettered) delivery keeps its payload so it can be replayed once
@@ -146,7 +146,7 @@ a top-level custom attribute. Core attributes (`userName`, `emails`, `active`,
 allowed to shadow one. Unregistering stops future capture and advertising; it
 doesn't touch values already stored.
 
-## 🗄️ Database
+## 💾 Database
 
 Used when `DATABASE_URL` is absent, and by `docker-compose.yml`.
 
@@ -205,7 +205,7 @@ irreversible: a new token has to be issued if one is needed again.
 Treat every issued token as a privileged credential (it authorizes changes
 to that tenant's directory), and revoke it as soon as exposure is suspected.
 
-## 🖥️ Admin console
+## 🌐 Admin console
 
 The admin console is an optional web UI for whoever runs the deployment, with
 essentially the same reach as `scimage-admin`: a landing page, view and mutate
@@ -220,7 +220,7 @@ here. The one thing it can't do is mint its own login credential (see below).
 | --- | --- |
 | `CONSOLE_ADDR` | Listen address for the console. Unset (the default) means the console does not start. The recommended value, `127.0.0.1:8090`, binds loopback so it isn't reachable off-host. |
 | `CONSOLE_ALLOWED_HOSTS` | Comma-separated host names the console answers to, beyond the defaults below, e.g. `console.example.com,10.0.0.5`. Each entry is a specific IP address or ASCII DNS name (no wildcards) with an optional `:port`, which is ignored; see [Allowed hosts and request limits](#-allowed-hosts-and-request-limits). With the console enabled, an invalid entry stops the server at startup. Unset adds nothing. |
-| `SCIMAGE_ENV` | Cosmetic label shown in the console's sidebar badge, e.g. `prod` or `staging`. |
+| `SCIMAGE_ENV` | Cosmetic label shown in the console's sidebar badge, e.g. `prod` or `staging`. Defaults to `local`. |
 
 The console is a **second listener**, separate from the internet-facing SCIM
 port, opt-in (it starts only when `CONSOLE_ADDR` is set) and loopback-bound, so

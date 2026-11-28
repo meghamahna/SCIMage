@@ -1,4 +1,22 @@
-# 🛠️ Local development
+# 🔨 Local development
+
+<!-- toc -->
+## 📑 Contents
+
+- [Prerequisites](#-prerequisites)
+- [Clone and configure](#-clone-and-configure)
+- [Make commands](#-make-commands)
+- [Launch the UI (admin console + API docs)](#-launch-the-ui-admin-console--api-docs)
+- [Supported attributes](#-supported-attributes)
+- [Migrations](#-migrations)
+- [Send your first request](#-send-your-first-request)
+- [Logs](#-logs)
+- [Audit trail](#-audit-trail)
+- [Audit review (ARIA)](#-audit-review-aria)
+- [Run tests](#-run-tests)
+- [Troubleshooting](#-troubleshooting)
+
+<!-- /toc -->
 
 ## 🧰 Prerequisites
 
@@ -6,13 +24,17 @@
 - [Docker](https://www.docker.com/products/docker-desktop/) with
   Compose (Docker Desktop on macOS/Windows, Docker Engine + Compose
   plugin on Linux)
+- GNU Make, which runs every target in the table below
 - [`jq`](https://jqlang.github.io/jq/) (`brew install jq`), used by
-  the migration and secret-scanning scripts
+  the migration script (`scripts/migrate.sh`)
+- Optional: [`goimports`](https://pkg.go.dev/golang.org/x/tools/cmd/goimports),
+  which `make fmt` runs after `gofmt`
 
 Verify:
 
 ```bash
 go version
+make --version
 docker --version
 docker compose version
 jq --version
@@ -35,7 +57,7 @@ cp .env.example .env
 `make hooks-install` sets a local git config, so it has to be run again on
 every fresh clone.
 
-## ⚙️ Make commands
+## 🔧 Make commands
 
 Run `make` with no arguments to see this same list generated from the
 Makefile itself. `SERVICE=` and other variables are passed as `make up
@@ -72,12 +94,12 @@ SERVICE=postgres`, not `--service=postgres`.
 | `make aria [TENANT=<id>] [SINCE=24h]` | Runs ARIA, the advisory audit reviewer | Optional `TZ=` for the off-hours check; needs the `ARIA_LLM_*` variables only when a window has findings |
 | `make hooks-install` | Activates the real git pre-commit hook | One-time per clone; doesn't travel with the repo |
 
-## 🖥️ Launch the UI (admin console + API docs)
+## 🎨 Launch the UI (admin console + API docs)
 
 Two browser-facing surfaces ship with the server:
 
-- 🔐 **Admin console** at `/console`: an opt-in admin UI with essentially the same reach as the CLI above. View and mutate tenants (each with its SCIM base URL), tokens and attributes; watch webhook delivery health and replay a parked event; and read the audit trails and ARIA's report (with an optional ARIA briefing). Issuing the console's own sign-in credential stays on the CLI.
-- 📖 **API reference** at `/docs`: interactive Swagger UI, served unauthenticated (it describes the public protocol and carries no tenant data).
+- **Admin console** at `/console`: an opt-in admin UI with essentially the same reach as the CLI above. View and mutate tenants (each with its SCIM base URL), tokens and attributes; watch webhook delivery health and replay a parked event; and read the audit trails and ARIA's report (with an optional ARIA briefing). Issuing the console's own sign-in credential stays on the CLI.
+- **API reference** at `/docs`: interactive Swagger UI, served unauthenticated (it describes the public protocol and carries no tenant data).
 
 The console stays off until you turn it on. Three steps to launch it:
 
@@ -134,7 +156,7 @@ reasoning:
 /Users/{id}` does, because the Group schema has no `active` attribute to
 deactivate into.
 
-## 🗄️ Migrations
+## 💾 Migrations
 
 Schema migrations live in [`migrations/`](../migrations/) and are managed
 with [golang-migrate](https://github.com/golang-migrate/migrate). Use
@@ -149,8 +171,8 @@ To add a migration, create the next numbered pair by hand (check
 not the literal next one):
 
 ```text
-migrations/000010_<description>.up.sql
-migrations/000010_<description>.down.sql
+migrations/000013_<description>.up.sql
+migrations/000013_<description>.down.sql
 ```
 
 Write the `down` half alongside it, and test the round trip
@@ -223,7 +245,7 @@ endpoint by adding three variables to `.env`. With a Claude API key:
 
 ```bash
 ARIA_LLM_BASE_URL=https://api.anthropic.com/v1
-ARIA_LLM_API_KEY=sk-ant-...
+ARIA_LLM_API_KEY=<your provider key>
 ARIA_LLM_MODEL=claude-sonnet-4-5
 ```
 

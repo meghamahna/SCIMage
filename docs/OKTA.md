@@ -1,4 +1,4 @@
-# Connecting Okta
+# 🔌 Connecting Okta
 
 This guide points Okta's SCIM provisioning at a SCIMage tenant. It assumes the
 server is deployed behind TLS and reachable from Okta, and that you have run the
@@ -8,7 +8,20 @@ SCIMage is the SCIM *service provider*; Okta is the *client*. Okta reads the
 discovery documents first, so what it offers to configure reflects what this
 server actually supports.
 
-## 1. Create the tenant and a token
+<!-- toc -->
+## 📑 Contents
+
+- [1. Create the tenant and a token](#-1-create-the-tenant-and-a-token)
+- [2. Configure the SCIM connection in Okta](#-2-configure-the-scim-connection-in-okta)
+- [3. Enable provisioning to the app](#-3-enable-provisioning-to-the-app)
+- [4. Attribute mappings](#-4-attribute-mappings)
+- [5. Groups](#-5-groups)
+- [What Okta cannot use here](#-what-okta-cannot-use-here)
+- [Troubleshooting](#-troubleshooting)
+
+<!-- /toc -->
+
+## 🔑 1. Create the tenant and a token
 
 Each Okta app provisions into one SCIMage tenant, over its own URL with its own
 token. Get the admin CLI with `go install ./cmd/scimage-admin` (puts
@@ -24,9 +37,11 @@ scimage-admin token issue -tenant <tenantID> -label "Okta prod"
 
 The **SCIM base URL** is `https://<your-host>/scim/v2/<tenantID>` (set
 `SCIM_BASE_URL` on the server so the printed value and the `Location` links it
-returns are correct). The **token** is the OAuth bearer token Okta will send.
+returns are correct). With `SCIM_BASE_URL` unset in the shell that runs
+`scimage-admin`, the printed URL starts with the literal `<SCIM_BASE_URL>` in
+place of the host. The **token** is the OAuth bearer token Okta will send.
 
-## 2. Configure the SCIM connection in Okta
+## 🔧 2. Configure the SCIM connection in Okta
 
 In the Okta Admin Console, open your SCIM 2.0 app (or create one via
 **Applications → Create App Integration → SCIM 2.0**), then **Provisioning →
@@ -43,7 +58,7 @@ Integration → Configure API Integration**:
 Click **Test Connector Configuration**. Okta reads `/ServiceProviderConfig` and
 confirms bearer auth, filtering and PATCH are advertised.
 
-## 3. Enable provisioning to the app
+## 🧩 3. Enable provisioning to the app
 
 On **Provisioning → To App**, enable:
 
@@ -55,7 +70,7 @@ On **Provisioning → To App**, enable:
   false}`, which emits a `user.deactivated` change event. SCIMage soft-deletes:
   the row is kept as inactive, preserving the audit trail.
 
-## 4. Attribute mappings
+## 🧬 4. Attribute mappings
 
 SCIMage models a deliberately minimal, typed core: `userName`,
 `name.givenName`, `name.familyName`, a primary `email`, `active`, and
@@ -75,7 +90,7 @@ sends that is neither modeled nor registered is accepted and dropped, not an
 error, so an over-broad default mapping won't break provisioning. It just won't
 persist.
 
-## 5. Groups
+## 👥 5. Groups
 
 On the **Push Groups** tab, push the groups you want mirrored. SCIMage creates a
 Group with its members, validating each member against this tenant's users. A
@@ -83,7 +98,7 @@ member id that doesn't exist, or belongs to another tenant, rejects the whole
 push rather than silently dropping it. Membership changes arrive as `PATCH` and
 emit `group.replaced`.
 
-## What Okta cannot use here
+## ❌ What Okta cannot use here
 
 The discovery document is honest about the edges, so Okta won't offer these:
 
@@ -94,7 +109,7 @@ The discovery document is honest about the edges, so Okta won't offer these:
   users, and `displayName eq` / `externalId eq` for groups, which is what Okta
   uses to reconcile before a create. Other filters return `invalidFilter`.
 
-## Troubleshooting
+## 🐛 Troubleshooting
 
 - **Test connector fails:** check the base URL includes the `/scim/v2/<tenantID>`
   path, the token is the full `scimage_…` string, and the tenant in the token
