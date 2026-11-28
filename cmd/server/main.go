@@ -33,6 +33,11 @@ const (
 	idleTimeout       = 120 * time.Second
 )
 
+// maxHeaderBytes bounds request headers on both listeners. 64 KiB fits an IdP's
+// bearer token and a localhost cookie jar many times over, and is far below
+// net/http's 1 MiB default, which would let each connection hold a megabyte.
+const maxHeaderBytes = 64 << 10
+
 // consoleServer builds the admin-console listener, or nil when CONSOLE_ADDR is
 // unset. The console is opt-in: a full-mutation admin surface stays off unless
 // an operator turns it on, and 127.0.0.1:8090 is the recommended value so it
@@ -52,6 +57,7 @@ func consoleServer(s *store.Store) (*http.Server, error) {
 		ReadHeaderTimeout: readHeaderTimeout,
 		ReadTimeout:       readTimeout,
 		IdleTimeout:       idleTimeout,
+		MaxHeaderBytes:    maxHeaderBytes,
 	}, nil
 }
 
@@ -140,6 +146,7 @@ func run() error {
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,
 		IdleTimeout:       idleTimeout,
+		MaxHeaderBytes:    maxHeaderBytes,
 	}
 
 	// The console is a second listener, separate from the internet-facing SCIM

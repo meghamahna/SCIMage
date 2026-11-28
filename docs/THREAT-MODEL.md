@@ -161,6 +161,15 @@ receiver. Each is an assumption listed at the end.
   request the operator didn't initiate can't drive a change through their
   session. A reverse proxy in front of the console must forward the original
   `Host` header.
+- **DNS rebinding.** A hostile page can re-point its own domain at the loopback
+  console, and the browser then treats the console as same-origin. The page
+  still sends its own domain as `Host`, so the console refuses any `Host` outside
+  its allowlist with `421`, before auth. The allowlist is loopback names, the
+  host of `CONSOLE_ADDR` and `CONSOLE_ALLOWED_HOSTS`
+  ([Configuration](CONFIGURATION.md#-allowed-hosts-and-request-limits)).
+- **Oversized requests.** Console form posts are capped at 64 KiB, and both
+  listeners cap request headers at 64 KiB, so a single connection can't hold
+  1 MiB of header memory.
 - **Repudiation of console actions.** Console mutations reuse the exact audited
   `store.*` functions the CLI calls, so each one writes its `admin_audit_log`
   entry in the same transaction as the change, no different from a CLI action.

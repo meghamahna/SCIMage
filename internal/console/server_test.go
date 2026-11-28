@@ -54,6 +54,7 @@ func newConsoleIT(t *testing.T) *consoleIT {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
+	srv.allowedHosts["example.com"] = true // httptest.NewRequest's default Host
 
 	plaintext, tok, err := s.IssueConsoleToken(ctx, "console-it", "test-suite", nil)
 	if err != nil {

@@ -171,3 +171,36 @@ func TestCheckCSRFRefusesOriginBeforeParsingBody(t *testing.T) {
 		t.Error("the body was parsed before the origin check refused the request")
 	}
 }
+
+// A body over the form cap answers 413, not the 403 a failed token check gives;
+// a body right at the cap still goes through.
+func TestCheckCSRFBodyLimit(t *testing.T) {
+	g, _ := newCSRFGuard()
+	srv := &Server{csrf: g}
+	prefix := "csrf=" + g.token(operatorA, time.Now()) + "&name="
+	for _, tc := range []struct {
+		name     string
+		size     int
+		wantOK   bool
+		wantCode int
+	}{
+		{"at the limit", maxFormBytes, true, http.StatusOK},
+		{"one byte over", maxFormBytes + 1, false, http.StatusRequestEntityTooLarge},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := prefix + strings.Repeat("a", tc.size-len(prefix))
+			req := httptest.NewRequest("POST", "/console/tenants", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("Sec-Fetch-Site", "same-origin")
+			req = req.WithContext(context.WithValue(req.Context(), consoleIdentityKey{}, consoleIdentity{KeyID: operatorA}))
+			rec := httptest.NewRecorder()
+
+			if got := srv.checkCSRF(rec, req); got != tc.wantOK {
+				t.Fatalf("checkCSRF = %v, want %v", got, tc.wantOK)
+			}
+			if rec.Code != tc.wantCode {
+				t.Errorf("status = %d, want %d", rec.Code, tc.wantCode)
+			}
+		})
+	}
+}

@@ -61,6 +61,7 @@ func TestConsoleSecurityHeadersWithoutStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
+	srv.allowedHosts["example.com"] = true // httptest.NewRequest's default Host
 	get := func(target string) *http.Request { return httptest.NewRequest("GET", target, nil) }
 	checkHeaders(t, srv, []headerCase{
 		{"login challenge", get("/console/tokens"), http.StatusUnauthorized, noStore},

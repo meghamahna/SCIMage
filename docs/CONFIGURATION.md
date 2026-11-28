@@ -6,6 +6,23 @@ and fill it in; `.env` is gitignored, and `make` targets load it for you.
 Generate secrets with `openssl rand -hex 32`. The server requires at least 16
 characters for `SCIM_WEBHOOK_SECRET`.
 
+<!-- toc -->
+## 📑 Contents
+
+- [Core](#-core)
+- [Rate limiting](#-rate-limiting)
+- [Change delivery](#-change-delivery)
+- [Logging](#-logging)
+- [Extensible attributes](#-extensible-attributes)
+- [Database](#-database)
+- [Tenants and tokens](#-tenants-and-tokens)
+- [Admin console](#-admin-console)
+  - [Allowed hosts and request limits](#-allowed-hosts-and-request-limits)
+- [Console UI or CLI](#-console-ui-or-cli)
+- [Audit review (ARIA)](#-audit-review-aria)
+
+<!-- /toc -->
+
 ## 🧱 Core
 
 | Variable | Purpose |
@@ -202,6 +219,7 @@ here. The one thing it can't do is mint its own login credential (see below).
 | Variable | Purpose |
 | --- | --- |
 | `CONSOLE_ADDR` | Listen address for the console. Unset (the default) means the console does not start. The recommended value, `127.0.0.1:8090`, binds loopback so it isn't reachable off-host. |
+| `CONSOLE_ALLOWED_HOSTS` | Comma-separated host names the console answers to, beyond the defaults below, e.g. `console.example.com,10.0.0.5`. Each entry is a specific IP address or ASCII DNS name (no wildcards) with an optional `:port`, which is ignored; see [Allowed hosts and request limits](#-allowed-hosts-and-request-limits). With the console enabled, an invalid entry stops the server at startup. Unset adds nothing. |
 | `SCIMAGE_ENV` | Cosmetic label shown in the console's sidebar badge, e.g. `prod` or `staging`. |
 
 The console is a **second listener**, separate from the internet-facing SCIM
@@ -229,6 +247,51 @@ transaction as the change. A browser POST must come from a console page
 clients that send neither header are checked by the token alone. Every POST
 must carry a form token tied to the signed-in console key. A reverse proxy in
 front of the console must forward the original `Host` header.
+
+### 🔒 Allowed hosts and request limits
+
+The console checks the `Host` header of every request, including static assets,
+before it checks credentials. It answers only to these names:
+
+- `localhost`, `127.0.0.1` and `::1`, always.
+- The host of `CONSOLE_ADDR` when it is a name or a specific IP. A wildcard
+  bind such as `0.0.0.0:8090` adds nothing.
+- Each entry in `CONSOLE_ALLOWED_HOSTS`.
+
+Any other `Host` gets `421 Misdirected Request`. The port is not compared. This
+blocks DNS rebinding: a page that re-points its own domain at `127.0.0.1` still
+sends that domain as `Host`, so it can't read the console.
+
+The defaults cover a loopback bind, an SSH tunnel and the Docker
+`-p 127.0.0.1:8090:8090` setup. If you reach the console through a reverse proxy
+or by a LAN name or IP, list that name:
+
+```bash
+CONSOLE_ALLOWED_HOSTS=console.example.com,10.0.0.5
+```
+
+An entry is `host` or `host:port`. The host is one of:
+
+- A specific IPv4 or IPv6 address. Wrap an IPv6 address in brackets when it carries a
+  port, e.g. `[fd00::1]:8090`. Zone ids such as `%eth0` are rejected. Addresses
+  match in canonical form, so `2001:DB8::0001` matches the `[2001:db8::1]` a
+  browser sends.
+- A DNS name made of ASCII letters, digits and hyphens. Write an
+  internationalised name in its punycode form (`xn--...`). Wildcards such as
+  `*.example.com` are not supported; list each name.
+
+The port is optional, from 1 to 65535, and ignored when matching. Any other
+entry stops the server at startup, when the console is enabled, with an error
+naming the entry. That covers a scheme, path, `@`, `?`, `#`, a space, a bad
+port, an empty host, an unspecified address such as `0.0.0.0` or `::` (browsers
+never send it as a host) and a mistyped IP address such as `10.0.0`.
+
+Two size limits apply as well:
+
+- Console form posts are capped at 64 KiB. A larger body gets `413` with
+  "request body is too large". The forms are under 1 KiB.
+- Both listeners (SCIM and console) cap request headers at 64 KiB, down from
+  Go's 1 MiB default. Larger headers get `431` from `net/http`.
 
 ## 🔀 Console UI or CLI
 

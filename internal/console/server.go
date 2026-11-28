@@ -69,12 +69,19 @@ type Server struct {
 	loc        *time.Location  // timezone ARIA's off-hours check evaluates against
 	scimBase   string          // SCIM_BASE_URL, trimmed; "" falls back to a placeholder
 	narratives *narrativeCache // last LLM briefing per tenant+window
+
+	allowedHosts map[string]bool // normalized Host names the console answers to
 }
 
-// NewServer parses the templates and mints a fresh CSRF key. A template or key
-// failure is returned rather than panicked, so cmd/server can decide whether a
-// broken console should stop the whole process.
+// NewServer parses the templates, mints a fresh CSRF key and reads the Host
+// allowlist from CONSOLE_ADDR and CONSOLE_ALLOWED_HOSTS. A failure is returned
+// rather than panicked, so cmd/server can decide whether a broken console
+// should stop the whole process.
 func NewServer(s Store, env string) (*Server, error) {
+	hosts, err := parseAllowedHosts(os.Getenv("CONSOLE_ADDR"), os.Getenv("CONSOLE_ALLOWED_HOSTS"))
+	if err != nil {
+		return nil, fmt.Errorf("console allowed hosts: %w", err)
+	}
 	tmpl, err := parseTemplates()
 	if err != nil {
 		return nil, fmt.Errorf("parse console templates: %w", err)
@@ -94,6 +101,8 @@ func NewServer(s Store, env string) (*Server, error) {
 		loc:        ariaLocation(),
 		scimBase:   strings.TrimSuffix(strings.TrimSpace(os.Getenv("SCIM_BASE_URL")), "/"),
 		narratives: newNarrativeCache(),
+
+		allowedHosts: hosts,
 	}, nil
 }
 
@@ -108,7 +117,8 @@ func ariaLocation() *time.Location {
 	return time.Local
 }
 
-// Handler builds the console's routes under /console. Static assets mount
+// Handler builds the console's routes under /console. The Host check runs
+// first, so a refused Host never reaches the token lookup. Static assets mount
 // before auth so the login dialog's page can style itself; every other route
 // is wrapped in requireConsoleToken.
 func (srv *Server) Handler() http.Handler {
@@ -139,7 +149,7 @@ func (srv *Server) Handler() http.Handler {
 	root := http.NewServeMux()
 	root.Handle("GET /console/static/", http.StripPrefix("/console/static/", staticHandler()))
 	root.Handle("/", authed)
-	return withSecurityHeaders(root)
+	return withSecurityHeaders(srv.requireAllowedHost(root))
 }
 
 // consoleCSP limits scripts, styles, images and fetches to the console's own

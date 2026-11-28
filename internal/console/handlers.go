@@ -26,6 +26,11 @@ import (
 // unmanageable table when that cap is large.
 const auditListLimit = 200
 
+// maxFormBytes caps a console POST body. The largest form is a CSRF token plus
+// a few short fields, well under 1 KiB; 64 KiB leaves ample room while keeping
+// a hostile body from costing more than a trivial read.
+const maxFormBytes = 64 << 10
+
 // ---- Home ----
 
 type homeData struct {
@@ -860,7 +865,13 @@ func (srv *Server) checkCSRF(w http.ResponseWriter, r *http.Request) bool {
 		http.Error(w, "this request did not come from a console page", http.StatusForbidden)
 		return false
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
 	if err := r.ParseForm(); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			http.Error(w, "request body is too large", http.StatusRequestEntityTooLarge)
+			return false
+		}
 		http.Error(w, "could not parse form", http.StatusBadRequest)
 		return false
 	}

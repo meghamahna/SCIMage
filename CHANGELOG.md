@@ -53,6 +53,15 @@ and integrator tooling, built on top of the `1.0.0` surface below.
   ARIA narration can legitimately run close to a minute). Narrows, rather
   than closes, the pre-auth-volume risk already on record in
   [THREAT-MODEL.md](docs/THREAT-MODEL.md).
+- **Console host allowlist** (`CONSOLE_ALLOWED_HOSTS`): the console answers only
+  to `localhost`, `127.0.0.1`, `::1`, the host of `CONSOLE_ADDR` and the names
+  listed in the variable. Any other `Host` gets `421`, before auth and for
+  static assets too, which stops DNS rebinding. Operators who reach the console
+  through a reverse proxy or a LAN name or IP must list that name. A malformed
+  entry stops the server at startup.
+- **Request size limits**: console form posts are capped at 64 KiB (`413`), and
+  both listeners cap request headers at 64 KiB instead of Go's 1 MiB default
+  (`431`).
 
 ## [1.0.0] - 2026-08-16
 
