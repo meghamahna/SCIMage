@@ -61,9 +61,11 @@
     "defaults"
    ],
    "sources": [
-    "docs/CONFIGURATION.md:1-6",
-    "docs/CONFIGURATION.md:141",
-    "docs/CONFIGURATION.md:222",
+    "docs/CONFIGURATION.md:1-8",
+    "docs/CONFIGURATION.md:98-100",
+    "docs/CONFIGURATION.md:151-158",
+    "docs/CONFIGURATION.md:219-223",
+    "docs/CONFIGURATION.md:251-287",
     ".env.example:1-96",
     "docker-compose.yml:10",
     "scripts/with-env.sh:6-19",
@@ -212,13 +214,15 @@
     "go",
     "binaries",
     "request path",
+    "middleware",
     "multi-tenancy",
     "outbox",
     "console",
     "aria",
     "layout",
     "design",
-    "structure"
+    "structure",
+    "docs"
    ],
    "sources": [
     "cmd/server/main.go:36-44",
@@ -227,16 +231,15 @@
     "cmd/server/main.go:147-197",
     "cmd/scimage-admin/main.go:21-39",
     "cmd/aria/main.go:24-29",
-    "docs/ARCHITECTURE.md:22-42",
-    "docs/ARCHITECTURE.md:63-70",
-    "docs/ARCHITECTURE.md:89-113",
-    "docs/ARCHITECTURE.md:234-272",
-    "docs/ARCHITECTURE.md:414-436",
-    "internal/scim/handler.go:63-98",
+    "docs/ARCHITECTURE.md:28-52",
+    "docs/ARCHITECTURE.md:77-82",
+    "docs/ARCHITECTURE.md:89-134",
+    "docs/ARCHITECTURE.md:259-349",
+    "docs/ARCHITECTURE.md:440-548",
+    "internal/scim/handler.go:93-98",
     "internal/store/user.go:155-189",
     "internal/webhook/dispatcher.go:82-106",
     "internal/console/auth.go:38-42",
-    "internal/console/csrf.go:18-30",
     "internal/logging/logging.go:20-34"
    ],
    "file": ".claude/knowledge/nodes/architecture-overview.md"
@@ -245,30 +248,29 @@
    "id": "command-dev-commands",
    "kind": "command",
    "title": "Dev commands",
-   "summary": "Make targets and Go commands to install hooks, start Postgres, migrate, build, test, lint, format and run the server",
+   "summary": "Make targets for Postgres, migrations, tests, lint-adjacent format, admin CLI wrappers and ARIA; build, vet and go test run directly with go",
    "tags": [
-    "build",
-    "commands",
-    "install",
-    "lint",
-    "run",
-    "test",
     "make",
     "makefile",
+    "commands",
+    "build",
+    "test",
+    "lint",
+    "vet",
     "format",
     "gofmt",
-    "goimports",
-    "vet",
-    "docker compose",
-    "up",
-    "down",
-    "reset",
-    "hooks",
-    "seed"
+    "run",
+    "migrate",
+    "dev",
+    "console-token",
+    "tenant",
+    "token",
+    "hooks"
    ],
    "sources": [
-    "Makefile:12-168",
+    "Makefile:16-168",
     "scripts/with-env.sh:1-21",
+    "scripts/migrate.sh:2",
     "CLAUDE.md:34-42"
    ],
    "file": ".claude/knowledge/nodes/command-dev-commands.md"
@@ -369,7 +371,9 @@
    "sources": [
     "internal/scim/timeout.go:1-43",
     "internal/scim/requestlog.go:1-265",
-    "internal/scim/handler.go:93-98"
+    "internal/scim/handler.go:93-98",
+    "docs/ARCHITECTURE.md:33-52",
+    "docs/ARCHITECTURE.md:58-68"
    ],
    "file": ".claude/knowledge/nodes/component-scim-request-middleware.md"
   },
@@ -563,13 +567,16 @@
     "internal/store/user.go:335-386",
     "internal/store/group.go:214-256",
     "internal/store/group.go:366-401",
-    "internal/store/audit.go:81-139",
+    "internal/store/audit.go:47-57",
+    "internal/store/audit.go:81-99",
+    "internal/store/audit.go:110-139",
     "internal/store/adminaudit.go:44-51",
     "internal/store/outbox.go:192-280",
     "internal/scim/userstore.go:24-37",
     "internal/scim/groupstore.go:13-25",
     "internal/scim/handler.go:537-541",
-    "internal/scim/handler.go:560-566"
+    "internal/scim/handler.go:560-566",
+    "docs/ARCHITECTURE.md:259-266"
    ],
    "file": ".claude/knowledge/nodes/decision-audit-in-transaction.md"
   },
@@ -600,7 +607,7 @@
     "internal/console/server.go:81-86",
     "internal/console/server.go:121-124",
     "internal/console/server.go:153",
-    "docs/CONFIGURATION.md:251-270"
+    "docs/CONFIGURATION.md:251-287"
    ],
    "file": ".claude/knowledge/nodes/decision-console-host-allowlist.md"
   },
@@ -670,7 +677,7 @@
     "why"
    ],
    "sources": [
-    "docs/ARCHITECTURE.md:119-133",
+    "docs/ARCHITECTURE.md:140-152",
     "internal/console/server.go:8-12",
     "cmd/scimage-admin/main.go:81-93",
     "cmd/scimage-admin/main.go:141-226",
@@ -707,7 +714,7 @@
    "id": "decision-request-timeout-before-auth",
    "kind": "decision",
    "title": "Request timeout wraps auth; rate limiting runs after token verification",
-   "summary": "The timeout is the outermost wrapper so the token lookup (a DB call) is bounded; the per-caller limiter keys on a verified token, so pre-auth flooding is a known gap",
+   "summary": "The timeout sits outside auth so the token lookup (a DB call) is bounded; the per-caller limiter keys on a verified token, so pre-auth flooding is a known gap",
    "tags": [
     "decision",
     "timeout",
@@ -721,9 +728,11 @@
     "order"
    ],
    "sources": [
-    "docs/ARCHITECTURE.md:27-58",
-    "internal/scim/handler.go:63-98",
-    "internal/scim/timeout.go:15-22"
+    "docs/ARCHITECTURE.md:33-52",
+    "docs/ARCHITECTURE.md:58-75",
+    "internal/scim/handler.go:93-98",
+    "internal/scim/timeout.go:15-22",
+    "internal/scim/ratelimit.go:96"
    ],
    "file": ".claude/knowledge/nodes/decision-request-timeout-before-auth.md"
   },
@@ -786,12 +795,13 @@
     "dependencies",
     "why",
     "minimal",
-    "framework"
+    "framework",
+    "golang-migrate"
    ],
    "sources": [
-    "docs/ARCHITECTURE.md:44-46",
     "docs/ARCHITECTURE.md:55-56",
-    "docs/IMPLEMENTATION_PLAN.md:11-19"
+    "docs/ARCHITECTURE.md:513-514",
+    "scripts/migrate.sh:1-2"
    ],
    "file": ".claude/knowledge/nodes/decision-stdlib-and-raw-sql.md"
   },
@@ -875,7 +885,7 @@
     "active"
    ],
    "sources": [
-    "docs/ARCHITECTURE.md:80-82",
+    "docs/ARCHITECTURE.md:96-97",
     "internal/store/user.go:385-402",
     "internal/store/group.go:457",
     "internal/scim/handler.go:328-329",
@@ -931,16 +941,47 @@
    "file": ".claude/knowledge/nodes/decision-webhook-signed-payload.md"
   },
   {
+   "id": "doc-architecture",
+   "kind": "doc",
+   "title": "docs/ARCHITECTURE.md section map",
+   "summary": "Section map of the architecture document: request path, storage, tenancy, stores, change delivery, admin console, ARIA, logging and shutdown, with the line where each starts",
+   "tags": [
+    "docs",
+    "architecture doc",
+    "ARCHITECTURE.md",
+    "sections",
+    "request path",
+    "admin console",
+    "middleware",
+    "outbox",
+    "logging",
+    "aria",
+    "design doc"
+   ],
+   "sources": [
+    "docs/ARCHITECTURE.md:1-548"
+   ],
+   "file": ".claude/knowledge/nodes/doc-architecture.md"
+  },
+  {
    "id": "doc-contributing",
    "kind": "doc",
    "title": "CONTRIBUTING.md",
-   "summary": "Sections of CONTRIBUTING.md",
+   "summary": "Contributor guide sections: setup commands, house conventions, non-negotiable security principles and how to submit a change",
    "tags": [
     "docs",
-    "seed"
+    "contributing",
+    "contributor guide",
+    "setup",
+    "onboarding",
+    "PR",
+    "pull request",
+    "conventions",
+    "submitting a change",
+    "security principles"
    ],
    "sources": [
-    "CONTRIBUTING.md"
+    "CONTRIBUTING.md:1-94"
    ],
    "file": ".claude/knowledge/nodes/doc-contributing.md"
   },
@@ -961,10 +1002,11 @@
     "audit",
     "denied",
     "change delivery",
-    "getting started"
+    "getting started",
+    "migrate"
    ],
    "sources": [
-    "README.md:5-272"
+    "README.md:5-276"
    ],
    "file": ".claude/knowledge/nodes/doc-readme.md"
   },
@@ -1086,17 +1128,17 @@
    ],
    "sources": [
     "docs/IMPLEMENTATION_PLAN.md:5-7",
-    "docs/ARCHITECTURE.md:25",
-    "docs/ARCHITECTURE.md:74-87",
-    "docs/ARCHITECTURE.md:100-103",
-    "docs/ARCHITECTURE.md:119-139",
-    "docs/ARCHITECTURE.md:238-300",
-    "docs/ARCHITECTURE.md:414-427",
+    "docs/ARCHITECTURE.md:31",
+    "docs/ARCHITECTURE.md:94-100",
+    "docs/ARCHITECTURE.md:110-129",
+    "docs/ARCHITECTURE.md:145-152",
+    "docs/ARCHITECTURE.md:259-262",
+    "docs/ARCHITECTURE.md:287-289",
+    "docs/ARCHITECTURE.md:305-318",
+    "docs/ARCHITECTURE.md:511-521",
     "docs/OKTA.md:1",
-    "docs/OKTA.md:61-62",
-    "docs/OKTA.md:93-95",
-    "docs/MS-ENTRA.md:1",
-    "docs/MS-ENTRA.md:48",
+    "docs/OKTA.md:65-67",
+    "docs/MS-ENTRA.md:3",
     "internal/store/consoletoken.go:18"
    ],
    "file": ".claude/knowledge/nodes/glossary-core-terms.md"
@@ -1171,11 +1213,12 @@
     "host allowlist"
    ],
    "sources": [
-    "README.md:218",
-    "README.md:222",
-    "README.md:231",
+    "README.md:157",
+    "README.md:241",
+    "README.md:245",
+    "README.md:255",
     "cmd/server/main.go:41-44",
-    "internal/console/host.go:22-27"
+    "internal/console/host.go:21-27"
    ],
    "file": ".claude/knowledge/nodes/gotcha-console-docker-bind-address.md"
   },
@@ -1270,7 +1313,8 @@
     "internal/scim/requestlog.go:98-161",
     "internal/scim/requestlog.go:167-253",
     "internal/scim/handler.go:93-98",
-    "docs/CONFIGURATION.md:85-100"
+    "docs/CONFIGURATION.md:102-115",
+    "docs/ARCHITECTURE.md:532-537"
    ],
    "file": ".claude/knowledge/nodes/gotcha-request-body-logging-opt-in.md"
   },
@@ -1425,26 +1469,32 @@
    "id": "module-apidocs",
    "kind": "module",
    "title": "API docs (internal/apidocs)",
-   "summary": "Embedded OpenAPI 3.0 spec and vendored Swagger UI served unauthenticated at /docs, with no runtime network fetch",
+   "summary": "Embedded hand-written OpenAPI 3.0.3 spec and vendored Swagger UI served at /docs on the SCIM listener; the spec declares 413, 429, 409 and 500 responses and is never parsed by a test",
    "tags": [
     "api docs",
     "openapi",
     "swagger",
     "swagger ui",
-    "docs",
+    "/docs",
     "spec",
+    "yaml",
     "embed",
-    "specification",
     "documentation",
-    "413",
-    "body limit"
+    "429",
+    "409",
+    "500",
+    "Retry-After",
+    "TooLarge",
+    "scim"
    ],
    "sources": [
     "internal/apidocs/embed.go:1-66",
-    "internal/apidocs/openapi.yaml:1-30",
-    "internal/apidocs/openapi.yaml:107-275",
-    "internal/apidocs/openapi.yaml:372-376",
-    "cmd/server/main.go:127-132"
+    "internal/apidocs/openapi.yaml:1-45",
+    "internal/apidocs/openapi.yaml:55-110",
+    "internal/apidocs/openapi.yaml:372-433",
+    "cmd/server/main.go:127-132",
+    "internal/apidocs/swaggerui/VERSION:1",
+    "docs/ARCHITECTURE.md:77-82"
    ],
    "file": ".claude/knowledge/nodes/module-apidocs.md"
   },
@@ -1515,7 +1565,8 @@
     "internal/console/auth.go:1-126",
     "internal/console/csrf.go:1-128",
     "internal/console/handlers.go:868-896",
-    "internal/console/server.go:121-124"
+    "internal/console/server.go:121-124",
+    "docs/ARCHITECTURE.md:475-489"
    ],
    "file": ".claude/knowledge/nodes/module-console-auth.md"
   },
@@ -1556,7 +1607,8 @@
     "internal/console/handlers.go:29-32",
     "internal/console/handlers.go:798-833",
     "cmd/server/main.go:36-62",
-    "cmd/server/main.go:145-160"
+    "cmd/server/main.go:145-160",
+    "docs/ARCHITECTURE.md:442-498"
    ],
    "file": ".claude/knowledge/nodes/module-console.md"
   },
@@ -1727,7 +1779,7 @@
     "Makefile:32-56",
     "scripts/migrate.sh:56-87",
     "scripts/with-env.sh:12-21",
-    "README.md:212-235"
+    "README.md:212-257"
    ],
    "file": ".claude/knowledge/nodes/workflow-docker.md"
   },
@@ -1735,21 +1787,28 @@
    "id": "workflow-migrations",
    "kind": "workflow",
    "title": "Database migrations (golang-migrate)",
-   "summary": "Numbered up/down SQL files in migrations/ applied through make migrate; additive changes, partial indexes for optional values, and one test-only trigger",
+   "summary": "Numbered golang-migrate SQL files in /migrations, applied by make migrate against the Compose Postgres through scripts/migrate.sh",
    "tags": [
     "migrations",
     "golang-migrate",
+    "migrate",
     "schema",
     "sql",
+    "ddl",
     "make migrate",
-    "up down",
-    "schema change",
-    "ddl"
+    "down migration",
+    "migrate-down",
+    "trigger",
+    "partial index",
+    "check constraint"
    ],
    "sources": [
     "migrations/000001_create_users_table.up.sql:1-19",
     "migrations/000012_console_tokens.up.sql:1-29",
-    "Makefile:72-73"
+    "migrations/000009_audit_log_fault_injection.up.sql:6-17",
+    "Makefile:73-82",
+    "scripts/migrate.sh:1-2",
+    "docs/ARCHITECTURE.md:104-107"
    ],
    "file": ".claude/knowledge/nodes/workflow-migrations.md"
   },
@@ -2062,6 +2121,11 @@
    "type": "related"
   },
   {
+   "from": "architecture-overview",
+   "to": "doc-architecture",
+   "type": "documented_in"
+  },
+  {
    "from": "command-dev-commands",
    "to": "architecture-overview",
    "type": "related"
@@ -2190,6 +2254,11 @@
    "from": "component-scim-request-middleware",
    "to": "gotcha-request-body-logging-opt-in",
    "type": "related"
+  },
+  {
+   "from": "component-scim-request-middleware",
+   "to": "doc-architecture",
+   "type": "documented_in"
   },
   {
    "from": "data-model-audit-log",
@@ -2332,6 +2401,11 @@
    "type": "related"
   },
   {
+   "from": "decision-audit-in-transaction",
+   "to": "doc-architecture",
+   "type": "documented_in"
+  },
+  {
    "from": "decision-console-host-allowlist",
    "to": "module-console",
    "type": "decided_by"
@@ -2412,6 +2486,11 @@
    "type": "related"
   },
   {
+   "from": "decision-credentials-issued-by-cli",
+   "to": "doc-architecture",
+   "type": "documented_in"
+  },
+  {
    "from": "decision-real-postgres-tests",
    "to": "workflow-ci",
    "type": "related"
@@ -2450,6 +2529,11 @@
    "from": "decision-request-timeout-before-auth",
    "to": "gotcha-scim-unauthenticated-not-limited",
    "type": "related"
+  },
+  {
+   "from": "decision-request-timeout-before-auth",
+   "to": "doc-architecture",
+   "type": "documented_in"
   },
   {
    "from": "decision-scim-strict-filter",
@@ -2495,6 +2579,11 @@
    "from": "decision-stdlib-and-raw-sql",
    "to": "decision-real-postgres-tests",
    "type": "related"
+  },
+  {
+   "from": "decision-stdlib-and-raw-sql",
+   "to": "doc-architecture",
+   "type": "documented_in"
   },
   {
    "from": "decision-tenant-scoping",
@@ -2547,6 +2636,11 @@
    "type": "related"
   },
   {
+   "from": "decision-user-soft-delete",
+   "to": "doc-architecture",
+   "type": "documented_in"
+  },
+  {
    "from": "decision-webhook-retry-classification",
    "to": "module-webhook",
    "type": "decided_by"
@@ -2572,8 +2666,58 @@
    "type": "related"
   },
   {
+   "from": "doc-architecture",
+   "to": "architecture-overview",
+   "type": "related"
+  },
+  {
+   "from": "doc-architecture",
+   "to": "module-console",
+   "type": "related"
+  },
+  {
+   "from": "doc-architecture",
+   "to": "module-console-auth",
+   "type": "related"
+  },
+  {
+   "from": "doc-architecture",
+   "to": "component-scim-request-middleware",
+   "type": "related"
+  },
+  {
+   "from": "doc-architecture",
+   "to": "decision-stdlib-and-raw-sql",
+   "type": "related"
+  },
+  {
+   "from": "doc-architecture",
+   "to": "module-webhook",
+   "type": "related"
+  },
+  {
+   "from": "doc-architecture",
+   "to": "module-aria",
+   "type": "related"
+  },
+  {
    "from": "doc-contributing",
    "to": "architecture-overview",
+   "type": "related"
+  },
+  {
+   "from": "doc-contributing",
+   "to": "workflow-precommit-hook",
+   "type": "related"
+  },
+  {
+   "from": "doc-contributing",
+   "to": "command-dev-commands",
+   "type": "related"
+  },
+  {
+   "from": "doc-contributing",
+   "to": "api-env-vars",
    "type": "related"
   },
   {
@@ -2595,6 +2739,16 @@
    "from": "doc-readme",
    "to": "gotcha-console-docker-bind-address",
    "type": "related"
+  },
+  {
+   "from": "doc-readme",
+   "to": "module-apidocs",
+   "type": "related"
+  },
+  {
+   "from": "doc-readme",
+   "to": "doc-architecture",
+   "type": "documented_in"
   },
   {
    "from": "entrypoint-cmd-aria-main",
@@ -2802,6 +2956,11 @@
    "type": "related"
   },
   {
+   "from": "gotcha-console-docker-bind-address",
+   "to": "doc-readme",
+   "type": "documented_in"
+  },
+  {
    "from": "gotcha-container-log-dir",
    "to": "workflow-docker",
    "type": "related"
@@ -2865,6 +3024,11 @@
    "from": "gotcha-request-body-logging-opt-in",
    "to": "api-env-vars",
    "type": "related"
+  },
+  {
+   "from": "gotcha-request-body-logging-opt-in",
+   "to": "doc-architecture",
+   "type": "documented_in"
   },
   {
    "from": "gotcha-scim-idp-quirks",
@@ -2977,6 +3141,16 @@
    "type": "related"
   },
   {
+   "from": "module-apidocs",
+   "to": "component-scim-ratelimit",
+   "type": "related"
+  },
+  {
+   "from": "module-apidocs",
+   "to": "doc-architecture",
+   "type": "documented_in"
+  },
+  {
    "from": "module-aria",
    "to": "decision-aria-advisory-only",
    "type": "implements"
@@ -3032,6 +3206,11 @@
    "type": "decided_by"
   },
   {
+   "from": "module-console-auth",
+   "to": "doc-architecture",
+   "type": "documented_in"
+  },
+  {
    "from": "module-console",
    "to": "module-store",
    "type": "depends_on"
@@ -3070,6 +3249,11 @@
    "from": "module-console",
    "to": "module-apidocs",
    "type": "related"
+  },
+  {
+   "from": "module-console",
+   "to": "doc-architecture",
+   "type": "documented_in"
   },
   {
    "from": "module-logging",
@@ -3317,6 +3501,11 @@
    "type": "related"
   },
   {
+   "from": "workflow-docker",
+   "to": "doc-readme",
+   "type": "documented_in"
+  },
+  {
    "from": "workflow-migrations",
    "to": "data-model-core-users-groups",
    "type": "related"
@@ -3345,6 +3534,11 @@
    "from": "workflow-migrations",
    "to": "command-dev-commands",
    "type": "related"
+  },
+  {
+   "from": "workflow-migrations",
+   "to": "doc-architecture",
+   "type": "documented_in"
   },
   {
    "from": "workflow-precommit-hook",

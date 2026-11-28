@@ -2,12 +2,12 @@
 id: command-dev-commands
 kind: command
 title: Dev commands
-summary: Make targets and Go commands to install hooks, start Postgres, migrate, build, test, lint, format and run the server
-tags: [build, commands, install, lint, run, test, make, makefile, format, gofmt, goimports, vet, docker compose, up, down, reset, hooks, seed]
+summary: Make targets for Postgres, migrations, tests, lint-adjacent format, admin CLI wrappers and ARIA; build, vet and go test run directly with go
+tags: [make, makefile, commands, build, test, lint, vet, format, gofmt, run, migrate, dev, console-token, tenant, token, hooks]
 links: [related:architecture-overview, related:workflow-docker, related:workflow-migrations, related:workflow-ci, related:workflow-precommit-hook, related:gotcha-bare-go-test-skips-postgres, related:api-env-vars]
-sources: [Makefile:12-168, scripts/with-env.sh:1-21, CLAUDE.md:34-42]
-updated: 2026-11-26
-verified_commit: ec35d99
+sources: [Makefile:16-168, scripts/with-env.sh:1-21, scripts/migrate.sh:2, CLAUDE.md:34-42]
+updated: 2026-11-28
+verified_commit: 4322bf2
 ---
 ## Facts
 - Bare `make` prints the target list; `help` is the default goal → Makefile:16,19-24
@@ -21,6 +21,7 @@ verified_commit: ec35d99
 - `make reset` runs `docker compose down -v`, wiping the data volume, then re-inits → Makefile:54-59
 - `make ps` and `make logs` wrap docker compose ps and logs -f → Makefile:61-66
 - Migrations: `make migrate`, `make migrate-down` (one step), `make migrate-version` → Makefile:73-82
+- `make migrate` reaches only the compose Postgres through scripts/migrate.sh; it never reads DATABASE_URL → scripts/migrate.sh:2, Makefile:73-75
 - Tenants and tokens: `make tenant NAME=`, `tenant-list`, `token TENANT= LABEL= [EXPIRES=]`, `token-list`, `token-revoke KEY=` → Makefile:110-126
 - Admin console credentials: `make console-token`, `console-token-list`, `console-token-revoke KEY=` → Makefile:128-137
 - Extra attributes and audit: `make attr-register/attr-list/attr-unregister` and `make audit-list [TENANT=]` → Makefile:143-154, 139-141
