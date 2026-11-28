@@ -5,10 +5,10 @@ openapi: 3.0.3
 # matters most in practice: this server also accepts the *stringified* boolean
 # ("true"/"false") that Microsoft Entra sends, because a strict boolean decode
 # would turn every Entra provisioning call into a 400. That behaviour is
-# documented explicitly on the `Bool` schema below — the whole reason this file
+# documented explicitly on the `Bool` schema below, the whole reason this file
 # is maintained by hand.
 info:
-  title: SCIMage — SCIM 2.0 Provisioning API
+  title: "SCIMage: SCIM 2.0 Provisioning API"
   version: "1.0.0"
   description: |
     A SCIM 2.0 provisioning server implementing the `/Users` and `/Groups`
@@ -79,6 +79,8 @@ paths:
               schema: { $ref: "#/components/schemas/ListResponse" }
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
     post:
       tags: [Users]
       summary: Create a user
@@ -100,11 +102,13 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "409":
-          description: A user with that `userName` already exists in this tenant.
+          description: A user with that `userName` or `externalId` already exists in this tenant.
           content:
             application/scim+json:
               schema: { $ref: "#/components/schemas/Error" }
         "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
 
   /Users/{id}:
     parameters:
@@ -120,6 +124,8 @@ paths:
               schema: { $ref: "#/components/schemas/User" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
     put:
       tags: [Users]
       summary: Replace a user
@@ -139,11 +145,13 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
-          description: The requested `userName` is taken by another user.
+          description: The requested `userName` or `externalId` is taken by another user.
           content:
             application/scim+json:
               schema: { $ref: "#/components/schemas/Error" }
         "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
     patch:
       tags: [Users]
       summary: Partially modify a user
@@ -162,7 +170,14 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The patch would give this user a `userName` or `externalId` taken by another user.
+          content:
+            application/scim+json:
+              schema: { $ref: "#/components/schemas/Error" }
         "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
     delete:
       tags: [Users]
       summary: Deactivate a user
@@ -174,6 +189,8 @@ paths:
         "204": { description: Deactivated. No content. }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
 
   /Groups:
     get:
@@ -196,6 +213,8 @@ paths:
               schema: { $ref: "#/components/schemas/GroupListResponse" }
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
     post:
       tags: [Groups]
       summary: Create a group
@@ -216,11 +235,13 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "409":
-          description: A group with that `displayName` already exists in this tenant.
+          description: A group with that `displayName` or `externalId` already exists in this tenant.
           content:
             application/scim+json:
               schema: { $ref: "#/components/schemas/Error" }
         "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
 
   /Groups/{id}:
     parameters:
@@ -236,6 +257,8 @@ paths:
               schema: { $ref: "#/components/schemas/Group" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
     put:
       tags: [Groups]
       summary: Replace a group
@@ -253,7 +276,14 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The requested `displayName` or `externalId` is taken by another group.
+          content:
+            application/scim+json:
+              schema: { $ref: "#/components/schemas/Error" }
         "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
     patch:
       tags: [Groups]
       summary: Partially modify a group
@@ -272,7 +302,14 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The patch would give this group a `displayName` or `externalId` taken by another group.
+          content:
+            application/scim+json:
+              schema: { $ref: "#/components/schemas/Error" }
         "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
     delete:
       tags: [Groups]
       summary: Delete a group
@@ -284,6 +321,8 @@ paths:
         "204": { description: Deleted. No content. }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
 
   /ServiceProviderConfig:
     get:
@@ -297,12 +336,13 @@ paths:
             application/scim+json:
               schema: { type: object }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
 
   /ResourceTypes:
     get:
       tags: [Discovery]
       summary: List resource types
-      description: The resource types this server exposes — User and Group (RFC 7644 §4).
+      description: "The resource types this server exposes: User and Group (RFC 7644 §4)."
       responses:
         "200":
           description: The resource types.
@@ -310,6 +350,7 @@ paths:
             application/scim+json:
               schema: { type: object }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
 
   /Schemas:
     get:
@@ -323,6 +364,8 @@ paths:
             application/scim+json:
               schema: { type: object }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/ServerError" }
 
 components:
   securitySchemes:
@@ -371,6 +414,20 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
     TooLarge:
       description: The request body is larger than 1 MiB.
+      content:
+        application/scim+json:
+          schema: { $ref: "#/components/schemas/Error" }
+    TooManyRequests:
+      description: This token has used up its request budget. The SCIM error has `scimType` `tooMany`; retry after `Retry-After` seconds.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying. Always 1.
+          schema: { type: integer, example: 1 }
+      content:
+        application/scim+json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ServerError:
+      description: An unexpected server-side failure. The cause is logged and never returned in the body.
       content:
         application/scim+json:
           schema: { $ref: "#/components/schemas/Error" }

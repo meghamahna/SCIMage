@@ -54,7 +54,7 @@ type Config struct {
 
 // Sized for provisioning traffic: changes arrive in bursts and a receiver that
 // is down is usually down for minutes, not milliseconds. Six attempts on a
-// doubling backoff from 5s spans roughly five minutes of outage.
+// doubling backoff from 5s spans roughly three minutes of outage.
 const (
 	defaultMaxAttempts = 6
 	defaultPoll        = 5 * time.Second
