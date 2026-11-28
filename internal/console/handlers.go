@@ -516,15 +516,19 @@ func (srv *Server) handleDeliveryStatus(w http.ResponseWriter, r *http.Request) 
 // ---- ARIA ----
 
 type ariaWindow struct {
-	Value string
-	Label string
+	Value  string
+	Label  string
+	Window time.Duration
 }
 
+// ariaWindows are the only windows the page reviews; any other since falls back
+// to 24h. A full batch is counted uncapped, so an arbitrary window (say 36500d)
+// would let any page load scan the whole audit log.
 var ariaWindows = []ariaWindow{
-	{"1h", "Last hour"},
-	{"24h", "Last 24 hours"},
-	{"7d", "Last 7 days"},
-	{"30d", "Last 30 days"},
+	{"1h", "Last hour", time.Hour},
+	{"24h", "Last 24 hours", 24 * time.Hour},
+	{"7d", "Last 7 days", 7 * 24 * time.Hour},
+	{"30d", "Last 30 days", 30 * 24 * time.Hour},
 }
 
 type ariaFlagView struct {
@@ -541,6 +545,7 @@ type ariaData struct {
 	Total          int
 	Callers        int
 	Truncated      bool
+	InWindow       int // window size, uncapped; set by MarkPartial on a full batch, 0 = not counted
 	Flags          []ariaFlagView
 	Narrative      template.HTML // cached LLM briefing, empty until generated
 	NarrativeAt    time.Time
@@ -593,10 +598,12 @@ func (srv *Server) ariaInputs(r *http.Request) (ariaInputs, error) {
 		return ariaInputs{}, err
 	}
 
-	since := r.FormValue("since")
-	window := parseWindow(since)
-	if window == 0 {
-		since, window = "24h", 24*time.Hour
+	since, window := "24h", 24*time.Hour
+	for _, w := range ariaWindows {
+		if w.Value == r.FormValue("since") {
+			since, window = w.Value, w.Window
+			break
+		}
 	}
 	tenantID := r.FormValue("tenant")
 
@@ -607,6 +614,10 @@ func (srv *Server) ariaInputs(r *http.Request) (ariaInputs, error) {
 	}
 
 	report := aria.Detect(entries, tenantID, now.Add(-window), now, srv.loc)
+
+	if err := report.MarkPartial(r.Context(), srv.store); err != nil {
+		slog.Error("aria: count window", "error", err)
+	}
 	return ariaInputs{tenants: tenants, tenantID: tenantID, since: since, report: report}, nil
 }
 
@@ -632,6 +643,7 @@ func (srv *Server) assembleARIAData(in ariaInputs, narrativeErr string) ariaData
 		Total:          in.report.Total,
 		Callers:        in.report.Callers,
 		Truncated:      in.report.Truncated,
+		InWindow:       in.report.InWindow,
 		NarrativeError: narrativeErr,
 	}
 	for _, f := range in.report.Flags {
@@ -904,27 +916,6 @@ func parseExpiry(s string) (*time.Time, error) {
 	}
 	t := time.Now().Add(d)
 	return &t, nil
-}
-
-// parseWindow accepts the same "Nd"/duration forms as parseExpiry but returns
-// a bare duration; 0 means unrecognised, which the caller defaults.
-func parseWindow(s string) time.Duration {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return 0
-	}
-	if days, ok := strings.CutSuffix(s, "d"); ok {
-		n, err := strconv.Atoi(days)
-		if err != nil || n <= 0 {
-			return 0
-		}
-		return time.Duration(n) * 24 * time.Hour
-	}
-	d, err := time.ParseDuration(s)
-	if err != nil || d <= 0 {
-		return 0
-	}
-	return d
 }
 
 // envTimezone loads ARIA_TIMEZONE if set and valid, else nil.

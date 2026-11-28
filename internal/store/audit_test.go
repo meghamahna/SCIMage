@@ -409,6 +409,59 @@ func TestListAuditEntriesSince(t *testing.T) {
 	})
 }
 
+// CountAuditEntriesSince counts exactly the rows ListAuditEntriesSince reads,
+// minus the cap: ARIA compares the two to tell a full window from a cut one.
+func TestCountAuditEntriesSince(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	tenantA := newTestTenant(t, s)
+	tenantB := newTestTenant(t, s)
+
+	createUser(t, s, tenantA, &User{UserName: uniqueUserName(), Active: true})
+	createUser(t, s, tenantA, &User{UserName: uniqueUserName(), Active: true})
+	createUser(t, s, tenantB, &User{UserName: uniqueUserName(), Active: true})
+
+	all, err := s.ListAuditEntriesSince(ctx, tenantA, time.Unix(0, 0))
+	if err != nil {
+		t.Fatalf("ListAuditEntriesSince: %v", err)
+	}
+	newest := all[0].At
+
+	// Both tenants are fresh and each createUser writes one audit_log row
+	// (tenant creation goes to admin_audit_log), so the counts are exact. The
+	// absolute want catches a broken tenant clause, which would widen the list
+	// and the count together.
+	tests := []struct {
+		name   string
+		tenant string
+		since  time.Time
+		want   int
+	}{
+		{"whole history, other tenants excluded", tenantA, time.Unix(0, 0), 2},
+		{"other tenant's whole history", tenantB, time.Unix(0, 0), 1},
+		{"rows before since excluded", tenantA, newest, 1},
+		{"future cutoff", tenantA, time.Now().Add(time.Hour), 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			entries, err := s.ListAuditEntriesSince(ctx, tc.tenant, tc.since)
+			if err != nil {
+				t.Fatalf("ListAuditEntriesSince: %v", err)
+			}
+			got, err := s.CountAuditEntriesSince(ctx, tc.tenant, tc.since)
+			if err != nil {
+				t.Fatalf("CountAuditEntriesSince: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("count = %d, want %d", got, tc.want)
+			}
+			if got != len(entries) {
+				t.Errorf("count = %d, want %d (the rows the list reads)", got, len(entries))
+			}
+		})
+	}
+}
+
 // A tenant's audit history is invisible to another tenant's review, the same
 // isolation the users table itself holds.
 func TestListAuditEntriesScopedByTenant(t *testing.T) {

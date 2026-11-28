@@ -1,6 +1,8 @@
 package aria
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -176,14 +178,77 @@ func TestBuildPromptRendersFacts(t *testing.T) {
 }
 
 func TestRenderTruncationNote(t *testing.T) {
-	r := Detect(nil, "tenant_x", monday.Add(-time.Hour), monday, time.UTC)
-	if strings.Contains(Render(r), "may be omitted") {
-		t.Error("a complete window should carry no truncation note")
+	cases := []struct {
+		name      string
+		truncated bool
+		inWindow  int
+		want      string // "" means no note at all
+	}{
+		{"complete window", false, 0, ""},
+		{"truncated, total known", true, 1234, "covers the newest 200 of 1234 audit entries"},
+		{"truncated, total unknown", true, 0, "older activity in this window may be omitted"},
 	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := Detect(nil, "tenant_x", monday.Add(-time.Hour), monday, time.UTC)
+			r.Total = 200
+			r.Truncated, r.InWindow = tc.truncated, tc.inWindow
+			out := Render(r)
 
-	r.Truncated = true
-	if !strings.Contains(Render(r), "may be omitted") {
-		t.Error("a truncated window should warn that older activity may be omitted")
+			if tc.want == "" {
+				if strings.Contains(out, "**Note**") {
+					t.Errorf("a complete window should carry no truncation note; got:\n%s", out)
+				}
+				return
+			}
+			if !strings.Contains(out, tc.want) {
+				t.Errorf("note missing %q; got:\n%s", tc.want, out)
+			}
+			if strings.Contains(out, "-since") {
+				t.Errorf("note should fit the console as well as the CLI; got:\n%s", out)
+			}
+		})
+	}
+}
+
+// fakeCounter answers the uncapped count MarkPartial asks for.
+type fakeCounter struct {
+	inWindow int
+	err      error
+}
+
+func (f fakeCounter) CountAuditEntriesSince(context.Context, string, time.Time) (int, error) {
+	return f.inWindow, f.err
+}
+
+// A full batch is partial only when the uncapped count finds more; a failed
+// count still flags it, since the review can't prove it saw everything.
+func TestMarkPartial(t *testing.T) {
+	cases := []struct {
+		name          string
+		read          int
+		counter       fakeCounter
+		wantTruncated bool
+		wantInWindow  int
+		wantErr       bool
+	}{
+		{"under the cap", store.MaxPageSize - 1, fakeCounter{err: errors.New("not called")}, false, 0, false},
+		{"full, window complete", store.MaxPageSize, fakeCounter{inWindow: store.MaxPageSize}, false, store.MaxPageSize, false},
+		{"full, window larger", store.MaxPageSize, fakeCounter{inWindow: 1234}, true, 1234, false},
+		{"full, count fails", store.MaxPageSize, fakeCounter{err: errors.New("db down")}, true, 0, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := Report{Total: tc.read}
+			err := r.MarkPartial(context.Background(), tc.counter)
+
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tc.wantErr)
+			}
+			if r.Truncated != tc.wantTruncated || r.InWindow != tc.wantInWindow {
+				t.Errorf("Truncated, InWindow = %v, %d; want %v, %d", r.Truncated, r.InWindow, tc.wantTruncated, tc.wantInWindow)
+			}
+		})
 	}
 }
 

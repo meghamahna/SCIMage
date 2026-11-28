@@ -10,6 +10,8 @@
 package aria
 
 import (
+	"context"
+	"fmt"
 	"sort"
 	"time"
 
@@ -78,11 +80,39 @@ type Report struct {
 	Total      int            // audit entries reviewed (includes refusals, not just successes)
 	Callers    int            // distinct actor tokens seen
 	Truncated  bool           // the reader hit its cap, so older in-window entries may be missing
+	InWindow   int            // entries the window holds, uncapped; set by MarkPartial on a full batch, 0 = not counted
 	Flags      []Flag         // noteworthy patterns, most severe first
 }
 
 // HasFindings reports whether anything tripped a threshold.
 func (r Report) HasFindings() bool { return len(r.Flags) > 0 }
+
+// EntryCounter counts, without the read cap, the audit entries
+// store.ListAuditEntriesSince reads.
+type EntryCounter interface {
+	CountAuditEntriesSince(ctx context.Context, tenantID string, since time.Time) (int, error)
+}
+
+// MarkPartial sets Truncated and InWindow when the review read a full batch.
+// The reader clamps to store.MaxPageSize newest-first, so a full batch may be
+// the whole window or only its newest slice; an uncapped count over the same
+// predicate tells which. Call it after the read: rows written in between only
+// raise the count, so a race errs toward flagging. If the count fails the
+// report is still flagged, since an audit review that hides its bound is worse
+// than one that overstates it, and the error is returned for the caller to log.
+func (r *Report) MarkPartial(ctx context.Context, c EntryCounter) error {
+	if r.Total < store.MaxPageSize {
+		return nil
+	}
+	inWindow, err := c.CountAuditEntriesSince(ctx, r.TenantID, r.Since)
+	if err != nil {
+		r.Truncated = true
+		return fmt.Errorf("count audit window: %w", err)
+	}
+	r.Truncated = inWindow > r.Total
+	r.InWindow = inWindow
+	return nil
+}
 
 type tally struct {
 	actor         string

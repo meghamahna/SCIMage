@@ -40,6 +40,22 @@ and integrator tooling, built on top of the `1.0.0` surface below.
   is unauthenticated by design, since it describes the public protocol and
   carries no tenant data.
 
+### Changed
+
+- **Console ARIA windows**: the ARIA page reviews only the windows its selector
+  offers (1h, 24h, 7d and 30d), to keep its cost bounded. Any other `since`
+  value falls back to 24h. The `aria` CLI still accepts any `-since`.
+
+### Fixed
+
+- **ARIA's partial-review notice now gives counts**: ARIA reads the newest 200
+  audit entries in a window. When the window holds more, the console's "Partial
+  review" notice, the `aria` CLI header and the model's input all say how many
+  were reviewed out of the total ("newest N of M"), or the reviewed count alone
+  if the total cannot be counted. A window that holds exactly 200 entries is no
+  longer flagged as partial. A shorter window, or a single tenant, may fit
+  within the 200-entry limit.
+
 ### Security
 
 - **Bounded database exposure to request volume**: `DATABASE_MAX_CONNS` /

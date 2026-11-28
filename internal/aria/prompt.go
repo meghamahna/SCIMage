@@ -60,8 +60,11 @@ func Header(r Report) string {
 	}
 	fmt.Fprintf(&b, "**Time Window**: %s to %s\n", r.Since.In(loc).Format(time.RFC3339), r.Now.In(loc).Format(time.RFC3339))
 	fmt.Fprintf(&b, "**Activity**: %d audit entries from %d distinct caller(s)\n", r.Total, r.Callers)
-	if r.Truncated {
-		b.WriteString("**Note**: the reviewer returned its maximum number of entries, so older activity in this window may be omitted. Narrow the window (a smaller -since) for full coverage.\n")
+	switch {
+	case r.Truncated && r.InWindow > 0:
+		fmt.Fprintf(&b, "**Note**: this review covers the newest %d of %d audit entries in the window, so older activity is omitted. A shorter window may fit within the limit.\n", r.Total, r.InWindow)
+	case r.Truncated:
+		b.WriteString("**Note**: the reviewer returned its maximum number of entries, so older activity in this window may be omitted. A shorter window may fit within the limit.\n")
 	}
 	b.WriteString("\n---\n")
 	return b.String()

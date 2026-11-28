@@ -28,8 +28,8 @@
   </div>
 
   {{if .Data.Truncated}}
-  <div class="flag info"><div class="top"><span class="title">Window truncated</span></div>
-    <div class="detail">This window holds more entries than ARIA reads at once, so some older ones are left out. Choose a shorter window for a complete review.</div></div>
+  <div class="flag info"><div class="top"><span class="title">Partial review</span></div>
+    <div class="detail">{{if .Data.InWindow}}ARIA reviewed the newest {{.Data.Total}} of {{.Data.InWindow}} entries in this window.{{else}}ARIA reviewed the newest {{.Data.Total}} entries in this window, the most it reads at once.{{end}} A shorter window may fit within the limit.</div></div>
   {{end}}
 
   {{range .Data.Flags}}

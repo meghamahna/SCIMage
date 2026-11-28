@@ -361,8 +361,16 @@ aria [-tenant <tenantID>] [-since 24h] [-timezone America/Vancouver]
 
 `-tenant` scopes the review to one customer; omit it for a deployment-wide pass
 across every tenant. `-since` accepts a bare day count (`7d`) or any Go duration
-(`24h`, `90m`), and defaults to `24h`. A window with nothing notable prints a
-deterministic "nothing tripped the thresholds" line and skips the model, so a
-quiet review runs without a key. The thresholds live in `internal/aria` as
-constants (for example, five deactivations in ten minutes), so what counts as a
-signal stays auditable code.
+(`24h`, `90m`), and defaults to `24h`. The console page offers 1h, 24h, 7d
+and 30d, and falls back to 24h for any other value.
+
+ARIA reads the newest 200 entries in a window. When a window holds more, the
+console shows a "Partial review" notice, and the CLI prints a note in its
+header above the briefing, on a quiet window too. A shorter window may bring
+the count within 200, and so may choosing one tenant. A busy window can still
+exceed 200 at the shortest setting.
+
+A window with nothing notable prints a deterministic "nothing tripped the
+thresholds" line and skips the model, so a quiet review runs without a key. The
+thresholds live in `internal/aria` as constants (for example, five
+deactivations in ten minutes), so what counts as a signal stays auditable code.

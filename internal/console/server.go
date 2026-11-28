@@ -48,6 +48,7 @@ type Store interface {
 
 	ListAuditEntries(ctx context.Context, tenantID string, limit int) ([]store.AuditEntry, error)
 	ListAuditEntriesSince(ctx context.Context, tenantID string, since time.Time) ([]store.AuditEntry, error)
+	CountAuditEntriesSince(ctx context.Context, tenantID string, since time.Time) (int, error)
 	AuditWindowStats(ctx context.Context, tenantID string, start, end time.Time) (total, callers int, err error)
 	ListAdminAuditEntries(ctx context.Context, tenantID string, limit int) ([]store.AdminAuditEntry, error)
 

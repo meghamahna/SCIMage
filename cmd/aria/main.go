@@ -79,11 +79,10 @@ func run(args []string) error {
 	report := aria.Detect(entries, *tenantID, now.Add(-window), now, loc)
 	report.TenantName = tenantName
 
-	// The reader clamps to store.MaxPageSize newest-first, so a full batch means
-	// the window may hold more than was read. Say so rather than quietly review a
-	// partial window: an audit tool that silently drops rows is worse than one
-	// that admits its bound.
-	report.Truncated = len(entries) >= store.MaxPageSize
+	// A failed count still leaves the report flagged as partial, so warn and go on.
+	if err := report.MarkPartial(ctx, s); err != nil {
+		fmt.Fprintln(os.Stderr, "aria: warning:", err)
+	}
 
 	// A quiet window has nothing for the model to add, so print the
 	// deterministic summary and don't spend an LLM call (or even require the

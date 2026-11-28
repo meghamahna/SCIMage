@@ -196,14 +196,9 @@ func (s *Store) ListAuditEntries(ctx context.Context, tenantID string, limit int
 // "off-hours" better than a bare row count. The result still clamps to
 // MaxPageSize, so a wide window on a busy deployment can't pull the whole table.
 func (s *Store) ListAuditEntriesSince(ctx context.Context, tenantID string, since time.Time) ([]AuditEntry, error) {
+	where, args := auditSinceWhere(tenantID, since)
 	q := `SELECT id, at, tenant_id, resource_type, actor_token, actor_ip, action, result, detail, target_id, before, after
-	      FROM audit_log WHERE at >= $1`
-	args := []any{since}
-	if tenantID != "" {
-		q += ` AND tenant_id = $2`
-		args = append(args, tenantID)
-	}
-	q += ` ORDER BY at DESC, id DESC LIMIT ` + strconv.Itoa(MaxPageSize)
+	      FROM audit_log` + where + ` ORDER BY at DESC, id DESC LIMIT ` + strconv.Itoa(MaxPageSize)
 
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
@@ -224,6 +219,28 @@ func (s *Store) ListAuditEntriesSince(ctx context.Context, tenantID string, sinc
 	}
 
 	return entries, nil
+}
+
+// CountAuditEntriesSince counts the rows ListAuditEntriesSince reads, without
+// its cap, so ARIA can tell a full batch that is the whole window from one cut
+// short. The predicate is shared with the list on purpose: with no upper bound
+// on either, a row written between the two reads only raises the count.
+func (s *Store) CountAuditEntriesSince(ctx context.Context, tenantID string, since time.Time) (int, error) {
+	where, args := auditSinceWhere(tenantID, since)
+	var n int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM audit_log`+where, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count audit entries since: %w", err)
+	}
+	return n, nil
+}
+
+// auditSinceWhere is the window ListAuditEntriesSince and CountAuditEntriesSince
+// share; an empty tenantID spans every tenant.
+func auditSinceWhere(tenantID string, since time.Time) (string, []any) {
+	if tenantID == "" {
+		return ` WHERE at >= $1`, []any{since}
+	}
+	return ` WHERE at >= $1 AND tenant_id = $2`, []any{since, tenantID}
 }
 
 // AuditWindowStats counts audit entries and distinct callers in [start, end),
