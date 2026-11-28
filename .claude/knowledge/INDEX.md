@@ -26,7 +26,7 @@ Nodes: 63
 ## Entry points
 - **entrypoint-cmd-aria-main**: Read-only CLI that reviews audit_log for a window, marks partial windows, prints flags, and calls the LLM only when there are findings; flags -tenant, -since, -timezone → `nodes/entrypoint-cmd-aria-main.md` · `cmd/aria/main.go:1-7`
 - **entrypoint-cmd-scimage-admin-main**: Operator CLI with six groups (tenant, token, console-token, attribute, audit, webhook); opens the store directly from the environment and never starts a listener → `nodes/entrypoint-cmd-scimage-admin-main.md` · `cmd/scimage-admin/main.go:21-61`
-- **entrypoint-cmd-server-main**: Long-running server: wires logging, store, webhook dispatcher, SCIM and docs on SCIM_ADDR, and the optional console on CONSOLE_ADDR; signal-driven graceful shutdown → `nodes/entrypoint-cmd-server-main.md` · `cmd/server/main.go:23-34`
+- **entrypoint-cmd-server-main**: Long-running server: wires logging, store, webhook dispatcher, SCIM and docs on SCIM_ADDR, and the optional console on CONSOLE_ADDR; signal-driven graceful shutdown → `nodes/entrypoint-cmd-server-main.md` · `cmd/server/main.go:22-62`
 
 ## APIs
 - **api-console-routes**: Read pages under GET /console/*, mutations under POST /console/* with CSRF; all but static need a console token and an allowlisted Host → `nodes/api-console-routes.md` · `internal/console/server.go:125-153`
@@ -107,7 +107,7 @@ Nodes: 63
 - 409 → api-scim-errors, gotcha-refused-mutation-audit-best-effort, module-apidocs
 - 413 → api-scim-errors, gotcha-refused-mutation-audit-best-effort, module-console
 - 421 → decision-console-host-allowlist, module-console
-- 429 → api-scim-errors, component-scim-ratelimit, decision-webhook-retry-classification, gotcha-scim-unauthenticated-not-limited, module-apidocs
+- 429 → api-scim-errors, decision-webhook-retry-classification, module-apidocs
 - 4xx → decision-webhook-retry-classification
 - 500 → api-scim-errors, module-apidocs
 - 5xx → decision-webhook-retry-classification
@@ -145,7 +145,7 @@ Nodes: 63
 - audit risk → module-aria
 - audit window → gotcha-aria-partial-review-count
 - audit_log → data-model-audit-log, decision-audit-in-transaction
-- auth → component-scim-auth, decision-request-timeout-before-auth, decision-scim-uniform-401, gotcha-scim-tenant-path-parsing, module-console-auth
+- auth → component-scim-auth, decision-request-timeout-before-auth, decision-scim-uniform-401, module-console-auth
 - auth path → decision-aria-advisory-only
 - authentication → module-console-auth
 - authorization → decision-aria-advisory-only
@@ -163,11 +163,9 @@ Nodes: 63
 - body limit → module-console
 - bool → model-scim-resources
 - briefing → entrypoint-cmd-aria-main, module-aria
-- brute force → gotcha-scim-unauthenticated-not-limited
 - build → command-dev-commands
 - build image → workflow-docker
 - bulk deactivation → module-aria
-- burst → component-scim-ratelimit
 - cap → gotcha-aria-partial-review-count
 - change delivery → doc-readme
 - check constraint → workflow-migrations
@@ -197,4 +195,6 @@ Nodes: 63
 - contributing → doc-contributing
 - contributor guide → doc-contributing
 - conventions → doc-contributing
-- … 354 more keywords (search with `kg.py query`)
+- cookies → decision-console-token-csrf
+- count → gotcha-aria-partial-review-count
+- … 326 more keywords (search with `kg.py query`)

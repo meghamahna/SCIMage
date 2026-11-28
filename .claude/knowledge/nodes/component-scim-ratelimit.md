@@ -3,11 +3,11 @@ id: component-scim-ratelimit
 kind: module
 title: SCIM per-caller rate limiter
 summary: Token-bucket limiter keyed by tenant and key id, placed after auth; 429 tooMany on excess with one Warn log line; env-tunable
-tags: [rate limit, ratelimit, throttle, token bucket, 429, retry-after, dos, SCIM_RATE_LIMIT, SCIM_RATE_BURST, burst, logging, warn]
+tags: []
 links: [implements:module-scim, depends_on:component-scim-auth, related:gotcha-scim-unauthenticated-not-limited, related:api-scim-errors]
 sources: [internal/scim/ratelimit.go:1-109, internal/scim/handler.go:93-98]
-updated: 2026-11-26
-verified_commit: 0761c5b
+updated: 2026-11-28
+verified_commit: 924cf37
 ---
 ## Facts
 - Token bucket per caller using golang.org/x/time/rate; one bucket per key, created on first use → internal/scim/ratelimit.go:23-36, internal/scim/ratelimit.go:57-67

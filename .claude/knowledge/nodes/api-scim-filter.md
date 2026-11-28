@@ -6,8 +6,8 @@ summary: Only `attribute eq "value"` on userName or externalId (users) and displ
 tags: [filter, query, eq, userName, externalId, displayName, invalidFilter, RFC 7644 3.4.2.2, reconciliation, lookup]
 links: [implements:module-scim, related:decision-scim-strict-filter, related:api-scim-routes, related:api-scim-errors]
 sources: [internal/scim/filter.go:11-85, internal/scim/handler.go:148-160, internal/scim/discovery.go:112]
-updated: 2026-11-26
-verified_commit: 0761c5b
+updated: 2026-11-28
+verified_commit: 924cf37
 ---
 ## Facts
 - Single accepted shape: `attr eq "value"`, one anchored regex, whitespace tolerant → internal/scim/filter.go:19

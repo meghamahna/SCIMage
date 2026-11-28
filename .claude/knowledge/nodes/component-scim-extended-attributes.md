@@ -3,11 +3,11 @@ id: component-scim-extended-attributes
 kind: module
 title: SCIM extensible attributes (opt-in)
 summary: Off by default; when SCIM_EXTENDED_ATTRIBUTES=1 and a tenant registers names, unknown top-level user attributes are stored in a JSONB blob and merged back on reads
-tags: [extended attributes, extensible, JSONB, custom attributes, registry, SCIM_EXTENDED_ATTRIBUTES, feature flag, enterprise extension]
+tags: []
 links: [implements:module-scim, depends_on:module-store, related:api-scim-patch, related:model-scim-resources, related:gotcha-scim-idp-quirks]
 sources: [internal/scim/extended.go:12-80, internal/scim/extended.go:146-150, internal/scim/handler.go:34-52, internal/scim/handler.go:108-115, internal/scim/handler.go:269-291, internal/scim/attributestore.go:14-16]
-updated: 2026-11-26
-verified_commit: 0761c5b
+updated: 2026-11-28
+verified_commit: 924cf37
 ---
 ## Facts
 - Feature is inert unless SCIM_EXTENDED_ATTRIBUTES=1 is set and the tenant has registered a name → internal/scim/extended.go:12-16, internal/scim/handler.go:51

@@ -3,11 +3,11 @@ id: gotcha-scim-idp-quirks
 kind: gotcha
 title: Identity provider payload quirks the parser accepts
 summary: Entra sends string booleans and capitalised ops; unknown attributes are dropped, not rejected; these leniencies are deliberate
-tags: [gotcha, Entra, Okta, identity provider, IdP, string boolean, primary, PATCH op case, unknown fields, interop]
+tags: []
 links: [related:model-scim-resources, related:api-scim-patch, related:api-scim-errors]
 sources: [internal/scim/models.go:20-47, internal/scim/models.go:71-73, internal/scim/models.go:99-108, internal/scim/patch.go:48-50, internal/scim/handler.go:573-575, internal/scim/handler.go:193]
-updated: 2026-11-26
-verified_commit: 0761c5b
+updated: 2026-11-28
+verified_commit: 924cf37
 ---
 ## Facts
 - Bool accepts "true" as a string because Entra sends emails[].primary that way; a plain bool would fail every Entra create → internal/scim/models.go:20-26, internal/scim/models.go:73

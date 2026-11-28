@@ -6,8 +6,8 @@ summary: .githooks/pre-commit, enabled by make hooks-install, blocks commits wit
 tags: [pre-commit, git hook, githooks, hooks-install, secrets, secret scan, gofmt, goimports, go vet, commit gate, no-verify, hooksPath]
 links: [related:command-dev-commands, related:workflow-ci, related:gotcha-bare-go-test-skips-postgres]
 sources: [.githooks/pre-commit:1-57, scripts/check-staged-secrets.sh:8-86, Makefile:164-168]
-updated: 2026-11-26
-verified_commit: 78e4d28
+updated: 2026-11-28
+verified_commit: 924cf37
 ---
 ## Facts
 - Activate once per clone with `make hooks-install`, which sets core.hooksPath to .githooks; git clone does not carry it → Makefile:164-168, .githooks/pre-commit:4

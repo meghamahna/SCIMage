@@ -6,8 +6,8 @@ summary: A denied mutation is audited after its transaction is rolled back, outs
 tags: [gotcha, audit, refusal, denied, best effort, logging, transaction, duplicate, externalId, row lock, patch, connection pool, 409, 413]
 links: [related:data-model-audit-log, related:decision-audit-in-transaction, related:module-store, related:api-scim-patch, related:api-scim-errors, related:module-scim]
 sources: [internal/store/audit.go:110-139, internal/store/user.go:170-175, internal/store/user.go:180-181, internal/store/user.go:271, internal/store/user.go:307, internal/store/user.go:315, internal/store/user.go:365-370, internal/store/user.go:406, internal/store/group.go:228-240, internal/store/group.go:344, internal/store/group.go:376, internal/store/group.go:389, internal/store/group.go:417-429, internal/store/group.go:467, internal/scim/handler.go:546-558, internal/scim/userstore.go:34-37, internal/scim/groupstore.go:23]
-updated: 2026-11-26
-verified_commit: 0761c5b
+updated: 2026-11-28
+verified_commit: 924cf37
 ---
 ## Facts
 - `RecordRefusal` inserts the denied row from the pool, after `refuseTx` has rolled back the mutation's transaction, so it never holds a row lock or waits for a second connection → internal/store/audit.go:131-139

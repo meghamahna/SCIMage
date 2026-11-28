@@ -173,7 +173,7 @@
     "internal/scim/handler.go:433-466",
     "internal/store/user.go:288-328",
     "internal/store/group.go:362-402",
-    "docs/ARCHITECTURE.md:155-161"
+    "internal/scim/discovery.go:105-117"
    ],
    "file": ".claude/knowledge/nodes/api-scim-patch.md"
   },
@@ -199,7 +199,7 @@
     "internal/scim/handler.go:60-98",
     "internal/scim/discovery.go:105-117",
     "internal/scim/health.go:17-40",
-    "cmd/server/main.go:122-134"
+    "cmd/server/main.go:126-140"
    ],
    "file": ".claude/knowledge/nodes/api-scim-routes.md"
   },
@@ -307,16 +307,7 @@
    "kind": "module",
    "title": "SCIM extensible attributes (opt-in)",
    "summary": "Off by default; when SCIM_EXTENDED_ATTRIBUTES=1 and a tenant registers names, unknown top-level user attributes are stored in a JSONB blob and merged back on reads",
-   "tags": [
-    "extended attributes",
-    "extensible",
-    "JSONB",
-    "custom attributes",
-    "registry",
-    "SCIM_EXTENDED_ATTRIBUTES",
-    "feature flag",
-    "enterprise extension"
-   ],
+   "tags": [],
    "sources": [
     "internal/scim/extended.go:12-80",
     "internal/scim/extended.go:146-150",
@@ -332,20 +323,7 @@
    "kind": "module",
    "title": "SCIM per-caller rate limiter",
    "summary": "Token-bucket limiter keyed by tenant and key id, placed after auth; 429 tooMany on excess with one Warn log line; env-tunable",
-   "tags": [
-    "rate limit",
-    "ratelimit",
-    "throttle",
-    "token bucket",
-    "429",
-    "retry-after",
-    "dos",
-    "SCIM_RATE_LIMIT",
-    "SCIM_RATE_BURST",
-    "burst",
-    "logging",
-    "warn"
-   ],
+   "tags": [],
    "sources": [
     "internal/scim/ratelimit.go:1-109",
     "internal/scim/handler.go:93-98"
@@ -741,15 +719,7 @@
    "kind": "decision",
    "title": "Refuse unsupported SCIM filters instead of approximating",
    "summary": "Only equality on reconciliation keys is accepted; any other filter is a 400 so a client never acts on the wrong set",
-   "tags": [
-    "decision",
-    "filter",
-    "why",
-    "invalidFilter",
-    "safety",
-    "reconciliation",
-    "provisioning"
-   ],
+   "tags": [],
    "sources": [
     "internal/scim/filter.go:11-18",
     "internal/scim/handler.go:148-155",
@@ -862,7 +832,7 @@
     "internal/scim/auth.go:128",
     "migrations/000005_multi_tenancy.up.sql:20-24",
     "migrations/000012_console_tokens.up.sql:8-11",
-    "internal/store/consoletoken.go:50-63"
+    "internal/store/consoletoken.go:38-64"
    ],
    "file": ".claude/knowledge/nodes/decision-token-hashing.md"
   },
@@ -1092,11 +1062,8 @@
     "SIGTERM"
    ],
    "sources": [
-    "cmd/server/main.go:23-34",
-    "cmd/server/main.go:36-63",
-    "cmd/server/main.go:65-113",
-    "cmd/server/main.go:115-158",
-    "cmd/server/main.go:161-203"
+    "cmd/server/main.go:22-62",
+    "cmd/server/main.go:64-209"
    ],
    "file": ".claude/knowledge/nodes/entrypoint-cmd-server-main.md"
   },
@@ -1323,18 +1290,7 @@
    "kind": "gotcha",
    "title": "Identity provider payload quirks the parser accepts",
    "summary": "Entra sends string booleans and capitalised ops; unknown attributes are dropped, not rejected; these leniencies are deliberate",
-   "tags": [
-    "gotcha",
-    "Entra",
-    "Okta",
-    "identity provider",
-    "IdP",
-    "string boolean",
-    "primary",
-    "PATCH op case",
-    "unknown fields",
-    "interop"
-   ],
+   "tags": [],
    "sources": [
     "internal/scim/models.go:20-47",
     "internal/scim/models.go:71-73",
@@ -1350,16 +1306,7 @@
    "kind": "gotcha",
    "title": "Tenant id is parsed twice and must agree",
    "summary": "Auth reads the tenant from the raw escaped path before the mux runs; a mismatch with the mux would authenticate as one tenant and route as another",
-   "tags": [
-    "gotcha",
-    "tenant",
-    "path",
-    "escaped path",
-    "routing",
-    "auth",
-    "mux",
-    "PathValue"
-   ],
+   "tags": [],
    "sources": [
     "internal/scim/auth.go:99-102",
     "internal/scim/auth.go:132-133",
@@ -1373,16 +1320,7 @@
    "kind": "gotcha",
    "title": "Unauthenticated requests are not rate limited",
    "summary": "The per-caller limiter sits behind auth, so a flood of bad tokens is bounded only by the cost of one token lookup per request",
-   "tags": [
-    "gotcha",
-    "rate limit",
-    "DoS",
-    "unauthenticated",
-    "brute force",
-    "token lookup",
-    "throttle",
-    "429"
-   ],
+   "tags": [],
    "sources": [
     "internal/scim/ratelimit.go:84-88",
     "internal/scim/handler.go:93-98",
@@ -1630,7 +1568,7 @@
    ],
    "sources": [
     "internal/logging/logging.go:1-74",
-    "cmd/server/main.go:65-70"
+    "cmd/server/main.go:71-76"
    ],
    "file": ".claude/knowledge/nodes/module-logging.md"
   },

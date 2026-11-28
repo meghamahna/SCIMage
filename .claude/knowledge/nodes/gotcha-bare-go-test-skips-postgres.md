@@ -6,8 +6,8 @@ summary: Running go test without POSTGRES_* or DATABASE_URL skips store and scim
 tags: [gotcha, go test, skip, skipped, integration test, postgres, make test, with-env, env, false green, DATABASE_URL]
 links: [related:command-dev-commands, related:workflow-ci, related:workflow-precommit-hook, related:decision-real-postgres-tests]
 sources: [internal/store/store_test.go:21-24, internal/scim/handler_test.go:44-48, internal/scim/handler_test.go:117-118, Makefile:94-96, scripts/with-env.sh:12-19, internal/store/store.go:106-113]
-updated: 2026-11-26
-verified_commit: 0761c5b
+updated: 2026-11-28
+verified_commit: 924cf37
 ---
 ## Facts
 - store tests call t.Skipf when DSNFromEnv fails, with a message pointing to `make test` → internal/store/store_test.go:21-24

@@ -6,8 +6,8 @@ summary: The lease is Poll + Batch×Timeout so a slow batch does not double-POST
 tags: [webhook, lease, claim, attempts, double send, at-least-once, outbox, timeout, batch]
 links: [related:module-webhook, related:data-model-webhook-outbox]
 sources: [internal/webhook/dispatcher.go:189-200, internal/webhook/dispatcher.go:254-265, internal/store/outbox.go:77-83, internal/store/outbox.go:189-198, internal/webhook/signer.go:20-22]
-updated: 2026-11-26
-verified_commit: 0761c5b
+updated: 2026-11-28
+verified_commit: 924cf37
 ---
 ## Facts
 - Lease = Poll + Batch × Timeout, because drain sends the batch sequentially → internal/webhook/dispatcher.go:196-200

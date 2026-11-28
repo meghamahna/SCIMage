@@ -3,11 +3,11 @@ id: decision-scim-strict-filter
 kind: decision
 title: Refuse unsupported SCIM filters instead of approximating
 summary: Only equality on reconciliation keys is accepted; any other filter is a 400 so a client never acts on the wrong set
-tags: [decision, filter, why, invalidFilter, safety, reconciliation, provisioning]
+tags: []
 links: [documented_in:api-scim-filter, related:module-scim]
 sources: [internal/scim/filter.go:11-18, internal/scim/handler.go:148-155, internal/scim/discovery.go:109-117]
-updated: 2026-11-26
-verified_commit: 0761c5b
+updated: 2026-11-28
+verified_commit: 924cf37
 ---
 ## Decision
 - Implement only `attr eq "value"` on userName or externalId (groups: displayName or externalId) → internal/scim/filter.go:11-14

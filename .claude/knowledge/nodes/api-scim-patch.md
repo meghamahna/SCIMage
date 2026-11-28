@@ -5,9 +5,9 @@ title: SCIM PATCH support
 summary: PATCH for Users (core attributes plus registered extensions) and Groups (members add/replace/remove); each PATCH runs under the resource's row lock; op names are case-insensitive; no bulk
 tags: [patch, PATCH, RFC 7644 3.5.2, add, replace, remove, members, emails, operations, partial update, row lock, serialize, concurrency, scim]
 links: [implements:module-scim, related:module-store, related:decision-audit-in-transaction, related:api-scim-routes, related:api-scim-errors, related:component-scim-extended-attributes, related:model-scim-resources]
-sources: [internal/scim/patch.go:14-413, internal/scim/handler.go:254-328, internal/scim/handler.go:433-466, internal/store/user.go:288-328, internal/store/group.go:362-402, docs/ARCHITECTURE.md:155-161]
-updated: 2026-11-26
-verified_commit: 0761c5b
+sources: [internal/scim/patch.go:14-413, internal/scim/handler.go:254-328, internal/scim/handler.go:433-466, internal/store/user.go:288-328, internal/store/group.go:362-402, internal/scim/discovery.go:105-117]
+updated: 2026-11-28
+verified_commit: 924cf37
 ---
 ## Facts
 - Body is PatchOp (schemas, Operations of op/path/value); the value shape depends on the path → internal/scim/patch.go:19-30
@@ -28,4 +28,4 @@ verified_commit: 0761c5b
 ## Gotchas
 - The patch callback runs inside the transaction: no I/O, and it must not modify its argument → internal/store/user.go:293-294, internal/store/group.go:364-365
 - PATCH on a missing id is refused and recorded as a refusal, then returns not found → internal/store/user.go:304-310, internal/store/group.go:373-378
-- No ETag or If-Match; concurrency comes from the row lock, not version checks → docs/ARCHITECTURE.md:155-161
+- No ETag or If-Match: ServiceProviderConfig advertises etag false, so concurrency comes from the row lock → internal/scim/discovery.go:105-117, internal/store/user.go:297-328

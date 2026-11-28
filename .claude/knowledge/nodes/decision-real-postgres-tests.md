@@ -6,8 +6,8 @@ summary: Store and handler integration tests hit the compose or CI Postgres; iso
 tags: [decision, testing, real database, no mocks, postgres, tenant isolation, integration test, ci, make test, -p 1]
 links: [related:workflow-ci, related:command-dev-commands, related:gotcha-bare-go-test-skips-postgres, related:data-model-tenants-tokens]
 sources: [Makefile:86-93, .github/workflows/ci.yml:12-14, .github/workflows/ci.yml:65-67, .githooks/pre-commit:40-41]
-updated: 2026-11-26
-verified_commit: 78e4d28
+updated: 2026-11-28
+verified_commit: 924cf37
 ---
 ## Facts
 - Decision: the database is never mocked; tests need the compose or CI Postgres → Makefile:86-88, .github/workflows/ci.yml:12-14

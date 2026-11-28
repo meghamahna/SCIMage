@@ -6,8 +6,8 @@ summary: Shape of SCIM error bodies, scimType values in use, and which status ea
 tags: [errors, scimType, error response, 400, 401, 404, 405, 409, 413, 429, 500, invalidValue, invalidPath, invalidFilter, invalidSyntax, uniqueness, mutability, tooMany, externalId, duplicate, 256]
 links: [implements:module-scim, related:api-scim-routes, related:module-apidocs, related:gotcha-scim-idp-quirks, related:gotcha-refused-mutation-audit-best-effort]
 sources: [internal/scim/handler.go:101-131, internal/scim/handler.go:181-216, internal/scim/handler.go:232-246, internal/scim/handler.go:290-300, internal/scim/handler.go:576-612, internal/scim/handler.go:642-696, internal/scim/handler.go:707-790, internal/scim/models.go:14-17, internal/scim/models.go:120, internal/scim/mapper.go:14, internal/scim/mapper.go:87, internal/scim/ratelimit.go:103-104, internal/scim/auth.go:61-62]
-updated: 2026-11-26
-verified_commit: b8c7070
+updated: 2026-11-28
+verified_commit: 924cf37
 ---
 ## Facts
 - Every error uses the SCIM Error schema with a string status, optional scimType and detail; content type application/scim+json → internal/scim/models.go:14-17, internal/scim/models.go:120, internal/scim/handler.go:774-782

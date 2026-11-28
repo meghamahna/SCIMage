@@ -5,9 +5,9 @@ title: SCIM HTTP routes
 summary: Route table for /scim/v2/{tenantID} Users, Groups and discovery, plus unauthenticated health probes and middleware order
 tags: [routes, endpoints, api, scim, users, groups, discovery, serviceproviderconfig, healthz, readyz, rest]
 links: [implements:module-scim, related:api-scim-errors, related:api-scim-filter, related:api-scim-patch, related:component-scim-auth, related:model-scim-resources]
-sources: [internal/scim/handler.go:60-98, internal/scim/discovery.go:105-117, internal/scim/health.go:17-40, cmd/server/main.go:122-134]
-updated: 2026-11-26
-verified_commit: 794ebee
+sources: [internal/scim/handler.go:60-98, internal/scim/discovery.go:105-117, internal/scim/health.go:17-40, cmd/server/main.go:126-140]
+updated: 2026-11-28
+verified_commit: 924cf37
 ---
 ## Facts
 - Every SCIM path is `/scim/v2/{tenantID}/...`; the tenant segment is the isolation boundary → internal/scim/handler.go:60-62
@@ -21,6 +21,6 @@ verified_commit: 794ebee
 - Create returns 201 with the user body; duplicate userName → 409 → internal/scim/handler.go:101-131
 - PUT rejects a body id that differs from the path id → internal/scim/handler.go:181-193
 - ServiceProviderConfig advertises PATCH and filter (eq only); bulk, changePassword, sort, etag are false → internal/scim/discovery.go:105-117
-- Health: GET /healthz (liveness, no deps) and GET /readyz (DB ping, 2s cap), on the root mux outside /scim/v2 → cmd/server/main.go:124-125, internal/scim/health.go:19, internal/scim/health.go:38-40
+- Health: GET /healthz (liveness, no deps) and GET /readyz (DB ping, 2s cap), on the root mux outside /scim/v2 → cmd/server/main.go:130-131, internal/scim/health.go:19, internal/scim/health.go:38-40
 - Middleware order, outermost first: request log, 10s default timeout, token auth, body capture for logging, per-caller throttle, mux → internal/scim/handler.go:98, internal/scim/timeout.go:15
 - Unauthenticated requests get 401 even for unknown paths, so route existence is not revealed → internal/scim/auth.go:45-62
