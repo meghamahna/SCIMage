@@ -6,8 +6,8 @@ summary: internal/store owns every SQL query, pgx pool setup, tenant scoping, ro
 tags: [store, postgres, pgx, sql, repository, persistence, database, tenant, audit, outbox, row lock, FOR UPDATE, FOR NO KEY UPDATE, concurrency, patch, externalId, duplicate, refusal]
 links: [depends_on:data-model-core-users-groups, depends_on:data-model-tenants-tokens, depends_on:data-model-audit-log, depends_on:data-model-webhook-outbox, decided_by:decision-audit-in-transaction, decided_by:decision-tenant-scoping, decided_by:decision-token-hashing, related:module-scim, related:api-scim-patch, related:api-scim-errors, related:workflow-migrations]
 sources: [internal/store/store.go:1-152, internal/store/user.go:1-99, internal/store/group.go:1-36, internal/store/audit.go:1-60, internal/store/outbox.go:1-70, internal/store/patch_test.go:1-50]
-updated: 2026-11-26
-verified_commit: 0761c5b
+updated: 2026-11-27
+verified_commit: 7f7fe4d
 ---
 ## Facts
 - Package `store` is the Postgres-backed persistence layer; raw SQL via pgx v5 pool, no ORM → internal/store/store.go:1-2
@@ -24,7 +24,7 @@ verified_commit: 0761c5b
 - Console tokens API: IssueConsoleToken, GetConsoleTokenByKeyID, ListConsoleTokens, TouchConsoleToken, RevokeConsoleToken → internal/store/consoletoken.go:54, 90, 106, 133, 145
 - Tenants API: CreateTenant, GetTenant, ListTenants → internal/store/tenant.go:57, 90, 106
 - Extensible attributes API: RegisterAttribute, UnregisterAttribute, ListAttributes → internal/store/attribute.go:39, 81, 111
-- Audit reads: ListAuditEntries, ListAuditEntriesSince, AuditWindowStats → internal/store/audit.go:163, 198, 233; admin audit reads: ListAdminAuditEntries → internal/store/adminaudit.go:57
+- Audit reads: ListAuditEntries, ListAuditEntriesSince, CountAuditEntriesSince, AuditWindowStats → internal/store/audit.go:163, 198, 228, 250; admin audit reads: ListAdminAuditEntries → internal/store/adminaudit.go:57
 - Outbox API: ClaimDueDeliveries, MarkDelivered, RescheduleDelivery, DeadLetterDelivery, PurgeDeliveredBefore, ReplayDeadLetter → internal/store/outbox.go:192, 227, 238, 250, 280, 346
 - Every mutation is one pgx transaction: write row, insert audit, enqueue event, commit → internal/store/user.go:155-195
 - User writers (UpdateUser, PatchUser, DeactivateUser) lock the row first with lockUserTx → internal/store/user.go:269, 304, 404

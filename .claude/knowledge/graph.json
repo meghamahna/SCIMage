@@ -5,7 +5,7 @@
    "id": "api-console-routes",
    "kind": "api",
    "title": "Console HTTP routes (/console)",
-   "summary": "Read pages under GET /console/*, mutations under POST /console/* with CSRF; all but static need a console token",
+   "summary": "Read pages under GET /console/*, mutations under POST /console/* with CSRF; all but static need a console token and an allowlisted Host",
    "tags": [
     "routes",
     "endpoints",
@@ -19,15 +19,19 @@
     "tenants",
     "tokens",
     "attributes",
-    "audit"
+    "audit",
+    "ARIA window",
+    "since"
    ],
    "sources": [
-    "internal/console/server.go:114-143",
-    "internal/console/handlers.go:196-213",
-    "internal/console/handlers.go:424-426",
-    "internal/console/handlers.go:493-495",
-    "internal/console/handlers.go:706-744",
-    "internal/console/handlers.go:876-878"
+    "internal/console/server.go:125-153",
+    "internal/console/handlers.go:47-70",
+    "internal/console/handlers.go:201-228",
+    "internal/console/handlers.go:429-433",
+    "internal/console/handlers.go:524-532",
+    "internal/console/handlers.go:595-622",
+    "internal/console/handlers.go:727-770",
+    "internal/console/handlers.go:900-920"
    ],
    "file": ".claude/knowledge/nodes/api-console-routes.md"
   },
@@ -49,6 +53,8 @@
     "DATABASE_URL",
     "SCIM_ADDR",
     "SCIM_WEBHOOK",
+    "CONSOLE_ADDR",
+    "CONSOLE_ALLOWED_HOSTS",
     "ARIA_LLM",
     "LOG_DIR",
     "flags",
@@ -57,7 +63,8 @@
    "sources": [
     "docs/CONFIGURATION.md:1-6",
     "docs/CONFIGURATION.md:141",
-    ".env.example:1-91",
+    "docs/CONFIGURATION.md:222",
+    ".env.example:1-96",
     "docker-compose.yml:10",
     "scripts/with-env.sh:6-19",
     "internal/store/store.go:51-55",
@@ -499,7 +506,7 @@
    "id": "decision-aria-advisory-only",
    "kind": "decision",
    "title": "ARIA is advisory only and never feeds provisioning or auth",
-   "summary": "ARIA output is shown to a human and never written back to the store or consulted by the SCIM auth path; deterministic flags come before any LLM text",
+   "summary": "ARIA output is shown to a human and never written back to the store or consulted by the SCIM auth path; deterministic flags and partial-review marks come before any LLM text",
    "tags": [
     "aria",
     "advisory",
@@ -511,14 +518,17 @@
     "security design",
     "guardrail",
     "console",
-    "narrative"
+    "narrative",
+    "partial review"
    ],
    "sources": [
     "internal/aria/aria.go:1-9",
-    "internal/aria/client.go:100-102",
+    "internal/aria/client.go:100-103",
     "internal/aria/prompt.go:9-13",
+    "internal/aria/prompt.go:25-27",
     "cmd/aria/main.go:1-7",
-    "internal/console/handlers.go:706-762",
+    "cmd/aria/main.go:90-112",
+    "internal/console/handlers.go:727-787",
     ".claude/CLAUDE.md:92-96"
    ],
    "file": ".claude/knowledge/nodes/decision-aria-advisory-only.md"
@@ -564,6 +574,37 @@
    "file": ".claude/knowledge/nodes/decision-audit-in-transaction.md"
   },
   {
+   "id": "decision-console-host-allowlist",
+   "kind": "decision",
+   "title": "Console answers only to allowlisted Host names",
+   "summary": "Requests whose Host is not loopback, the CONSOLE_ADDR host or a CONSOLE_ALLOWED_HOSTS entry get 421 before auth, which blocks DNS rebinding; the port is ignored and bad entries fail startup",
+   "tags": [
+    "decision",
+    "console",
+    "host header",
+    "allowlist",
+    "CONSOLE_ALLOWED_HOSTS",
+    "CONSOLE_ADDR",
+    "DNS rebinding",
+    "421",
+    "misdirected",
+    "host check",
+    "startup validation",
+    "why"
+   ],
+   "sources": [
+    "internal/console/host.go:20-27",
+    "internal/console/host.go:46-63",
+    "internal/console/host.go:79-126",
+    "internal/console/host.go:156-172",
+    "internal/console/server.go:81-86",
+    "internal/console/server.go:121-124",
+    "internal/console/server.go:153",
+    "docs/CONFIGURATION.md:251-270"
+   ],
+   "file": ".claude/knowledge/nodes/decision-console-host-allowlist.md"
+  },
+  {
    "id": "decision-console-separate-listener",
    "kind": "decision",
    "title": "Console runs on its own opt-in listener",
@@ -579,8 +620,8 @@
     "why"
    ],
    "sources": [
-    "cmd/server/main.go:36-44",
-    "cmd/server/main.go:145-158",
+    "cmd/server/main.go:41-50",
+    "cmd/server/main.go:145-160",
     "internal/console/server.go:1-16"
    ],
    "file": ".claude/knowledge/nodes/decision-console-separate-listener.md"
@@ -607,7 +648,8 @@
     "internal/console/csrf.go:44-62",
     "internal/console/auth.go:38-42",
     "internal/console/server.go:8-12",
-    "internal/console/server.go:161-163"
+    "internal/console/server.go:174",
+    "internal/console/handlers.go:868-896"
    ],
    "file": ".claude/knowledge/nodes/decision-console-token-csrf.md"
   },
@@ -776,8 +818,9 @@
     "internal/store/user.go:197-203",
     "internal/store/group.go:145-156",
     "internal/store/tenant.go:32-38",
-    "internal/store/audit.go:198-206",
-    "internal/store/audit.go:233-241",
+    "internal/store/audit.go:198-200",
+    "internal/store/audit.go:239-245",
+    "internal/store/audit.go:249",
     "internal/store/adminaudit.go:57-66",
     "internal/scim/auth.go:109-132",
     "internal/store/outbox.go:192-207",
@@ -929,7 +972,7 @@
    "id": "entrypoint-cmd-aria-main",
    "kind": "entrypoint",
    "title": "Entry: cmd/aria/main.go (ARIA CLI)",
-   "summary": "Read-only CLI that reviews audit_log for a window, prints flags, and calls the LLM only when there are findings; flags -tenant, -since, -timezone",
+   "summary": "Read-only CLI that reviews audit_log for a window, marks partial windows, prints flags, and calls the LLM only when there are findings; flags -tenant, -since, -timezone",
    "tags": [
     "entrypoint",
     "main",
@@ -942,13 +985,17 @@
     "ARIA_TIMEZONE",
     "ARIA_LLM_BASE_URL",
     "command",
-    "flags"
+    "flags",
+    "partial review"
    ],
    "sources": [
-    "cmd/aria/main.go:1-8",
+    "cmd/aria/main.go:1-7",
     "cmd/aria/main.go:24-29",
-    "cmd/aria/main.go:31-114",
-    "cmd/aria/main.go:119-155"
+    "cmd/aria/main.go:31-35",
+    "cmd/aria/main.go:49-71",
+    "cmd/aria/main.go:73-85",
+    "cmd/aria/main.go:90-112",
+    "cmd/aria/main.go:118-154"
    ],
    "file": ".claude/knowledge/nodes/entrypoint-cmd-aria-main.md"
   },
@@ -1055,6 +1102,30 @@
    "file": ".claude/knowledge/nodes/glossary-core-terms.md"
   },
   {
+   "id": "gotcha-aria-partial-review-count",
+   "kind": "gotcha",
+   "title": "ARIA partial-review flag depends on a second, uncapped count",
+   "summary": "A full 200-row read does not prove the window is complete, so ARIA counts the same window uncapped; a failed count still flags the review as partial",
+   "tags": [
+    "gotcha",
+    "aria",
+    "partial review",
+    "truncated",
+    "MaxPageSize",
+    "cap",
+    "count",
+    "audit window",
+    "newest N of M",
+    "race"
+   ],
+   "sources": [
+    "internal/aria/aria.go:96-115",
+    "internal/store/audit.go:198-250",
+    "internal/store/user.go:99"
+   ],
+   "file": ".claude/knowledge/nodes/gotcha-aria-partial-review-count.md"
+  },
+  {
    "id": "gotcha-bare-go-test-skips-postgres",
    "kind": "gotcha",
    "title": "Bare go test skips the Postgres tests",
@@ -1086,7 +1157,7 @@
    "id": "gotcha-console-docker-bind-address",
    "kind": "gotcha",
    "title": "Console bind address differs in Docker",
-   "summary": "Loopback 127.0.0.1 for CONSOLE_ADDR is right on bare metal but unreachable through Docker port publishing; Docker runs use 0.0.0.0 inside the container",
+   "summary": "Loopback 127.0.0.1 for CONSOLE_ADDR is right on bare metal but unreachable through Docker port publishing; Docker runs use 0.0.0.0 inside the container, which the Host allowlist still accepts via localhost",
    "tags": [
     "gotcha",
     "docker",
@@ -1096,14 +1167,15 @@
     "0.0.0.0",
     "port publish",
     "console",
-    "local testing"
+    "local testing",
+    "host allowlist"
    ],
    "sources": [
     "README.md:218",
     "README.md:222",
     "README.md:231",
-    "cmd/server/main.go:36-39",
-    "cmd/server/main.go:147-148"
+    "cmd/server/main.go:41-44",
+    "internal/console/host.go:22-27"
    ],
    "file": ".claude/knowledge/nodes/gotcha-console-docker-bind-address.md"
   },
@@ -1129,7 +1201,7 @@
     "internal/logging/logging.go:20-24",
     "internal/logging/logging.go:27-29",
     "internal/logging/logging.go:34-50",
-    ".env.example:49-52"
+    ".env.example:54-58"
    ],
    "file": ".claude/knowledge/nodes/gotcha-container-log-dir.md"
   },
@@ -1380,7 +1452,7 @@
    "id": "module-aria",
    "kind": "module",
    "title": "ARIA audit reviewer",
-   "summary": "Audit Risk Intelligence Advisor: deterministic Go flags on audit_log activity, then an optional OpenAI-compatible LLM narrates them; advisory only",
+   "summary": "Audit Risk Intelligence Advisor: deterministic Go flags on audit_log activity, an uncapped count that marks partial windows, then an optional OpenAI-compatible LLM narrates them; advisory only",
    "tags": [
     "aria",
     "audit",
@@ -1390,6 +1462,9 @@
     "denial burst",
     "off-hours",
     "high volume",
+    "partial review",
+    "truncated",
+    "newest N of M",
     "llm",
     "narrate",
     "briefing",
@@ -1399,13 +1474,20 @@
     "ARIA_TIMEZONE"
    ],
    "sources": [
-    "internal/aria/aria.go:1-34",
-    "internal/aria/aria.go:41-45",
-    "internal/aria/aria.go:97-187",
-    "internal/aria/client.go:26-64",
-    "internal/aria/client.go:103-149",
-    "internal/aria/prompt.go:14-40",
-    "internal/aria/prompt.go:45-108"
+    "internal/aria/aria.go:1-9",
+    "internal/aria/aria.go:21-35",
+    "internal/aria/aria.go:40-46",
+    "internal/aria/aria.go:74-115",
+    "internal/aria/aria.go:127-216",
+    "internal/aria/aria.go:231-240",
+    "internal/aria/aria.go:270-287",
+    "internal/aria/client.go:17-64",
+    "internal/aria/client.go:73-76",
+    "internal/aria/client.go:103-121",
+    "internal/aria/prompt.go:14-33",
+    "internal/aria/prompt.go:45-74",
+    "cmd/aria/main.go:82-85",
+    "internal/console/templates/aria.html:30-33"
    ],
    "file": ".claude/knowledge/nodes/module-aria.md"
   },
@@ -1413,7 +1495,7 @@
    "id": "module-console-auth",
    "kind": "module",
    "title": "Console auth and CSRF",
-   "summary": "Console login is a console_tokens credential sent as Bearer or Basic; POSTs pass an origin check, then a stateless per-process HMAC form token bound to the operator's key id",
+   "summary": "Console login is a console_tokens credential sent as Bearer or Basic; the Host check runs first, then POSTs pass an origin check and a stateless per-process HMAC form token bound to the operator's key id",
    "tags": [
     "auth",
     "authentication",
@@ -1426,12 +1508,14 @@
     "sec-fetch-site",
     "session",
     "hmac",
-    "constant time"
+    "constant time",
+    "host check"
    ],
    "sources": [
     "internal/console/auth.go:1-126",
     "internal/console/csrf.go:1-128",
-    "internal/console/handlers.go:851-870"
+    "internal/console/handlers.go:868-896",
+    "internal/console/server.go:121-124"
    ],
    "file": ".claude/knowledge/nodes/module-console-auth.md"
   },
@@ -1439,7 +1523,7 @@
    "id": "module-console",
    "kind": "module",
    "title": "Admin console (internal/console)",
-   "summary": "Opt-in loopback web UI for the SCIMage operator on its own listener; reuses store calls, token-authenticated, with security headers and a strict CSP",
+   "summary": "Opt-in loopback web UI for the SCIMage operator on its own listener; reuses store calls, Host-allowlisted and token-authenticated, with security headers, a strict CSP and capped POST bodies",
    "tags": [
     "console",
     "admin console",
@@ -1448,6 +1532,11 @@
     "dashboard",
     "operator",
     "CONSOLE_ADDR",
+    "CONSOLE_ALLOWED_HOSTS",
+    "host allowlist",
+    "421",
+    "413",
+    "body limit",
     "templates",
     "ARIA",
     "webhooks",
@@ -1456,16 +1545,18 @@
    ],
    "sources": [
     "internal/console/server.go:1-16",
-    "internal/console/server.go:35-62",
-    "internal/console/server.go:64-98",
-    "internal/console/server.go:114-165",
+    "internal/console/server.go:35-63",
+    "internal/console/server.go:64-112",
+    "internal/console/server.go:121-176",
+    "internal/console/host.go:164-172",
     "internal/console/render.go:38-43",
     "internal/console/render.go:70-76",
     "internal/console/static.go:12-32",
     "internal/console/static.go:67-86",
-    "internal/console/handlers.go:792-816",
-    "cmd/server/main.go:36-56",
-    "cmd/server/main.go:145-167"
+    "internal/console/handlers.go:29-32",
+    "internal/console/handlers.go:798-833",
+    "cmd/server/main.go:36-62",
+    "cmd/server/main.go:145-160"
    ],
    "file": ".claude/knowledge/nodes/module-console.md"
   },
@@ -1701,6 +1792,11 @@
    "type": "depends_on"
   },
   {
+   "from": "api-console-routes",
+   "to": "decision-console-host-allowlist",
+   "type": "related"
+  },
+  {
    "from": "api-env-vars",
    "to": "command-dev-commands",
    "type": "related"
@@ -1728,6 +1824,11 @@
   {
    "from": "api-env-vars",
    "to": "module-console",
+   "type": "related"
+  },
+  {
+   "from": "api-env-vars",
+   "to": "decision-console-host-allowlist",
    "type": "related"
   },
   {
@@ -2111,6 +2212,11 @@
    "type": "related"
   },
   {
+   "from": "data-model-audit-log",
+   "to": "gotcha-aria-partial-review-count",
+   "type": "related"
+  },
+  {
    "from": "data-model-core-users-groups",
    "to": "data-model-tenants-tokens",
    "type": "depends_on"
@@ -2226,6 +2332,31 @@
    "type": "related"
   },
   {
+   "from": "decision-console-host-allowlist",
+   "to": "module-console",
+   "type": "decided_by"
+  },
+  {
+   "from": "decision-console-host-allowlist",
+   "to": "module-console",
+   "type": "related"
+  },
+  {
+   "from": "decision-console-host-allowlist",
+   "to": "module-console-auth",
+   "type": "related"
+  },
+  {
+   "from": "decision-console-host-allowlist",
+   "to": "gotcha-console-docker-bind-address",
+   "type": "related"
+  },
+  {
+   "from": "decision-console-host-allowlist",
+   "to": "api-env-vars",
+   "type": "related"
+  },
+  {
    "from": "decision-console-separate-listener",
    "to": "module-console",
    "type": "decided_by"
@@ -2248,6 +2379,11 @@
   {
    "from": "decision-console-token-csrf",
    "to": "module-console-auth",
+   "type": "related"
+  },
+  {
+   "from": "decision-console-token-csrf",
+   "to": "decision-console-host-allowlist",
    "type": "related"
   },
   {
@@ -2481,6 +2617,11 @@
    "type": "related"
   },
   {
+   "from": "entrypoint-cmd-aria-main",
+   "to": "gotcha-aria-partial-review-count",
+   "type": "related"
+  },
+  {
    "from": "entrypoint-cmd-scimage-admin-main",
    "to": "module-store",
    "type": "calls"
@@ -2601,6 +2742,26 @@
    "type": "related"
   },
   {
+   "from": "gotcha-aria-partial-review-count",
+   "to": "module-aria",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-aria-partial-review-count",
+   "to": "entrypoint-cmd-aria-main",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-aria-partial-review-count",
+   "to": "module-store",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-aria-partial-review-count",
+   "to": "data-model-audit-log",
+   "type": "related"
+  },
+  {
    "from": "gotcha-bare-go-test-skips-postgres",
    "to": "command-dev-commands",
    "type": "related"
@@ -2628,6 +2789,11 @@
   {
    "from": "gotcha-console-docker-bind-address",
    "to": "decision-console-separate-listener",
+   "type": "related"
+  },
+  {
+   "from": "gotcha-console-docker-bind-address",
+   "to": "decision-console-host-allowlist",
    "type": "related"
   },
   {
@@ -2841,6 +3007,11 @@
    "type": "related"
   },
   {
+   "from": "module-aria",
+   "to": "gotcha-aria-partial-review-count",
+   "type": "related"
+  },
+  {
    "from": "module-console-auth",
    "to": "module-store",
    "type": "depends_on"
@@ -2853,6 +3024,11 @@
   {
    "from": "module-console-auth",
    "to": "decision-console-token-csrf",
+   "type": "decided_by"
+  },
+  {
+   "from": "module-console-auth",
+   "to": "decision-console-host-allowlist",
    "type": "decided_by"
   },
   {
@@ -2883,6 +3059,11 @@
   {
    "from": "module-console",
    "to": "decision-console-token-csrf",
+   "type": "decided_by"
+  },
+  {
+   "from": "module-console",
+   "to": "decision-console-host-allowlist",
    "type": "decided_by"
   },
   {

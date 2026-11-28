@@ -4,7 +4,7 @@
 **How to use:** find the topic below → open the node file → jump to the `path:line` pointer with a ranged Read.
 Search: `python3 .claude/tools/kg.py query <terms>` · Related: `kg.py neighbors <id>` · Update: knowledge-keeper agent.
 
-Nodes: 60
+Nodes: 62
 
 ## Architecture
 - **architecture-overview**: Three binaries over one Postgres database; SCIM listener with auth, rate limit, handlers and transactional store; outbox to webhook dispatcher; optional admin console and ARIA → `nodes/architecture-overview.md` · `cmd/server/main.go:36-44`
@@ -15,21 +15,21 @@ Nodes: 60
 - **component-scim-ratelimit**: Token-bucket limiter keyed by tenant and key id, placed after auth; 429 tooMany on excess with one Warn log line; env-tunable → `nodes/component-scim-ratelimit.md` · `internal/scim/ratelimit.go:1-109`
 - **component-scim-request-middleware**: Per-request 10s context deadline covering auth and handler, and an opt-in request logger that records bodies only for authenticated calls → `nodes/component-scim-request-middleware.md` · `internal/scim/timeout.go:1-43`
 - **module-apidocs**: Embedded OpenAPI 3.0 spec and vendored Swagger UI served unauthenticated at /docs, with no runtime network fetch → `nodes/module-apidocs.md` · `internal/apidocs/embed.go:1-66`
-- **module-aria**: Audit Risk Intelligence Advisor: deterministic Go flags on audit_log activity, then an optional OpenAI-compatible LLM narrates them; advisory only → `nodes/module-aria.md` · `internal/aria/aria.go:1-34`
-- **module-console**: Opt-in loopback web UI for the SCIMage operator on its own listener; reuses store calls, token-authenticated, with security headers and a strict CSP → `nodes/module-console.md` · `internal/console/server.go:1-16`
-- **module-console-auth**: Console login is a console_tokens credential sent as Bearer or Basic; POSTs pass an origin check, then a stateless per-process HMAC form token bound to the operator's key id → `nodes/module-console-auth.md` · `internal/console/auth.go:1-126`
+- **module-aria**: Audit Risk Intelligence Advisor: deterministic Go flags on audit_log activity, an uncapped count that marks partial windows, then an optional OpenAI-compatible LLM narrates them; advisory only → `nodes/module-aria.md` · `internal/aria/aria.go:1-9`
+- **module-console**: Opt-in loopback web UI for the SCIMage operator on its own listener; reuses store calls, Host-allowlisted and token-authenticated, with security headers, a strict CSP and capped POST bodies → `nodes/module-console.md` · `internal/console/server.go:1-16`
+- **module-console-auth**: Console login is a console_tokens credential sent as Bearer or Basic; the Host check runs first, then POSTs pass an origin check and a stateless per-process HMAC form token bound to the operator's key id → `nodes/module-console-auth.md` · `internal/console/auth.go:1-126`
 - **module-logging**: Sets the default slog JSON logger to stdout plus one dated file under LOG_DIR; the audit trail is separate → `nodes/module-logging.md` · `internal/logging/logging.go:1-74`
 - **module-scim**: SCIM 2.0 HTTP handlers, bearer auth, rate limit, filter/PATCH parsing and SCIM models for /Users and /Groups → `nodes/module-scim.md` · `internal/scim/handler.go:20-98`
 - **module-store**: internal/store owns every SQL query, pgx pool setup, tenant scoping, row locks for user and group writes, and the same-transaction audit and outbox writes → `nodes/module-store.md` · `internal/store/store.go:1-152`
 - **module-webhook**: Drains the webhook outbox to one configured HTTPS endpoint with HMAC-signed POSTs, retries, dead letters and retention pruning → `nodes/module-webhook.md` · `internal/webhook/dispatcher.go:21-30`
 
 ## Entry points
-- **entrypoint-cmd-aria-main**: Read-only CLI that reviews audit_log for a window, prints flags, and calls the LLM only when there are findings; flags -tenant, -since, -timezone → `nodes/entrypoint-cmd-aria-main.md` · `cmd/aria/main.go:1-8`
+- **entrypoint-cmd-aria-main**: Read-only CLI that reviews audit_log for a window, marks partial windows, prints flags, and calls the LLM only when there are findings; flags -tenant, -since, -timezone → `nodes/entrypoint-cmd-aria-main.md` · `cmd/aria/main.go:1-7`
 - **entrypoint-cmd-scimage-admin-main**: Operator CLI with six groups (tenant, token, console-token, attribute, audit, webhook); opens the store directly from the environment and never starts a listener → `nodes/entrypoint-cmd-scimage-admin-main.md` · `cmd/scimage-admin/main.go:21-61`
 - **entrypoint-cmd-server-main**: Long-running server: wires logging, store, webhook dispatcher, SCIM and docs on SCIM_ADDR, and the optional console on CONSOLE_ADDR; signal-driven graceful shutdown → `nodes/entrypoint-cmd-server-main.md` · `cmd/server/main.go:23-34`
 
 ## APIs
-- **api-console-routes**: Read pages under GET /console/*, mutations under POST /console/* with CSRF; all but static need a console token → `nodes/api-console-routes.md` · `internal/console/server.go:114-143`
+- **api-console-routes**: Read pages under GET /console/*, mutations under POST /console/* with CSRF; all but static need a console token and an allowlisted Host → `nodes/api-console-routes.md` · `internal/console/server.go:125-153`
 - **api-env-vars**: Catalogue of env var names grouped by purpose (database, server, console, rate limit, logging, webhooks, ARIA, tooling); names and defaults only; docs/CONFIGURATION.md is the authoritative reference → `nodes/api-env-vars.md` · `docs/CONFIGURATION.md:1-6`
 - **api-scim-errors**: Shape of SCIM error bodies, scimType values in use, and which status each failure maps to → `nodes/api-scim-errors.md` · `internal/scim/handler.go:101-131`
 - **api-scim-filter**: Only `attribute eq "value"` on userName or externalId (users) and displayName or externalId (groups); everything else is a 400 invalidFilter → `nodes/api-scim-filter.md` · `internal/scim/filter.go:11-85`
@@ -53,9 +53,10 @@ Nodes: 60
 - **command-dev-commands**: Make targets and Go commands to install hooks, start Postgres, migrate, build, test, lint, format and run the server → `nodes/command-dev-commands.md` · `Makefile:12-168`
 
 ## Decisions
-- **decision-aria-advisory-only**: ARIA output is shown to a human and never written back to the store or consulted by the SCIM auth path; deterministic flags come before any LLM text → `nodes/decision-aria-advisory-only.md` · `internal/aria/aria.go:1-9`
+- **decision-aria-advisory-only**: ARIA output is shown to a human and never written back to the store or consulted by the SCIM auth path; deterministic flags and partial-review marks come before any LLM text → `nodes/decision-aria-advisory-only.md` · `internal/aria/aria.go:1-9`
 - **decision-audit-in-transaction**: Successful user and group mutations write their audit_log row and any webhook outbox row inside the change's transaction, so a committed change always has a record; refusals are recorded best-effort after rollback (see the gotcha) → `nodes/decision-audit-in-transaction.md` · `migrations/000002_create_audit_log.up.sql:1-4`
-- **decision-console-separate-listener**: Admin console is a second http.Server, started only when CONSOLE_ADDR is set, so it never shares a socket with tenant SCIM traffic → `nodes/decision-console-separate-listener.md` · `cmd/server/main.go:36-44`
+- **decision-console-host-allowlist**: Requests whose Host is not loopback, the CONSOLE_ADDR host or a CONSOLE_ALLOWED_HOSTS entry get 421 before auth, which blocks DNS rebinding; the port is ignored and bad entries fail startup → `nodes/decision-console-host-allowlist.md` · `internal/console/host.go:20-27`
+- **decision-console-separate-listener**: Admin console is a second http.Server, started only when CONSOLE_ADDR is set, so it never shares a socket with tenant SCIM traffic → `nodes/decision-console-separate-listener.md` · `cmd/server/main.go:41-50`
 - **decision-console-token-csrf**: No login session or cookie; each request presents a console token, and each POST passes an origin check plus a keyed HMAC form token bound to the operator's key id → `nodes/decision-console-token-csrf.md` · `internal/console/csrf.go:18-30`
 - **decision-credentials-issued-by-cli**: No network endpoint can create a SCIM token or console token; scimage-admin writes them straight to Postgres and audits the action → `nodes/decision-credentials-issued-by-cli.md` · `docs/ARCHITECTURE.md:119-133`
 - **decision-real-postgres-tests**: Store and handler integration tests hit the compose or CI Postgres; isolation comes from per-test tenants, not from mocks or serial packages → `nodes/decision-real-postgres-tests.md` · `Makefile:86-93`
@@ -70,8 +71,9 @@ Nodes: 60
 - **decision-webhook-signed-payload**: Each delivery's HMAC-SHA256 covers the timestamp, delivery id and event type as well as the body, so receivers can reject replays and forged routing → `nodes/decision-webhook-signed-payload.md` · `internal/webhook/signer.go:38-66`
 
 ## Gotchas
+- **gotcha-aria-partial-review-count**: A full 200-row read does not prove the window is complete, so ARIA counts the same window uncapped; a failed count still flags the review as partial → `nodes/gotcha-aria-partial-review-count.md` · `internal/aria/aria.go:96-115`
 - **gotcha-bare-go-test-skips-postgres**: Running go test without POSTGRES_* or DATABASE_URL skips store and scim integration tests and can look green; use make test → `nodes/gotcha-bare-go-test-skips-postgres.md` · `internal/store/store_test.go:21-24`
-- **gotcha-console-docker-bind-address**: Loopback 127.0.0.1 for CONSOLE_ADDR is right on bare metal but unreachable through Docker port publishing; Docker runs use 0.0.0.0 inside the container → `nodes/gotcha-console-docker-bind-address.md` · `README.md:218`
+- **gotcha-console-docker-bind-address**: Loopback 127.0.0.1 for CONSOLE_ADDR is right on bare metal but unreachable through Docker port publishing; Docker runs use 0.0.0.0 inside the container, which the Host allowlist still accepts via localhost → `nodes/gotcha-console-docker-bind-address.md` · `README.md:218`
 - **gotcha-container-log-dir**: The image sets no LOG_DIR, so the default writes a file under relative logs/ unless the runner sets LOG_DIR empty for stdout-only logging → `nodes/gotcha-container-log-dir.md` · `Dockerfile:19-28`
 - **gotcha-refused-mutation-audit-best-effort**: A denied mutation is audited after its transaction is rolled back, outside any transaction, and a failed insert is only logged; success entries commit with the change → `nodes/gotcha-refused-mutation-audit-best-effort.md` · `internal/store/audit.go:110-139`
 - **gotcha-request-body-logging-opt-in**: SCIM_LOG_REQUESTS=1 records bodies, query and user agent of authenticated requests only; secret-like values are redacted and oversize or non-JSON bodies are logged by size → `nodes/gotcha-request-body-logging-opt-in.md` · `internal/scim/requestlog.go:15-30`
@@ -101,7 +103,8 @@ Nodes: 60
 - 404 → api-scim-errors
 - 405 → api-scim-errors
 - 409 → api-scim-errors, gotcha-refused-mutation-audit-best-effort
-- 413 → api-scim-errors, gotcha-refused-mutation-audit-best-effort, module-apidocs
+- 413 → api-scim-errors, gotcha-refused-mutation-audit-best-effort, module-apidocs, module-console
+- 421 → decision-console-host-allowlist, module-console
 - 429 → api-scim-errors, component-scim-ratelimit, decision-webhook-retry-classification, gotcha-scim-unauthenticated-not-limited
 - 4xx → decision-webhook-retry-classification
 - 500 → api-scim-errors
@@ -116,10 +119,12 @@ Nodes: 60
 - admin-audit → decision-credentials-issued-by-cli
 - admin_audit_log → data-model-audit-log, decision-audit-in-transaction
 - advisory → decision-aria-advisory-only
+- allowlist → decision-console-host-allowlist
 - api → api-console-routes, api-scim-routes
 - api docs → module-apidocs
 - architecture → architecture-overview
-- aria → api-console-routes, architecture-overview, data-model-audit-log, decision-aria-advisory-only, entrypoint-cmd-aria-main, glossary-core-terms, module-aria, module-console
+- aria → api-console-routes, architecture-overview, data-model-audit-log, decision-aria-advisory-only, entrypoint-cmd-aria-main, glossary-core-terms, gotcha-aria-partial-review-count, module-aria, module-console
+- aria window → api-console-routes
 - aria_llm → api-env-vars
 - aria_llm_api_key → module-aria
 - aria_llm_base_url → entrypoint-cmd-aria-main, module-aria
@@ -134,6 +139,7 @@ Nodes: 60
 - audit → api-console-routes, data-model-audit-log, decision-audit-in-transaction, decision-user-soft-delete, doc-readme, entrypoint-cmd-scimage-admin-main, glossary-core-terms, gotcha-refused-mutation-audit-best-effort, module-aria, module-store
 - audit review → entrypoint-cmd-aria-main, module-aria
 - audit risk → module-aria
+- audit window → gotcha-aria-partial-review-count
 - audit_log → data-model-audit-log, decision-audit-in-transaction
 - auth → component-scim-auth, decision-request-timeout-before-auth, decision-scim-uniform-401, gotcha-scim-tenant-path-parsing, module-console-auth
 - auth path → decision-aria-advisory-only
@@ -150,7 +156,7 @@ Nodes: 60
 - binaries → architecture-overview
 - bind → gotcha-console-docker-bind-address
 - body → gotcha-request-body-logging-opt-in
-- body limit → module-apidocs
+- body limit → module-apidocs, module-console
 - bool → model-scim-resources
 - briefing → entrypoint-cmd-aria-main, module-aria
 - brute force → gotcha-scim-unauthenticated-not-limited
@@ -158,6 +164,7 @@ Nodes: 60
 - build image → workflow-docker
 - bulk deactivation → module-aria
 - burst → component-scim-ratelimit
+- cap → gotcha-aria-partial-review-count
 - change delivery → doc-readme
 - ci → decision-real-postgres-tests, workflow-ci
 - claim → gotcha-webhook-lease-covers-batch
@@ -171,30 +178,23 @@ Nodes: 60
 - config → api-env-vars
 - configuration → api-env-vars
 - connection pool → gotcha-refused-mutation-audit-best-effort
-- console → architecture-overview, decision-aria-advisory-only, decision-console-separate-listener, gotcha-console-docker-bind-address, module-console
+- console → architecture-overview, decision-aria-advisory-only, decision-console-host-allowlist, decision-console-separate-listener, gotcha-console-docker-bind-address, module-console
 - console routes → api-console-routes
 - console token → module-console-auth
 - console-token → decision-credentials-issued-by-cli, entrypoint-cmd-scimage-admin-main
-- console_addr → decision-console-separate-listener, entrypoint-cmd-server-main, gotcha-console-docker-bind-address, module-console
+- console_addr → api-env-vars, decision-console-host-allowlist, decision-console-separate-listener, entrypoint-cmd-server-main, gotcha-console-docker-bind-address, module-console
+- console_allowed_hosts → api-env-vars, decision-console-host-allowlist, module-console
 - console_tokens → data-model-tenants-tokens
 - constant time → component-scim-auth, module-console-auth
 - container → gotcha-container-log-dir, workflow-docker
 - context → component-scim-request-middleware
 - continuous integration → workflow-ci
 - cookies → decision-console-token-csrf
+- count → gotcha-aria-partial-review-count
 - credential → decision-credentials-issued-by-cli
 - credential storage → decision-token-hashing
 - cross-tenant → decision-tenant-scoping
 - csp → module-console
 - csrf → decision-console-token-csrf, module-console-auth
 - custom attributes → component-scim-extended-attributes
-- dashboard → module-console
-- data model → model-scim-resources
-- database → module-store
-- database_url → api-env-vars, gotcha-bare-go-test-skips-postgres, workflow-docker
-- ddl → workflow-migrations
-- deactivate → decision-user-soft-delete, glossary-core-terms
-- deactivation → decision-user-soft-delete
-- dead letter → data-model-webhook-outbox, decision-webhook-retry-classification, glossary-core-terms, module-webhook
-- dead_letter → decision-webhook-retry-classification
-- … 320 more keywords (search with `kg.py query`)
+- … 340 more keywords (search with `kg.py query`)
