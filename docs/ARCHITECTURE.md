@@ -1,7 +1,10 @@
-# 🏗️ Architecture
+# 🧱 Architecture
 
 How SCIMage is put together, and why. The [README](../README.md) covers what it
 does; this covers the mechanics behind it.
+
+<!-- toc -->
+## 📑 Contents
 
 - [Request path](#-request-path)
 - [Storage model](#-storage-model)
@@ -9,21 +12,26 @@ does; this covers the mechanics behind it.
 - [The UserStore and GroupStore interfaces](#-the-userstore-and-groupstore-interfaces)
 - [Extensible attributes](#-extensible-attributes)
 - [Change delivery](#-change-delivery)
-  - [The outbox](#the-outbox)
-  - [Claiming and leases](#claiming-and-leases)
-  - [Retry and dead-letter](#retry-and-dead-letter)
-  - [Retention](#retention)
-  - [Signing](#signing)
-  - [Event semantics](#event-semantics)
+  - [The outbox](#-the-outbox)
+  - [Claiming and leases](#-claiming-and-leases)
+  - [Retry and dead-letter](#-retry-and-dead-letter)
+  - [Retention](#-retention)
+  - [Signing](#-signing)
+  - [Event semantics](#-event-semantics)
+- [Admin console](#-admin-console)
 - [Audit review (ARIA)](#-audit-review-aria)
 - [Logging](#-logging)
 - [Shutdown](#-shutdown)
 
-## 🛣️ Request path
+<!-- /toc -->
+
+## 📡 Request path
 
 ```text
 Identity provider
    ↓  SCIM request to /scim/v2/{tenantID}/..., Bearer token
+Request logging      outermost, so a call auth rejects still gets a log line
+   ↓
 Request timeout      bounds everything below at SCIM_REQUEST_TIMEOUT (default
                      10s), so a stuck auth lookup or query fails the request
                      instead of holding a connection and a goroutine forever
@@ -31,6 +39,9 @@ Request timeout      bounds everything below at SCIM_REQUEST_TIMEOUT (default
 Auth middleware      looks up the token by key id, checks revoked/expired,
                      constant-time compares the secret, confirms the token's
                      own tenant matches {tenantID}, applied by Routes() itself
+   ↓
+Body capture         records the request body for the log, only for an
+                     authenticated caller
    ↓
 Rate limiter         token bucket, keyed per issued token
    ↓
@@ -44,7 +55,10 @@ Store                raw SQL, one transaction per mutation, every query scoped b
 The path is deliberately plain. Standard library `net/http` and raw SQL keep the
 behaviour visible in the code, and Postgres is the single source of truth.
 
-The request timeout sits outermost, before auth, on purpose: the token lookup
+Request logging wraps the timeout so that rejected calls are logged too, and
+body capture sits inside auth so only an authenticated caller's body is ever
+read for the log (see [Logging](#-logging)). The request timeout sits outside
+auth, on purpose: the token lookup
 `requireToken` performs is itself a database call, and it runs ahead of the
 rate limiter (below), so it's the one query in this path a flood of
 unauthenticated requests can reach unthrottled. Bounding it here means that
@@ -60,16 +74,17 @@ router's own path-value matching: `requireToken` wraps the mux and runs before
 the mux has matched anything, which is the only point `net/http`'s own
 `r.PathValue` gets populated.
 
-Two more HTTP surfaces sit alongside this one. `/docs` serves a hand-written
-OpenAPI 3.0 spec and a vendored Swagger UI (`internal/apidocs`) on the SCIM
-listener itself, unauthenticated on purpose: it describes the public protocol
-and carries no tenant data. The admin console (`internal/console`) is separate: it
-runs on its own `http.Server`, opt-in, started only when `CONSOLE_ADDR` is set
-and bound to loopback by default, with its own system-wide credential. It's an
-admin surface, not a SCIM one, so it stays off the provider-facing listener
-entirely. [THREAT-MODEL.md](THREAT-MODEL.md) covers its trust boundary.
+Three paths are mounted on the SCIM listener outside that auth, because none
+carries tenant data. `/healthz` reports that the process is up and `/readyz`
+reports whether the database answers, so an orchestrator needs no token or
+tenant. `/docs` serves a hand-written OpenAPI 3.0 spec and a vendored Swagger UI
+(`internal/apidocs`), unauthenticated so an integrator can read it before they
+have a token.
 
-## 🗄️ Storage model
+The admin console (`internal/console`) is a separate surface on its own
+listener. See [Admin console](#-admin-console).
+
+## 💾 Storage model
 
 Ten tables, described in `/migrations`:
 
@@ -85,6 +100,12 @@ Ten tables, described in `/migrations`:
 | `admin_audit_log` | One row per privileged CLI action: who created a tenant, issued or revoked a token, registered an attribute, and when |
 | `tenant_attributes` | The per-tenant extensible-attribute registry: which extra attribute names to capture into `users.extended_attributes`, and the type to declare in `/Schemas` |
 | `webhook_deliveries` | The outbound queue: tenant, payload, status, attempts, lease |
+
+Migration `000009` also puts a `BEFORE INSERT` trigger on `audit_log` that
+raises an error when the session setting `scimage.simulate_audit_failure` is
+`true`. A store test sets it to prove that a failed audit write rolls back the
+change it belongs to. In any session that never sets the setting, the trigger
+does nothing.
 
 ## 🏢 Multi-tenancy
 
@@ -233,7 +254,7 @@ path, a documented v1 boundary.
 
 ## 📤 Change delivery
 
-### The outbox
+### 🔔 The outbox
 
 The outbound event is written to a `webhook_deliveries` row inside the same
 transaction as the change, so a committed change is always queued and a
@@ -243,7 +264,7 @@ Sending from the handler after `COMMIT` would separate the two: the process can
 die between them, leaving no way to tell afterwards whether the event went out.
 The outbox keeps that decision in the database, where the change already is.
 
-### Claiming and leases
+### 🔒 Claiming and leases
 
 A dispatcher claims due rows in a single statement:
 
@@ -258,8 +279,10 @@ WHERE id IN (
     LIMIT $1
     FOR UPDATE SKIP LOCKED
 )
-RETURNING id, tenant_id, event_type, target_id, payload, attempts
+RETURNING id, tenant_id, event_type, target_id, payload, attempts, next_attempt_at
 ```
+
+The statuses are query parameters in the code and appear as literals here.
 
 `SKIP LOCKED` makes concurrent dispatchers take disjoint sets. The lease is
 `next_attempt_at` pushed forward, rather than an open transaction, because
@@ -279,7 +302,7 @@ Two properties worth keeping in mind when changing this:
 An interrupted dispatcher strands nothing: its rows stay `pending` and return
 once the lease expires, with the attempt already counted.
 
-### Retry and dead-letter
+### 🔁 Retry and dead-letter
 
 Failures retry on a doubling backoff from 5s, capped at 5 minutes, with up to 20%
 jitter so a batch that failed together returns spread out.
@@ -305,8 +328,11 @@ no longer dead-lettered.
 ```sql
 UPDATE webhook_deliveries
 SET status = 'pending', attempts = 0, next_attempt_at = now(), last_error = NULL
-WHERE id = $1 AND status = 'dead_letter';
+WHERE id = $1 AND status = 'dead_letter'
+RETURNING tenant_id, event_type;
 ```
+
+The returned tenant and event type feed the `webhook.replay` audit entry.
 
 `attempts = 0` matters: leaving the old count would let the row retry once and
 park again immediately. The `status = 'dead_letter'` guard keeps replay from
@@ -322,7 +348,7 @@ report late without overwriting an outcome another dispatcher already recorded.
 stripped of NUL and invalid UTF-8 before it reaches the column. A malformed
 error body stays writable, and the delivery keeps moving.
 
-### Retention
+### 🧹 Retention
 
 Every mutation queues a row, so a delivered one would sit in the outbox forever
 without a sweep. The dispatcher prunes delivered rows older than
@@ -338,7 +364,7 @@ partial index on `(delivered_at) WHERE status = 'delivered'` keeps the periodic
 an operational receipt, not the audit trail. `audit_log` is the authoritative,
 untouched record of every change.
 
-### Signing
+### 🔑 Signing
 
 A delivery on the wire:
 
@@ -379,7 +405,7 @@ Each field is covered because a receiver is told to act on it:
 `webhook.Verify` is the receiving half, exported for Go consumers. It compares
 with `hmac.Equal`, which is constant-time.
 
-### Event semantics
+### 🧾 Event semantics
 
 Events name what happened to the resource rather than which endpoint was called:
 
@@ -410,6 +436,67 @@ the transition itself. Delivery is at-least-once and retries are independent, so
 events for one user can arrive in any order. `occurredAt` carries the database
 clock, and the intended pattern is to apply idempotently and prefer the newest
 `occurredAt` per user.
+
+## 🛂 Admin console
+
+The admin console (`internal/console`) is a web UI for the same tasks as
+`scimage-admin`: tenants, tokens, extended attributes, the webhook queue, both
+audit logs and ARIA. It is opt-in and runs on its own `http.Server`, started
+only when `CONSOLE_ADDR` is set. The recommended value binds loopback, so the
+privileged surface never shares a socket with tenant traffic. Setup and options
+are in [Configuration](CONFIGURATION.md#-admin-console).
+
+**Middleware order.** Each layer runs before the next:
+
+```text
+Security headers     X-Frame-Options, CSP (frame-ancestors 'none'), nosniff,
+                     Referrer-Policy: same-origin, Cache-Control: no-store
+   ↓
+Host allowlist       any Host outside the list gets 421, before any credential
+                     is read
+   ↓
+Static assets        /console/static/ is served here, ahead of auth, so the
+                     login dialog's page can load its own styles
+   ↓
+Console auth         every other route needs a console token (HTTP Basic
+                     password or Bearer header), compared in constant time
+   ↓
+Router               GET pages, then POST mutations
+   ↓
+Handler              each POST checks origin, caps the body at 64 KiB, then
+                     verifies the form token before touching the store
+```
+
+**Routes.** Read pages: home, tenants, tokens, attributes, webhooks (plus a
+delivery-status poll), audit, admin audit and ARIA. `POST` routes: create a
+tenant, issue and revoke a token, register and unregister an attribute, replay a
+dead-lettered delivery, and generate an ARIA narration.
+
+**Credential.** Console tokens live in `console_tokens`, with no `tenant_id`,
+because the console spans every tenant. They are issued, listed and revoked only
+through `scimage-admin console-token`. No console page creates one, so a
+console session can't mint a credential for itself.
+
+**CSRF.** Browsers re-send Basic credentials on any request to the console, so a
+valid login doesn't show that the operator meant a POST. Two checks cover that.
+The origin check accepts a request whose `Sec-Fetch-Site` is `same-origin`, or
+whose `Origin` matches the request's host. It accepts a request with neither
+header, which is a non-browser client. The form token is an HMAC over a time
+bucket and the operator's console key id, keyed with a random value generated at
+startup. A token works only for the operator it was rendered for, for between
+one and two hours (the current time bucket and the previous one), and does not
+survive a restart. The check runs on headers first, so a cross-site POST is
+refused before its body is parsed.
+
+**Listener limits.** Both listeners set `ReadHeaderTimeout`, `ReadTimeout` and
+`IdleTimeout`, and cap request headers at 64 KiB (`MaxHeaderBytes`). Only the
+SCIM listener sets a `WriteTimeout`: the console's ARIA page can wait up to a
+minute on an LLM call.
+
+Every console change to tenants, tokens, attributes and the webhook queue calls
+the same audited `store.*` function as the CLI, so each writes its
+`admin_audit_log` entry in the change's own transaction.
+[THREAT-MODEL.md](THREAT-MODEL.md) covers the trust boundary.
 
 ## 🤖 Audit review (ARIA)
 
@@ -442,9 +529,13 @@ and to a dated file under `LOG_DIR`. One file per day keeps each file bounded fo
 a long-running process; in a container, set `LOG_DIR=` empty and let the runtime
 collect stdout.
 
-`SCIM_LOG_REQUESTS=1` adds full request bodies for diagnosing a client's
-behaviour; because those entries carry user attributes, the log path is
-permission-tightened. See [Configuration](CONFIGURATION.md#-logging).
+`SCIM_LOG_REQUESTS=1` adds request bodies to the request log for diagnosing a
+client's behaviour. Bodies are logged only for authenticated requests. Secret-like
+attribute values (a password, for example) are replaced with `[redacted]`, and
+each logged body is cut to 2 KiB. A body that isn't valid JSON, or is over 64 KiB,
+is logged by size only, since redaction can't see inside it. Because the entries
+can still carry user attributes, the log directory is created with mode `0700`
+and each log file with `0600`. See [Configuration](CONFIGURATION.md#-logging).
 
 These are operational logs. The audit trail is separate and lives in Postgres, so
 a change and its record share a commit.

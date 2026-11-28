@@ -1,24 +1,49 @@
-# Implementation Plan: SCIM 2.0 Provisioning Server (Go + Postgres)
+# 📋 Implementation Plan: SCIM 2.0 Provisioning Server (Go + Postgres)
 
-## Goal
+<!-- toc -->
+## 📑 Contents
+
+- [Goal](#-goal)
+- [Why Postgres](#-why-postgres)
+- [Stack](#-stack)
+- [Project structure](#-project-structure)
+- [Milestones](#-milestones)
+  - [Phase 1: Infrastructure](#-phase-1-infrastructure)
+  - [Phase 2: Schema](#-phase-2-schema)
+  - [Phase 3: Store layer](#-phase-3-store-layer)
+  - [Phase 4: HTTP layer (SCIM endpoints)](#-phase-4-http-layer-scim-endpoints)
+  - [Phase 5: Auth](#-phase-5-auth)
+  - [Phase 6: Tests](#-phase-6-tests)
+  - [Phase 7: Security hardening](#-phase-7-security-hardening)
+  - [Phase 8: Identity provider interoperability](#-phase-8-identity-provider-interoperability)
+  - [Phase 9: Change delivery](#-phase-9-change-delivery)
+  - [Phase 10: Multi-tenancy and issued API tokens](#-phase-10-multi-tenancy-and-issued-api-tokens)
+  - [Phase 11: Groups and Extended Attributes](#-phase-11-groups-and-extended-attributes)
+  - [Phase 12: ARIA](#-phase-12-aria)
+  - [Phase 13: Release engineering](#-phase-13-release-engineering)
+  - [Phase 14: Operator and integrator tooling](#-phase-14-operator-and-integrator-tooling)
+
+<!-- /toc -->
+
+## 🎯 Goal
 
 Build a working SCIM 2.0 server in Go that implements the `/Users` and
 `/Groups` resources per RFC 7644, backed by Postgres running in Docker, with
 production-grade security practices and an AI-assisted audit layer.
 
-## Why Postgres
+## 💾 Why Postgres
 
 Running real Postgres in Docker keeps schema design, migrations, and query
 correctness explicit, with raw SQL rather than an ORM hiding them.
 
-## Stack
+## 🧰 Stack
 
 - Go (`net/http`, stdlib for the HTTP layer)
 - Postgres 16, run via Docker Compose
 - `pgx` for the driver, raw SQL: real queries make the behaviour visible
 - `golang-migrate` for schema migrations
 
-## Project structure
+## 🌳 Project structure
 
 ```text
 /cmd/server           entrypoint for the SCIM server
@@ -38,30 +63,30 @@ docker-compose.yml
 README.md
 ```
 
-## Milestones
+## 📌 Milestones
 
-- [Phase 1: Infrastructure](#phase-1-infrastructure)
-- [Phase 2: Schema](#phase-2-schema)
-- [Phase 3: Store layer](#phase-3-store-layer)
-- [Phase 4: HTTP layer (SCIM endpoints)](#phase-4-http-layer-scim-endpoints)
-- [Phase 5: Auth](#phase-5-auth)
-- [Phase 6: Tests](#phase-6-tests)
-- [Phase 7: Security hardening](#phase-7-security-hardening)
-- [Phase 8: Identity provider interoperability](#phase-8-identity-provider-interoperability)
-- [Phase 9: Change delivery](#phase-9-change-delivery)
-- [Phase 10: Multi-tenancy and issued API tokens](#phase-10-multi-tenancy-and-issued-api-tokens)
-- [Phase 11: Groups and Extended Attributes](#phase-11-groups-and-extended-attributes)
-- [Phase 12: ARIA](#phase-12-aria)
-- [Phase 13: Release engineering](#phase-13-release-engineering)
-- [Phase 14: Operator and integrator tooling](#phase-14-operator-and-integrator-tooling)
+- [Phase 1: Infrastructure](#-phase-1-infrastructure)
+- [Phase 2: Schema](#-phase-2-schema)
+- [Phase 3: Store layer](#-phase-3-store-layer)
+- [Phase 4: HTTP layer (SCIM endpoints)](#-phase-4-http-layer-scim-endpoints)
+- [Phase 5: Auth](#-phase-5-auth)
+- [Phase 6: Tests](#-phase-6-tests)
+- [Phase 7: Security hardening](#-phase-7-security-hardening)
+- [Phase 8: Identity provider interoperability](#-phase-8-identity-provider-interoperability)
+- [Phase 9: Change delivery](#-phase-9-change-delivery)
+- [Phase 10: Multi-tenancy and issued API tokens](#-phase-10-multi-tenancy-and-issued-api-tokens)
+- [Phase 11: Groups and Extended Attributes](#-phase-11-groups-and-extended-attributes)
+- [Phase 12: ARIA](#-phase-12-aria)
+- [Phase 13: Release engineering](#-phase-13-release-engineering)
+- [Phase 14: Operator and integrator tooling](#-phase-14-operator-and-integrator-tooling)
 
-### Phase 1: Infrastructure
+### 🔨 Phase 1: Infrastructure
 
 - [x] Write `docker-compose.yml` with a `postgres:16` service
 - [x] Set connection config via env vars (`DATABASE_URL`)
 - [x] Confirm `docker compose up` gives a running, reachable Postgres
 
-### Phase 2: Schema
+### 🧬 Phase 2: Schema
 
 - [x] Write migration for a `users` table:
 
@@ -87,7 +112,7 @@ README.md
       chains into `make migrate`, using the official container when the
       host has no `migrate` binary
 
-### Phase 3: Store layer
+### 💾 Phase 3: Store layer
 
 - [x] Implement `internal/store` with plain SQL:
   - `CreateUser`
@@ -103,7 +128,7 @@ a malformed id returns `ErrNotFound` so junk path parameters answer 404.
 `ListUsers` clamps to `store.MaxPageSize` (200): report the returned slice
 length as `itemsPerPage`.
 
-### Phase 4: HTTP layer (SCIM endpoints)
+### 📡 Phase 4: HTTP layer (SCIM endpoints)
 
 - [x] `POST /Users`: 201 + Location header on success, 409 on
       duplicate `userName`
@@ -118,7 +143,7 @@ Routing is `net/http`'s method-pattern mux. Responses are
 `application/scim+json`; errors use the SCIM Error schema with `status` as a
 string. `cmd/server` wires the store to the handler.
 
-### Phase 5: Auth
+### 🔑 Phase 5: Auth
 
 - [x] Bearer token middleware, token from env var
 
@@ -131,7 +156,7 @@ Comparison is `subtle.ConstantTimeCompare` over SHA-256 digests. Hashing gives
 both sides a fixed width, so the comparison is constant-time with respect to
 the token's length as well as its content.
 
-### Phase 6: Tests
+### 🧪 Phase 6: Tests
 
 These landed alongside the code they cover, so each phase shipped verified.
 
@@ -150,7 +175,7 @@ These landed alongside the code they cover, so each phase shipped verified.
       runs packages concurrently; CI and the pre-commit hook still pass it as
       a belt-and-suspenders
 
-### Phase 7: Security hardening
+### 🔒 Phase 7: Security hardening
 
 - [x] Validate every incoming SCIM payload against the expected schema
       before it reaches the DB, with proper SCIM error responses (landed
@@ -178,8 +203,7 @@ ARIA reads the `audit_log` table directly. One authoritative copy of
 the audit trail is what gives the transactional guarantee its meaning; a
 JSON-lines export for log shipping can layer on top.
 
-**Addendum: database exposure to request volume, found in a pre-release
-audit.** The per-caller rate limiter above only ever throttles a caller once
+**Addendum: database exposure to request volume.** The per-caller rate limiter above only ever throttles a caller once
 `requireToken` has already looked the token up in Postgres, so a flood of
 well-formed-but-wrong bearer tokens reached the database unthrottled, a gap
 already on record in `THREAT-MODEL.md`'s residual risks. Three changes narrow
@@ -196,7 +220,7 @@ flood):
       ARIA narration can legitimately run close to a minute, so its write
       timeout stays unset
 
-### Phase 8: Identity provider interoperability
+### 🔌 Phase 8: Identity provider interoperability
 
 What an identity provider exercises during setup. Built against a live client
 as well as the spec, which changed the result twice; see the interop notes.
@@ -231,7 +255,7 @@ allows a provider to retain the resource; keeping it readable preserves the
 audit trail's subject and matches how identity providers deprovision in
 practice. Both routes converge on the same state on purpose.
 
-### Phase 9: Change delivery
+### 🔔 Phase 9: Change delivery
 
 How provisioned users reach the application's own data, which is what makes
 this deployable by someone other than its author.
@@ -253,7 +277,7 @@ host. Events name the user's transition, so `DELETE` and `PATCH active:false`
 both emit `user.deactivated`. The full retry and signing detail lives in
 [ARCHITECTURE.md](ARCHITECTURE.md#-change-delivery).
 
-### Phase 10: Multi-tenancy and issued API tokens
+### 👥 Phase 10: Multi-tenancy and issued API tokens
 
 The shape real SCIM service providers ship. It also gives the audit `actor`
 and ARIA's per-caller volume signal something to distinguish.
@@ -283,9 +307,8 @@ verification order) lives in [Architecture](ARCHITECTURE.md#-multi-tenancy).
       structural, so `make test` dropped `-p 1` and runs packages
       concurrently (CI and the pre-commit hook keep it as a safety belt)
 
-**Addendum: enterprise governance gaps found after shipping.** Reviewing
-Phase 10 against what an enterprise operator would actually need surfaced
-three gaps the checklist above didn't ask for:
+**Addendum: enterprise governance.** Phase 10 also closes three gaps an
+enterprise operator would hit that the checklist above doesn't list:
 
 - [x] `tenants.name` had no uniqueness constraint; two customers could
       silently share a display name. Fixed with a case-insensitive unique
@@ -300,7 +323,7 @@ three gaps the checklist above didn't ask for:
       action (identical discipline to `audit_log`), closes that; surfaced
       via `scimage-admin audit list [-tenant <id>]`
 
-### Phase 11: Groups and Extended Attributes
+### 🧩 Phase 11: Groups and Extended Attributes
 
 - [x] `/Groups` resource: create, fetch, list, replace, delete
 - [x] Membership, including `PATCH` on members
@@ -330,7 +353,7 @@ outbox and dispatcher from Phase 9. Group-to-role mapping is a common reason
 enterprises adopt SCIM groups at all, and the dispatcher needed no changes to
 carry them.
 
-### Phase 12: ARIA
+### 🤖 Phase 12: ARIA
 
 This tool reads the audit log and produces a plain-English summary for a human
 reviewer. It surfaces signal, while every authorization and provisioning
@@ -354,7 +377,7 @@ decides.
       call at all
 - [x] README section explaining the advisory-only design
 
-### Phase 13: Release engineering
+### 🔖 Phase 13: Release engineering
 
 - [x] README, `make` targets, and the docs set: `CHANGELOG.md`, `ROADMAP.md`,
       `SECURITY.md`, `CONTRIBUTING.md`, Okta and Entra setup guides, and a
@@ -374,7 +397,7 @@ decides.
 
 `v1.0.0` is tagged, covering phases 1 through 13.
 
-### Phase 14: Operator and integrator tooling
+### 🔧 Phase 14: Operator and integrator tooling
 
 Two independent, additive pieces that make the server approachable without a
 full customer-facing admin portal: an admin console for whoever runs SCIMage,
@@ -385,7 +408,7 @@ operator: a tenant's own IT staff never log in themselves; that would be a
 materially different, larger feature (a WorkOS/Stytch-style self-service
 portal) considered and declined for this project.
 
-#### 14a: Admin console
+#### 🛂 14a: Admin console
 
 - [x] `console_tokens` table (migration `000012`) and
       `internal/store/consoletoken.go`: `IssueConsoleToken`,
@@ -407,8 +430,13 @@ portal) considered and declined for this project.
       register/unregister attribute) reusing the exact `store.*` functions
       `scimage-admin` calls, so the audit-log-in-transaction guarantee is
       inherited, not re-implemented
-- [x] Stateless, signed CSRF token (HMAC over a time bucket, no session, no
-      cookie) on every mutating route
+- [x] Stateless, signed CSRF token (HMAC over a time bucket and the
+      signed-in console key id, no session, no cookie) on every mutating
+      route, plus an origin check (`Sec-Fetch-Site`, or `Origin` against the
+      request's host) that runs before the body is parsed
+- [x] Hardening: a `Host` allowlist (`CONSOLE_ALLOWED_HOSTS`, `421` otherwise)
+      against DNS rebinding, security headers with a CSP on every response,
+      a 64 KiB cap on form bodies, and a 64 KiB header cap on both listeners
 - [x] Visual design locked to the token table below; build `static.go`'s CSS
       and `templates/*.html` from these values, not a re-derived palette
 - [x] Landing page (`/console`) and each tenant's derived SCIM base URL on the
@@ -465,7 +493,7 @@ Linotype", Palatino, Georgia, serif`) for page titles only, system sans for
 UI text, system monospace with `tabular-nums` for every technical value (key
 IDs, hashes, timestamps).
 
-#### 14b: OpenAPI spec and Swagger UI
+#### 📖 14b: OpenAPI spec and Swagger UI
 
 - [x] Hand-written `internal/apidocs/openapi.yaml` covering `/Users`, `/Groups`, and the
       RFC 7644 discovery endpoints, documenting the `Bool` type's

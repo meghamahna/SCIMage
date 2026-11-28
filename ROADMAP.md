@@ -1,4 +1,4 @@
-# Roadmap
+# 🧭 Roadmap
 
 `v1.0.0` is tagged, covering phases 1 through 13 of the
 [implementation plan](docs/IMPLEMENTATION_PLAN.md). Phase 14 (the admin
@@ -7,7 +7,16 @@ ships in the next release; see [CHANGELOG.md](CHANGELOG.md) for what's in each.
 This document tracks what's deliberately left for later. Each item is a
 considered deferral, with a note on why it waited.
 
-## Near-term
+<!-- toc -->
+## 📑 Contents
+
+- [Near-term](#-near-term)
+- [Later](#-later)
+- [Non-goals](#-non-goals)
+
+<!-- /toc -->
+
+## 🎯 Near-term
 
 - **Per-endpoint webhook subscriptions.** Today there is one delivery target from
   the environment, shared by every tenant. The delivery row already carries a
@@ -19,7 +28,7 @@ considered deferral, with a note on why it waited.
 - **JSON-lines audit export** for log shipping, layered on top of the
   authoritative `audit_log` table rather than replacing it.
 
-## Later
+## ⏳ Later
 
 - **A real extension point for storage.** The `UserStore`/`GroupStore` interfaces
   live under `internal/`, so supplying an implementation means forking. Moving the
@@ -34,7 +43,7 @@ considered deferral, with a note on why it waited.
   volume is a concern. It earns a place in the server itself if a real deployment
   needs it.
 
-## Non-goals
+## 🚫 Non-goals
 
 - **Wiring ARIA into any decision.** ARIA is advisory: it reads the audit log and
   narrates signals for a human. Giving the model a path into an authorization or

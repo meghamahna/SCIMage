@@ -1,11 +1,22 @@
-# Security Policy
+# 🔒 Security Policy
 
 SCIMage is a SCIM 2.0 provisioning server. It handles user identity data and the
 credentials that guard it, so security is treated as a first-class property of
 the codebase. This document explains how to report a problem and summarizes the
 guarantees the server is built to keep.
 
-## Reporting a vulnerability
+<!-- toc -->
+## 📑 Contents
+
+- [Reporting a vulnerability](#-reporting-a-vulnerability)
+- [Supported versions](#-supported-versions)
+- [Security model](#-security-model)
+  - [The AI component is advisory only](#-the-ai-component-is-advisory-only)
+- [Operational expectations](#-operational-expectations)
+
+<!-- /toc -->
+
+## 🆘 Reporting a vulnerability
 
 Please report suspected vulnerabilities privately, not in a public issue.
 
@@ -21,16 +32,16 @@ credit the reporter unless you ask otherwise.
 There is no bug bounty at this time, but reports are very welcome and taken
 seriously.
 
-## Supported versions
+## 🔖 Supported versions
 
 The project has not yet cut a `1.0.0` release. Until it does, fixes land on the
 default branch, and that is the supported target for a report.
 
 | Version | Supported |
 | --- | --- |
-| `main` (unreleased) | ✅ |
+| `main` (unreleased) | Yes |
 
-## Security model
+## 🔐 Security model
 
 These properties are enforced in code and covered by tests.
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has the mechanisms in full; the
@@ -41,7 +52,8 @@ risks.
   is `scimage_<keyID>_<secret>`; only `sha256(secret)` is stored. Verification
   looks the row up by key id and compares with `crypto/subtle.ConstantTimeCompare`
   against the stored hash, then confirms the token's tenant matches the tenant in
-  the URL. A misconfigured or too-short token fails closed.
+  the URL. A malformed token is rejected before any lookup, and every other
+  failure answers with the same generic `401`.
 - **Authentication is applied by the router itself.** Every path is wrapped in
   the token check, so the whole surface is covered structurally, and an
   unregistered path is rejected the same way as a real one.
@@ -65,7 +77,7 @@ risks.
   block reading `.env`/key files and block commits whose staged diff looks like a
   secret.
 
-### The AI component is advisory only
+### 🤖 The AI component is advisory only
 
 The only AI in this project is **ARIA** (`cmd/aria`), which reads the audit log
 and narrates already-computed activity signals for a human reviewer. It is
@@ -74,7 +86,7 @@ provisioning decision, and it has no path into the auth middleware or any
 mutating code. A change that would wire model output into a decision is a design
 break. Report it as one.
 
-## Operational expectations
+## 🤝 Operational expectations
 
 SCIMage terminates its trust at the process boundary and assumes the operator
 provides the rest of the deployment envelope:

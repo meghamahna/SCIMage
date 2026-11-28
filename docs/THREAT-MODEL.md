@@ -1,4 +1,4 @@
-# 🛡️ Threat Model
+# 🔒 Threat Model
 
 This document walks SCIMage's trust boundaries, the assets on each side, the
 threats that cross them, and the mitigations already in the code. It also states
@@ -9,6 +9,23 @@ It is a working threat model for a self-hosted server, not a formal
 certification. The mechanisms named here are implemented and covered by tests;
 [ARCHITECTURE.md](ARCHITECTURE.md) has the detail, and [SECURITY.md](../SECURITY.md)
 has the reporting process.
+
+<!-- toc -->
+## 📑 Contents
+
+- [Scope](#-scope)
+- [Assets](#-assets)
+- [Trust boundaries](#-trust-boundaries)
+- [Threats and mitigations](#-threats-and-mitigations)
+  - [B1: Identity provider to server](#-b1-identity-provider-to-server)
+  - [B2: Server to Postgres](#-b2-server-to-postgres)
+  - [B3: Server to webhook receiver](#-b3-server-to-webhook-receiver)
+  - [B4: Operator to admin CLI](#-b4-operator-to-admin-cli)
+  - [B5: ARIA](#-b5-aria)
+  - [B6: Operator to admin console](#-b6-operator-to-admin-console)
+- [Assumptions and residual risks](#-assumptions-and-residual-risks)
+
+<!-- /toc -->
 
 ## 🎯 Scope
 
@@ -54,7 +71,7 @@ receiver. Each is an assumption listed at the end.
 
 ## 🔒 Threats and mitigations
 
-### B1: Identity provider to server
+### 🌐 B1: Identity provider to server
 
 - **Spoofing a caller / stolen or forged token.** Tokens are
   `scimage_<keyID>_<secret>`; only `sha256(secret)` is stored. Verification looks
@@ -70,10 +87,12 @@ receiver. Each is an assumption listed at the end.
   `tenant_id`, including lookups by id. A valid token for one tenant naming
   another tenant's real resource id gets the same `404` as a made-up id, so the
   isolation is structural. Covered by cross-tenant tests.
-- **Reaching an unauthenticated path.** `Routes()` wraps the whole surface in the
-  token check, and unknown paths are rejected uniformly, so there is no
-  before-auth path to probe and responses don't distinguish real resources from
-  invented ones to an unauthenticated caller.
+- **Reaching an unauthenticated path.** `Routes()` wraps the whole SCIM surface
+  in the token check, and unknown paths are rejected uniformly, so the SCIM
+  handler has no before-auth path to probe and its responses don't distinguish
+  real resources from invented ones to an unauthenticated caller. Three paths
+  are mounted outside it on purpose: `/healthz`, `/readyz` and `/docs`. None
+  carries tenant data.
 - **Tampering via malformed payloads.** Every payload is validated against the
   expected schema before it touches the database. A body `id` that contradicts the
   path (which the spec makes read-only) is refused. Request bodies are capped
@@ -95,7 +114,7 @@ receiver. Each is an assumption listed at the end.
   caller (token-bucket), so one tenant's flood spends only its own budget. See the
   residual-risk note on pre-authentication volume.
 
-### B2: Server to Postgres
+### 💾 B2: Server to Postgres
 
 - **Injection.** Queries are parameterized throughout `internal/store`; no SQL is
   built by string concatenation from request data.
@@ -103,7 +122,7 @@ receiver. Each is an assumption listed at the end.
   percent-encoded when assembled from parts so reserved characters can't corrupt
   the connection string. Credentials are never logged.
 
-### B3: Server to webhook receiver
+### 🔔 B3: Server to webhook receiver
 
 - **Forged events at the receiver.** Deliveries are signed with HMAC-SHA256 over
   the timestamp, delivery id, event type and body. Signing the timestamp lets a
@@ -119,7 +138,7 @@ receiver. Each is an assumption listed at the end.
   malformed or oversized response can't stream unbounded data into a column or
   wedge a delivery.
 
-### B4: Operator to admin CLI
+### 🧰 B4: Operator to admin CLI
 
 - **Repudiation of privileged actions.** Creating a tenant, issuing a token and
   revoking one each write an `admin_audit_log` entry in the same transaction as
@@ -128,7 +147,7 @@ receiver. Each is an assumption listed at the end.
   administration is a CLI against the database, not an HTTP endpoint, so it isn't
   reachable from the internet at all.
 
-### B5: ARIA
+### 🤖 B5: ARIA
 
 - **The advisory-only guarantee (tampering with decisions).** ARIA computes its
   signals in deterministic Go and calls an LLM only to narrate already-computed
@@ -141,7 +160,7 @@ receiver. Each is an assumption listed at the end.
   operator decides whether any data leaves their environment at all. The API key
   comes from the environment like every other secret.
 
-### B6: Operator to admin console
+### 🛂 B6: Operator to admin console
 
 - **Exposing a full-mutation admin surface over HTTP.** The console can view and
   mutate tenants, tokens and attributes, so it's a bigger surface than the SCIM
@@ -167,6 +186,13 @@ receiver. Each is an assumption listed at the end.
   its allowlist with `421`, before auth. The allowlist is loopback names, the
   host of `CONSOLE_ADDR` and `CONSOLE_ALLOWED_HOSTS`
   ([Configuration](CONFIGURATION.md#-allowed-hosts-and-request-limits)).
+- **Clickjacking, caching and content sniffing.** Every console response,
+  including `401`s and error pages, carries `X-Frame-Options: DENY` and a
+  `Content-Security-Policy` with `frame-ancestors 'none'`, so another site can't
+  frame a console page and steer an operator's clicks. `Cache-Control: no-store`
+  keeps tenant data and one-time token secrets out of browser and proxy caches
+  (static assets set their own). `X-Content-Type-Options: nosniff` and
+  `Referrer-Policy: same-origin` complete the set.
 - **Oversized requests.** Console form posts are capped at 64 KiB, and both
   listeners cap request headers at 64 KiB, so a single connection can't hold
   1 MiB of header memory.
@@ -180,7 +206,7 @@ receiver. Each is an assumption listed at the end.
   data, so it's not a data-exposure boundary. It sits on the SCIM listener, not
   the console.
 
-## ⚠️ Assumptions and residual risks
+## 🚨 Assumptions and residual risks
 
 These are the edges the design leaves to the deployment. Each is a deliberate
 boundary, noted here so an operator can close it.

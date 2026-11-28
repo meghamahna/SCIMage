@@ -1,16 +1,30 @@
-# Changelog
+# 📜 Changelog
 
 All notable changes to SCIMage are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims to
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it tags a
 release.
 
-## [Unreleased]
+<!-- toc -->
+## 📑 Contents
+
+- [[Unreleased]](#-unreleased)
+  - [Added](#-added)
+  - [Changed](#-changed)
+  - [Fixed](#-fixed)
+  - [Security](#-security)
+- [[1.0.0] - 2026-08-16](#-100---2026-08-16)
+  - [Added](#-added-1)
+  - [Security](#-security-1)
+
+<!-- /toc -->
+
+## 🔖 [Unreleased]
 
 Phase 14 of the [implementation plan](docs/IMPLEMENTATION_PLAN.md): operator
 and integrator tooling, built on top of the `1.0.0` surface below.
 
-### Added
+### 📦 Added
 
 - **Admin console** (`/console`): an opt-in admin web UI that starts on a second
   listener only when `CONSOLE_ADDR` is set (`127.0.0.1:8090` recommended,
@@ -25,8 +39,9 @@ and integrator tooling, built on top of the `1.0.0` surface below.
   It authenticates with a dedicated system-wide credential
   issued by `scimage-admin console-token issue` (with `list`/`revoke`), compared
   in constant time and accepted as an HTTP Basic password or a Bearer header.
-  Every mutating route reuses the same audited `store.*` functions the CLI calls
-  and carries a stateless signed CSRF token.
+  Every mutating route reuses the same audited `store.*` functions the CLI calls,
+  checks that the POST came from a console page, and carries a stateless signed
+  form token tied to the signed-in console key.
 - **Webhook dead-letter replay**: one or several parked deliveries can be
   requeued with a fresh retry budget from `scimage-admin webhook replay <id>` /
   `replay-all` or the console's Webhooks page (per-row or bulk-select). The
@@ -40,14 +55,17 @@ and integrator tooling, built on top of the `1.0.0` surface below.
   is unauthenticated by design, since it describes the public protocol and
   carries no tenant data.
 
-### Changed
+### 🔄 Changed
 
 - **Console ARIA windows**: the ARIA page reviews only the windows its selector
   offers (1h, 24h, 7d and 30d), to keep its cost bounded. Any other `since`
   value falls back to 24h. The `aria` CLI still accepts any `-since`.
 
-### Fixed
+### 🐛 Fixed
 
+- **OpenAPI spec lists the error responses the API returns**: `429` on every
+  operation, `409` on user `PATCH` and group `PUT` and `PATCH`, `externalId`
+  in the `409` description, and a shared `500` response.
 - **ARIA's partial-review notice now gives counts**: ARIA reads the newest 200
   audit entries in a window. When the window holds more, the console's "Partial
   review" notice, the `aria` CLI header and the model's input all say how many
@@ -56,7 +74,7 @@ and integrator tooling, built on top of the `1.0.0` surface below.
   longer flagged as partial. A shorter window, or a single tenant, may fit
   within the 200-entry limit.
 
-### Security
+### 🔒 Security
 
 - **Bounded database exposure to request volume**: `DATABASE_MAX_CONNS` /
   `DATABASE_MAX_CONN_LIFETIME` cap the Postgres pool instead of relying on
@@ -75,17 +93,33 @@ and integrator tooling, built on top of the `1.0.0` surface below.
   static assets too, which stops DNS rebinding. Operators who reach the console
   through a reverse proxy or a LAN name or IP must list that name. A malformed
   entry stops the server at startup.
+- **Console form tokens are per operator, and POSTs are origin-checked**: the
+  form token is an HMAC over a time bucket and the signed-in console key id, so
+  a token rendered for one operator fails for another. A browser POST must also
+  carry `Sec-Fetch-Site: same-origin`, or an `Origin` that matches the request's
+  host. A request with neither header (a non-browser client) is checked by the
+  token alone.
+- **Console security headers**: every console response, including `401`s and
+  error pages, carries `X-Frame-Options: DENY`, a `Content-Security-Policy`
+  with `frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: same-origin` and `Cache-Control: no-store`, so another site
+  can't frame a console page and tenant data stays out of caches.
+- **Redacted request-body logging**: with `SCIM_LOG_REQUESTS=1`, bodies are
+  logged only for authenticated requests. Secret-like attribute values are
+  replaced with `[redacted]`, and each body is cut to 2 KiB. A body that isn't
+  valid JSON, or is over 64 KiB, is logged by size only. The log directory is
+  created with mode `0700` and each log file with `0600`.
 - **Request size limits**: console form posts are capped at 64 KiB (`413`), and
   both listeners cap request headers at 64 KiB instead of Go's 1 MiB default
   (`431`).
 
-## [1.0.0] - 2026-08-16
+## 🔖 [1.0.0] - 2026-08-16
 
 The first tagged release. Captures phases 1 through 13 of the
 [implementation plan](docs/IMPLEMENTATION_PLAN.md), where each phase's
 decisions and trade-offs are recorded as they were made.
 
-### Added
+### 📦 Added
 
 - **SCIM 2.0 `/Users`**: create, fetch, list (paginated with
   `startIndex`/`count`), full replace, `PATCH`, and soft-delete. `DELETE` and
@@ -127,7 +161,7 @@ decisions and trade-offs are recorded as they were made.
 - **Graceful shutdown**: SIGINT/SIGTERM drains the listener, then stops the
   webhook dispatcher.
 
-### Security
+### 🔒 Security
 
 - Bearer tokens compared with `crypto/subtle.ConstantTimeCompare` over SHA-256
   digests; authentication applied by the router itself; a too-short token fails
